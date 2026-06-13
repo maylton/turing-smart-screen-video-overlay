@@ -30,12 +30,14 @@ import platform
 import subprocess
 import sys
 import webbrowser
+import threading
 import requests
 import babel
 
 try:
     import tkinter.ttk as ttk
     from tkinter import *
+    from tkinter import filedialog, messagebox
     from PIL import ImageTk, ImageFont, ImageDraw
     import psutil
     import ruamel.yaml
@@ -252,7 +254,7 @@ class TuringConfigWindow:
     def __init__(self):
         self.window = Tk()
         self.window.title('Turing System Monitor configuration')
-        self.window.geometry("820x590")
+        self.window.geometry("960x590")
         self.window.iconphoto(True, PhotoImage(file=str(
             MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png")))  # When window gets focus again, reload theme preview in case it has been updated by theme editor
         self.window.bind("<FocusIn>", self.on_theme_change)
@@ -385,6 +387,13 @@ class TuringConfigWindow:
         self.save_run_btn = ttk.Button(self.window, text="Save and run", image=self.save_run_emoji, compound="left",
                                        command=lambda: self.on_saverun_click())
         self.save_run_btn.place(x=640, y=520, height=60, width=140)
+
+        self.video_emoji = emoji_to_img(20, "🎬")
+        self.video_btn = ttk.Button(self.window, text="Video\nmanager", image=self.video_emoji,
+                                    compound="left", command=lambda: self.on_video_manager_click())
+        self.video_btn.place(x=790, y=520, height=60, width=150)
+
+        self.video_manager_window = VideoManagerWindow(self)
 
         self.config = None
         self.load_config_values()
@@ -557,6 +566,9 @@ class TuringConfigWindow:
     def on_weatherping_click(self):
         self.more_config_window.show()
 
+    def on_video_manager_click(self):
+        self.video_manager_window.show()
+
     def on_open_theme_folder_click(self):
         path = MAIN_DIRECTORY / "res/themes"
 
@@ -680,6 +692,316 @@ class TuringConfigWindow:
         if prev_value != -1:
             self.cpu_fan_cb.current(prev_value)  # Force select same index to refresh displayed value
         self.window.after(500, self.on_fan_speed_update)
+
+
+
+class VideoManagerWindow:
+    """Small GUI wrapper around video_manager.py.
+
+    The serial operations run in a worker thread so Tkinter stays responsive.
+    """
+
+    SD_VIDEO_DIR = "/mnt/SDCARD/video/"
+    INTERNAL_VIDEO_DIR = "/root/video/"
+
+    def __init__(self, main_window: TuringConfigWindow):
+        self.main_window = main_window
+        self.window = Toplevel()
+        self.window.withdraw()
+        self.window.title("Turing video manager")
+        self.window.geometry("760x610")
+        self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        self.selected_file = StringVar()
+        self.remote_name = StringVar()
+        self.storage = StringVar(value="SD card")
+        self.status = StringVar(value="Ready")
+        self._busy = False
+
+        title = ttk.Label(self.window, text="Native video manager", font="bold")
+        title.place(x=20, y=15)
+
+        info = ttk.Label(
+            self.window,
+            text=(
+                "Upload, list, play and delete videos stored on the display. "
+                "Stop main.py before using this window."
+            ),
+            wraplength=710
+        )
+        info.place(x=20, y=45)
+
+        ttk.Label(self.window, text="Local video").place(x=20, y=90)
+        self.file_entry = ttk.Entry(self.window, textvariable=self.selected_file)
+        self.file_entry.place(x=130, y=85, width=480)
+        self.browse_btn = ttk.Button(self.window, text="Browse…", command=self.browse_file)
+        self.browse_btn.place(x=620, y=83, width=110)
+
+        ttk.Label(self.window, text="Remote name").place(x=20, y=130)
+        self.remote_entry = ttk.Entry(self.window, textvariable=self.remote_name)
+        self.remote_entry.place(x=130, y=125, width=300)
+
+        ttk.Label(self.window, text="Storage").place(x=460, y=130)
+        self.storage_cb = ttk.Combobox(
+            self.window,
+            textvariable=self.storage,
+            values=("SD card", "Internal"),
+            state="readonly"
+        )
+        self.storage_cb.place(x=530, y=125, width=200)
+
+        self.overwrite_var = BooleanVar(value=False)
+        self.play_after_var = BooleanVar(value=False)
+        ttk.Checkbutton(
+            self.window,
+            text="Overwrite existing file",
+            variable=self.overwrite_var
+        ).place(x=130, y=165)
+        ttk.Checkbutton(
+            self.window,
+            text="Play after upload",
+            variable=self.play_after_var
+        ).place(x=350, y=165)
+
+        self.upload_btn = ttk.Button(self.window, text="Upload video", command=self.upload_video)
+        self.upload_btn.place(x=20, y=205, width=150, height=42)
+
+        self.refresh_btn = ttk.Button(self.window, text="Refresh list", command=self.refresh_list)
+        self.refresh_btn.place(x=180, y=205, width=130, height=42)
+
+        self.play_btn = ttk.Button(self.window, text="Play selected", command=self.play_selected)
+        self.play_btn.place(x=320, y=205, width=130, height=42)
+
+        self.stop_btn = ttk.Button(self.window, text="Stop", command=self.stop_video)
+        self.stop_btn.place(x=460, y=205, width=100, height=42)
+
+        self.delete_btn = ttk.Button(self.window, text="Delete selected", command=self.delete_selected)
+        self.delete_btn.place(x=570, y=205, width=160, height=42)
+
+        self.progress = ttk.Progressbar(self.window, mode="indeterminate")
+        self.progress.place(x=20, y=265, width=710)
+
+        ttk.Label(self.window, textvariable=self.status).place(x=20, y=295)
+
+        ttk.Label(self.window, text="Videos on display").place(x=20, y=330)
+        self.video_list = Listbox(self.window, exportselection=False)
+        self.video_list.place(x=20, y=355, width=710, height=160)
+        self.video_list.bind("<<ListboxSelect>>", self.on_video_selected)
+
+        ttk.Label(self.window, text="Log").place(x=20, y=525)
+        self.log = Text(self.window, height=3, wrap="word", state="disabled")
+        self.log.place(x=20, y=548, width=710, height=45)
+
+    def show(self):
+        self.window.deiconify()
+        self.window.lift()
+        self.refresh_list()
+
+    def on_closing(self):
+        if self._busy:
+            messagebox.showwarning(
+                "Operation in progress",
+                "Wait for the current display operation to finish."
+            )
+            return
+        self.window.withdraw()
+
+    def storage_directory(self) -> str:
+        return (
+            self.INTERNAL_VIDEO_DIR
+            if self.storage.get() == "Internal"
+            else self.SD_VIDEO_DIR
+        )
+
+    def selected_remote_path(self) -> str:
+        selection = self.video_list.curselection()
+        if not selection:
+            raise ValueError("Select a video from the list.")
+        return self.storage_directory() + self.video_list.get(selection[0])
+
+    def append_log(self, message: str):
+        self.log.configure(state="normal")
+        self.log.insert(END, message.rstrip() + "\n")
+        self.log.see(END)
+        self.log.configure(state="disabled")
+
+    def set_busy(self, busy: bool, status: str = ""):
+        self._busy = busy
+        state = "disabled" if busy else "normal"
+
+        for widget in (
+            self.browse_btn, self.upload_btn, self.refresh_btn,
+            self.play_btn, self.stop_btn, self.delete_btn
+        ):
+            widget.configure(state=state)
+
+        self.storage_cb.configure(state="disabled" if busy else "readonly")
+        if busy:
+            self.progress.start(12)
+        else:
+            self.progress.stop()
+
+        if status:
+            self.status.set(status)
+
+    def run_worker(self, label: str, operation, on_success=None):
+        if self._busy:
+            return
+
+        self.set_busy(True, label)
+        self.append_log(label)
+
+        def worker():
+            manager = None
+            try:
+                # Local import keeps configure.py usable in builds that do not
+                # include the experimental video manager.
+                from video_manager import VideoManager
+
+                com_port = self.main_window.config["config"].get("COM_PORT", "AUTO")
+                manager = VideoManager(com_port=com_port)
+                result = operation(manager)
+
+                def success():
+                    self.set_busy(False, "Completed")
+                    self.append_log("Completed successfully.")
+                    if on_success:
+                        on_success(result)
+
+                self.window.after(0, success)
+            except Exception as exc:
+                def failure(error=str(exc)):
+                    self.set_busy(False, "Failed")
+                    self.append_log("Error: " + error)
+                    messagebox.showerror("Video manager", error)
+
+                self.window.after(0, failure)
+            finally:
+                if manager is not None:
+                    try:
+                        manager.close()
+                    except Exception:
+                        pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def browse_file(self):
+        filename = filedialog.askopenfilename(
+            parent=self.window,
+            title="Select a video",
+            filetypes=(
+                ("Video files", "*.mp4 *.mov *.mkv *.avi *.webm *.h264"),
+                ("MP4 video", "*.mp4"),
+                ("All files", "*.*"),
+            ),
+        )
+        if not filename:
+            return
+
+        self.selected_file.set(filename)
+        self.remote_name.set(Path(filename).name)
+
+    def upload_video(self):
+        local_text = self.selected_file.get().strip()
+        remote_name = self.remote_name.get().strip()
+
+        if not local_text:
+            messagebox.showwarning("Video manager", "Select a local video first.")
+            return
+        if not remote_name:
+            messagebox.showwarning("Video manager", "Enter a remote filename.")
+            return
+        if "/" in remote_name or "\\" in remote_name:
+            messagebox.showwarning(
+                "Video manager",
+                "Remote name must be a filename only, without folders."
+            )
+            return
+
+        local_path = Path(local_text).expanduser()
+        remote_path = self.storage_directory() + remote_name
+        overwrite = self.overwrite_var.get()
+        play_after = self.play_after_var.get()
+
+        def operation(manager):
+            manager.upload(
+                local_path=local_path,
+                remote_path=remote_path,
+                overwrite=overwrite,
+            )
+            if play_after:
+                manager.play(remote_path)
+            return remote_path
+
+        def uploaded(remote):
+            self.status.set(f"Uploaded: {remote}")
+            self.refresh_list()
+
+        self.run_worker("Uploading video…", operation, uploaded)
+
+    def refresh_list(self):
+        internal = self.storage.get() == "Internal"
+
+        def operation(manager):
+            return manager.list_videos(internal=internal)
+
+        def loaded(result):
+            directories, files = result
+            self.video_list.delete(0, END)
+            for filename in files:
+                self.video_list.insert(END, filename)
+            self.status.set(f"{len(files)} video(s) found")
+
+        self.run_worker("Reading video list…", operation, loaded)
+
+    def on_video_selected(self, event=None):
+        selection = self.video_list.curselection()
+        if selection:
+            self.remote_name.set(self.video_list.get(selection[0]))
+
+    def play_selected(self):
+        try:
+            remote_path = self.selected_remote_path()
+        except ValueError as exc:
+            messagebox.showwarning("Video manager", str(exc))
+            return
+
+        self.run_worker(
+            "Starting video…",
+            lambda manager: manager.play(remote_path),
+            lambda _result: self.status.set(f"Playing: {remote_path}")
+        )
+
+    def stop_video(self):
+        self.run_worker(
+            "Stopping video…",
+            lambda manager: manager.stop(),
+            lambda _result: self.status.set("Video stopped")
+        )
+
+    def delete_selected(self):
+        try:
+            remote_path = self.selected_remote_path()
+        except ValueError as exc:
+            messagebox.showwarning("Video manager", str(exc))
+            return
+
+        if not messagebox.askyesno(
+            "Delete video",
+            f"Delete this file from the display?\n\n{remote_path}"
+        ):
+            return
+
+        def deleted(_result):
+            self.status.set(f"Deleted: {remote_path}")
+            self.refresh_list()
+
+        self.run_worker(
+            "Deleting video…",
+            lambda manager: manager.delete(remote_path),
+            deleted
+        )
+
 
 
 class MoreConfigWindow:
