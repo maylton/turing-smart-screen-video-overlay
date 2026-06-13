@@ -8,19 +8,13 @@ display:
 video:
   ENABLED: true
   MODE: native
-  PATH: /mnt/SDCARD/video/24.mp4
+  PATH: /mnt/SDCARD/video/gengar.mp4
   OVERLAY: true
 
 static_images:
   # Transparent overlay extracted from the Windows .turtheme.
   # Contains the TIME title and the bottom decorative arc.
-  UI_OVERLAY:
-    PATH: ui_overlay.png
-    X: 0
-    Y: 0
-    WIDTH: 480
-    HEIGHT: 480
-
+{}
 static_text:
   CPUTEMP_LABEL:
     TEXT: "TEMP. CPU"

@@ -9,7 +9,7 @@ config:
   # Theme to use (located in res/themes)
   # Use the name of the folder as value
   # Choose a theme made for your screen size (see DISPLAY_SIZE inside theme.yaml)
-  THEME: '24'
+  THEME: gengar
 
   # Hardware sensors reading
   # Choose the appropriate method for reading your hardware sensors:
@@ -23,8 +23,8 @@ config:
   # Linux/MacOS interfaces are named "eth0", "wlan0", "wlp1s0", "enp2s0"...
   # For Windows use the interfaces pretty name: "Ethernet 2", "Wi-Fi", ...
   # Leave the fields empty if the card does not exist on your setup
-  ETH: '' # Ethernet Card
-  WLO: '' # Wi-Fi Card
+  ETH: enp14s0 # Ethernet Card
+  WLO: wlan0 # Wi-Fi Card
 
   # CPU fan
   # For Linux/MacOS platforms, the CPU fan is amongst all fan sensors gathered from the motherboard chipset

@@ -1,3 +1,4 @@
+---
 author: "@mathoudebine"
 
 display:
@@ -8,7 +9,7 @@ display:
 video:
   ENABLED: true
   MODE: native
-  PATH: /mnt/SDCARD/video/24.mp4
+  PATH: /mnt/SDCARD/video/gengar.mp4
   OVERLAY: true
 
 static_images:
@@ -40,8 +41,8 @@ STATS:
     PERCENTAGE:
       INTERVAL: 5
       TEXT:
-        SHOW: false
-        SHOW_UNIT: true
+        SHOW: False
+        SHOW_UNIT: True
         X: 270
         Y: 265
         FONT: jetbrains-mono/JetBrainsMono-Light.ttf
@@ -49,7 +50,7 @@ STATS:
         FONT_COLOR: 255, 255, 255
         BACKGROUND_IMAGE: background.png
       GRAPH:
-        SHOW: true
+        SHOW: True
         X: 143
         Y: 295
         WIDTH: 192
@@ -57,7 +58,7 @@ STATS:
         MIN_VALUE: 0
         MAX_VALUE: 100
         BAR_COLOR: 236, 214, 180
-        BAR_OUTLINE: false
+        BAR_OUTLINE: False
         BACKGROUND_COLOR: 255, 255, 255
 
     TEMPERATURE:
@@ -80,7 +81,7 @@ STATS:
     HOUR: # Format (12/24h, timezone translations) will match your computer locale
       TEXT:
         FORMAT: short # short (6:48 PM) / medium (6:48:53 PM) / long (6:48:53 PM UTC) / full (6:48:53 PM Coordinated Universal Time)
-        SHOW: true
+        SHOW: True
         X: 26
         Y: 141
         WIDTH: 428

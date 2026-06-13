@@ -26,7 +26,6 @@ import shutil
 import subprocess
 import sys
 import time
-import tempfile
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
@@ -52,9 +51,6 @@ THEME_DIR = MAIN_DIRECTORY / "res" / "themes" / THEME_NAME
 THEME_FILE = THEME_DIR / "theme.yaml"
 BACKUP_FILE = THEME_DIR / "theme.yaml.editor-backup"
 PREVIEW_FILE = THEME_DIR / "preview.png"
-EDITOR_TEMPLATE_DIR = MAIN_DIRECTORY / "res" / "editor-templates"
-DEFAULT_TEMPLATE_FILE = EDITOR_TEMPLATE_DIR / "default.yaml"
-EXAMPLE_TEMPLATE_FILE = EDITOR_TEMPLATE_DIR / "theme_example.yaml"
 
 if not THEME_FILE.is_file():
     raise SystemExit(f"Theme file not found: {THEME_FILE}")
@@ -67,38 +63,47 @@ config.CONFIG_DATA["display"]["REVISION"] = "SIMU"
 from library.display import display
 
 EDITABLE_KEYS = (
-    "X", "Y", "WIDTH", "HEIGHT", "RADIUS",
-    "FONT", "FONT_SIZE", "FONT_COLOR",
-    "BACKGROUND_COLOR", "BACKGROUND_IMAGE",
-    "BAR_COLOR", "BAR_BACKGROUND_COLOR", "LINE_COLOR",
-    "MIN_VALUE", "MAX_VALUE", "HISTORY_SIZE", "LINE_WIDTH",
-    "ALIGN", "ANCHOR", "TEXT", "FORMAT",
-    "SHOW", "SHOW_UNIT", "INTERVAL", "PATH"
+    "X", "Y", "WIDTH", "HEIGHT",
+    "FONT_SIZE", "FONT_COLOR", "BACKGROUND_COLOR",
+    "ALIGN", "ANCHOR", "TEXT", "SHOW", "INTERVAL", "PATH"
 )
 
-NUMERIC_KEYS = {"X", "Y", "WIDTH", "HEIGHT", "RADIUS", "FONT_SIZE", "INTERVAL", "MIN_VALUE", "MAX_VALUE", "HISTORY_SIZE", "LINE_WIDTH"}
-BOOLEAN_KEYS = {"SHOW", "SHOW_UNIT"}
+NUMERIC_KEYS = {"X", "Y", "WIDTH", "HEIGHT", "FONT_SIZE", "INTERVAL"}
+BOOLEAN_KEYS = {"SHOW"}
 
 
 COMPONENT_PRESETS = {
-    "Custom text": ("custom", "text"),
-    "Static image": ("custom", "image"),
-    "CPU usage": ("sensor", "CPU.PERCENTAGE"),
-    "CPU temperature": ("sensor", "CPU.TEMPERATURE"),
-    "RAM usage": ("sensor", "MEMORY"),
-    "GPU usage": ("sensor", "GPU.PERCENTAGE"),
-    "GPU temperature": ("sensor", "GPU.TEMPERATURE"),
-    "GPU memory usage": ("sensor", "GPU.MEMORY_PERCENT"),
-    "Internet download": ("sensor", "NET.WLO.DOWNLOAD"),
-    "Internet upload": ("sensor", "NET.WLO.UPLOAD"),
-    "Weather": ("sensor", "WEATHER"),
-    "Disk usage": ("sensor", "DISK"),
-    "Ping": ("sensor", "PING"),
-    "System uptime": ("sensor", "UPTIME"),
-    "Date": ("sensor", "DATE.DAY"),
-    "Time": ("sensor", "DATE.HOUR"),
+    "Custom text": ("static_text",),
+    "Static image": ("static_images",),
+    "CPU usage": (("STATS", "CPU", "PERCENTAGE"),),
+    "CPU temperature": (("STATS", "CPU", "TEMPERATURE"),),
+    "CPU frequency": (("STATS", "CPU", "FREQUENCY"),),
+    "CPU load": (("STATS", "CPU", "LOAD"),),
+    "CPU fan speed": (("STATS", "CPU", "FAN_SPEED"),),
+    "RAM usage": (("STATS", "MEMORY"),),
+    "GPU usage": (
+        ("STATS", "GPU", "PERCENTAGE"),
+        ("STATS", "GPU"),
+    ),
+    "GPU temperature": (
+        ("STATS", "GPU", "TEMPERATURE"),
+        ("STATS", "GPU"),
+    ),
+    "Date": (
+        ("STATS", "DATE", "DATE"),
+        ("STATS", "DATE"),
+    ),
+    "Time": (
+        ("STATS", "DATE", "HOUR"),
+        ("STATS", "DATE"),
+    ),
+    "Disk usage": (("STATS", "DISK"),),
+    "Network": (("STATS", "NET"),),
+    "Weather": (("STATS", "WEATHER"),),
+    "Ping": (("STATS", "PING"),),
+    "System uptime": (("STATS", "UPTIME"),),
+    "Custom sensor": (("STATS", "CUSTOM"),),
 }
-
 
 yaml = ruamel.yaml.YAML()
 yaml.preserve_quotes = True
@@ -110,44 +115,13 @@ def load_yaml(path: Path):
 
 
 def save_yaml(path: Path, data):
-    """Write YAML atomically and validate it before replacing the real file."""
-    temporary = path.with_suffix(path.suffix + ".tmp")
-
-    try:
-        with temporary.open("w", encoding="utf-8") as stream:
-            yaml.dump(data, stream)
-
-        # Validate the generated YAML before touching the working theme.
-        with temporary.open("r", encoding="utf-8") as stream:
-            yaml.load(stream)
-
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink(missing_ok=True)
+    with path.open("w", encoding="utf-8") as stream:
+        yaml.dump(data, stream)
 
 
 def refresh_simulated_theme():
     config.load_theme()
     display.initialize_display()
-
-    # Editor-only preview base for video themes. This does not add a full-screen
-    # static image to the real theme, so it will not cover the native video.
-    video_config = config.THEME_DATA.get("video", {})
-    preview_background = video_config.get("PREVIEW_BACKGROUND", "background.png")
-    preview_background_path = Path(config.THEME_DATA["PATH"]) / preview_background
-
-    if preview_background_path.is_file():
-        try:
-            background = Image.open(preview_background_path).convert("RGB")
-            background = background.resize(
-                (display.lcd.get_width(), display.lcd.get_height()),
-                Image.Resampling.LANCZOS,
-            )
-            display.lcd.screen_image = background
-        except Exception as exc:
-            logger.warning("Could not load preview background: %s", exc)
-
     display.display_static_images()
     display.display_static_text()
 
@@ -177,12 +151,8 @@ def refresh_simulated_theme():
                 node = node[part]
             if isinstance(node, dict) and node.get("INTERVAL", 0) > 0:
                 callback()
-        except Exception as exc:
-            logger.exception(
-                "Preview render failed for %s: %s",
-                " / ".join(path),
-                exc,
-            )
+        except Exception:
+            pass
 
     display.lcd.screen_image.save(PREVIEW_FILE, "PNG")
     return display.lcd.screen_image.copy()
@@ -214,9 +184,6 @@ class ThemeEditorApp:
         self.drag_origin = None
         self.drag_element_origin = None
         self.field_vars = {}
-        self.background_preview_tk = None
-        self.background_preview_label = None
-        self.background_info_var = tk.StringVar(value="No background image selected")
         self._refresh_job = None
         self._building_fields = False
 
@@ -236,7 +203,6 @@ class ThemeEditorApp:
         ttk.Button(toolbar, text="Save as copy", command=self.save_as_copy).pack(side="left", padx=3)
         ttk.Button(toolbar, text="Apply to display", command=self.apply_to_display).pack(side="left", padx=12)
         ttk.Button(toolbar, text="Open YAML", command=self.open_yaml).pack(side="left", padx=3)
-        ttk.Button(toolbar, text="Video background", command=self.open_video_background_dialog).pack(side="left", padx=3)
         ttk.Button(toolbar, text="Refresh preview", command=self.refresh_preview).pack(side="left", padx=3)
 
         self.status_var = tk.StringVar(value="Ready")
@@ -301,48 +267,6 @@ class ThemeEditorApp:
 
         self.fields_frame = ttk.Frame(self.properties_container)
         self.fields_frame.pack(fill="x")
-
-        background_box = ttk.LabelFrame(
-            self.properties_container,
-            text="Background image used by selected element",
-            padding=8,
-        )
-        background_box.pack(fill="x", pady=(12, 0))
-
-        self.background_preview_label = ttk.Label(
-            background_box,
-            text="Select an element that uses BACKGROUND_IMAGE",
-            anchor="center",
-        )
-        self.background_preview_label.pack(fill="x")
-
-        ttk.Label(
-            background_box,
-            textvariable=self.background_info_var,
-            wraplength=300,
-            justify="left",
-        ).pack(fill="x", pady=(8, 4))
-
-        background_buttons = ttk.Frame(background_box)
-        background_buttons.pack(fill="x")
-
-        ttk.Button(
-            background_buttons,
-            text="Open image",
-            command=self.open_selected_background_image,
-        ).pack(side="left")
-
-        ttk.Button(
-            background_buttons,
-            text="Choose image…",
-            command=self.choose_background_image_for_selected,
-        ).pack(side="left", padx=5)
-
-        ttk.Button(
-            background_buttons,
-            text="Clear",
-            command=self.clear_background_image_for_selected,
-        ).pack(side="left")
 
         action_frame = ttk.Frame(right)
         action_frame.pack(fill="x", pady=8)
@@ -415,7 +339,6 @@ class ThemeEditorApp:
             return
         self.selected_path = path
         self.build_property_fields()
-        self.refresh_selected_background_preview()
 
     def build_property_fields(self):
         for child in self.fields_frame.winfo_children():
@@ -480,206 +403,6 @@ class ThemeEditorApp:
             self.undo_stack.pop(0)
         self.redo_stack.clear()
 
-
-    def selected_background_filename(self):
-        if self.selected_path is None:
-            return None
-
-        try:
-            node = self.node_at_path(self.selected_path)
-        except Exception:
-            return None
-
-        if not isinstance(node, dict):
-            return None
-
-        filename = node.get("BACKGROUND_IMAGE")
-        if not filename:
-            return None
-
-        return str(filename)
-
-    def resolve_theme_asset(self, filename):
-        if not filename:
-            return None
-
-        path = Path(filename)
-        if not path.is_absolute():
-            path = THEME_DIR / path
-
-        return path
-
-    def refresh_selected_background_preview(self):
-        if self.background_preview_label is None:
-            return
-
-        filename = self.selected_background_filename()
-        if not filename:
-            self.background_preview_tk = None
-            self.background_preview_label.configure(
-                image="",
-                text="This element does not use BACKGROUND_IMAGE",
-            )
-            self.background_info_var.set("BACKGROUND_IMAGE is not configured.")
-            return
-
-        path = self.resolve_theme_asset(filename)
-        if path is None or not path.is_file():
-            self.background_preview_tk = None
-            self.background_preview_label.configure(
-                image="",
-                text="Background image not found",
-            )
-            self.background_info_var.set(
-                f"Configured value: {filename}\n"
-                f"Expected path: {path}"
-            )
-            return
-
-        try:
-            image = Image.open(path).convert("RGB")
-            full_size = image.size
-
-            # Show the exact region used by the selected element whenever
-            # geometry is available. This mirrors how the renderer uses one
-            # shared full-screen background image for all elements.
-            node = self.node_at_path(self.selected_path)
-            region_description = "Full background image"
-
-            if all(key in node for key in ("X", "Y", "WIDTH", "HEIGHT")):
-                x = max(0, int(node["X"]))
-                y = max(0, int(node["Y"]))
-                width = max(1, int(node["WIDTH"]))
-                height = max(1, int(node["HEIGHT"]))
-
-                right = min(image.width, x + width)
-                bottom = min(image.height, y + height)
-
-                if right > x and bottom > y:
-                    image = image.crop((x, y, right, bottom))
-                    region_description = (
-                        f"Region used: X={x}, Y={y}, "
-                        f"W={right - x}, H={bottom - y}"
-                    )
-
-            preview = image.copy()
-            preview.thumbnail((300, 170), Image.Resampling.LANCZOS)
-            self.background_preview_tk = ImageTk.PhotoImage(preview)
-            self.background_preview_label.configure(
-                image=self.background_preview_tk,
-                text="",
-            )
-            self.background_info_var.set(
-                f"BACKGROUND_IMAGE: {filename}\n"
-                f"Source size: {full_size[0]}×{full_size[1]}\n"
-                f"{region_description}"
-            )
-        except Exception as exc:
-            self.background_preview_tk = None
-            self.background_preview_label.configure(
-                image="",
-                text="Could not preview background image",
-            )
-            self.background_info_var.set(
-                f"BACKGROUND_IMAGE: {filename}\nError: {exc}"
-            )
-
-    def open_selected_background_image(self):
-        filename = self.selected_background_filename()
-        if not filename:
-            messagebox.showinfo(
-                "Background image",
-                "The selected element does not use BACKGROUND_IMAGE."
-            )
-            return
-
-        path = self.resolve_theme_asset(filename)
-        if path is None or not path.is_file():
-            messagebox.showerror(
-                "Background image",
-                f"File not found:\n{path}"
-            )
-            return
-
-        if sys.platform == "win32":
-            os.startfile(path)
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(path)])
-        else:
-            subprocess.Popen(["xdg-open", str(path)])
-
-    def choose_background_image_for_selected(self):
-        if self.selected_path is None:
-            messagebox.showwarning(
-                "Background image",
-                "Select a text or sensor element first."
-            )
-            return
-
-        node = self.node_at_path(self.selected_path)
-        if not isinstance(node, dict):
-            return
-
-        filename = filedialog.askopenfilename(
-            parent=self.root,
-            title="Choose a background image",
-            initialdir=str(THEME_DIR),
-            filetypes=(
-                ("Image files", "*.png *.jpg *.jpeg *.webp *.bmp"),
-                ("All files", "*.*"),
-            ),
-        )
-        if not filename:
-            return
-
-        source = Path(filename).resolve()
-        destination = THEME_DIR / source.name
-
-        try:
-            if source != destination.resolve():
-                if destination.exists():
-                    replace = messagebox.askyesno(
-                        "Background image",
-                        f"{destination.name} already exists in the theme.\n"
-                        "Replace it?"
-                    )
-                    if not replace:
-                        return
-                shutil.copy2(source, destination)
-        except Exception as exc:
-            messagebox.showerror("Background image", str(exc))
-            return
-
-        self.push_undo()
-        node["BACKGROUND_IMAGE"] = destination.name
-        node.pop("BACKGROUND_COLOR", None)
-
-        self.build_property_fields()
-        self.write_and_refresh("Background image changed")
-        self.refresh_selected_background_preview()
-
-    def clear_background_image_for_selected(self):
-        if self.selected_path is None:
-            return
-
-        node = self.node_at_path(self.selected_path)
-        if not isinstance(node, dict) or "BACKGROUND_IMAGE" not in node:
-            self.status_var.set("No background image to clear")
-            return
-
-        if not messagebox.askyesno(
-            "Clear background image",
-            "Remove BACKGROUND_IMAGE from the selected element?"
-        ):
-            return
-
-        self.push_undo()
-        node.pop("BACKGROUND_IMAGE", None)
-
-        self.build_property_fields()
-        self.write_and_refresh("Background image removed")
-        self.refresh_selected_background_preview()
-
     def apply_fields(self):
         if self.selected_path is None:
             return
@@ -708,7 +431,6 @@ class ThemeEditorApp:
             node[key] = value
 
         self.write_and_refresh("Properties updated")
-        self.refresh_selected_background_preview()
 
 
     def path_exists(self, path):
@@ -790,239 +512,6 @@ class ThemeEditorApp:
                 self.build_property_fields()
                 return
 
-
-    def shared_background_name(self):
-        return self.theme_data.get("video", {}).get(
-            "PREVIEW_BACKGROUND",
-            "background.png",
-        )
-
-    @staticmethod
-    def deep_merge_missing(target, source):
-        """Recursively add missing keys without replacing existing theme values."""
-        if not isinstance(target, dict) or not isinstance(source, dict):
-            return target
-
-        for key, value in source.items():
-            if key not in target:
-                target[key] = copy.deepcopy(value)
-            elif isinstance(target[key], dict) and isinstance(value, dict):
-                ThemeEditorApp.deep_merge_missing(target[key], value)
-        return target
-
-    @staticmethod
-    def normalize_color_values(node):
-        """Convert comma-separated colors from theme_example.yaml to integer lists."""
-        color_keys = {
-            "FONT_COLOR", "BACKGROUND_COLOR", "BAR_COLOR",
-            "BAR_BACKGROUND_COLOR", "LINE_COLOR", "AXIS_COLOR",
-        }
-
-        if isinstance(node, dict):
-            for key, value in list(node.items()):
-                if key in color_keys and isinstance(value, str):
-                    try:
-                        node[key] = [
-                            int(part.strip())
-                            for part in value.split(",")
-                        ]
-                    except Exception:
-                        pass
-                elif isinstance(value, (dict, list)):
-                    ThemeEditorApp.normalize_color_values(value)
-        elif isinstance(node, list):
-            for value in node:
-                if isinstance(value, (dict, list)):
-                    ThemeEditorApp.normalize_color_values(value)
-
-    def normalize_component_template(self, node):
-        """Prepare official template blocks for this video-overlay editor."""
-        self.normalize_color_values(node)
-        background = self.shared_background_name()
-
-        def visit(value):
-            if isinstance(value, dict):
-                # Disable everything first. The requested component is enabled later.
-                if "SHOW" in value:
-                    value["SHOW"] = False
-
-                # BACKGROUND_COLOR conflicts with BACKGROUND_IMAGE in this fork.
-                if value.get("BACKGROUND_IMAGE"):
-                    value["BACKGROUND_IMAGE"] = background
-                    value.pop("BACKGROUND_COLOR", None)
-
-                for child in value.values():
-                    if isinstance(child, (dict, list)):
-                        visit(child)
-
-            elif isinstance(value, list):
-                for child in value:
-                    if isinstance(child, (dict, list)):
-                        visit(child)
-
-        visit(node)
-        return node
-
-    def load_official_templates(self):
-        if not DEFAULT_TEMPLATE_FILE.is_file():
-            raise FileNotFoundError(
-                f"Missing editor template: {DEFAULT_TEMPLATE_FILE}"
-            )
-        if not EXAMPLE_TEMPLATE_FILE.is_file():
-            raise FileNotFoundError(
-                f"Missing editor template: {EXAMPLE_TEMPLATE_FILE}"
-            )
-
-        default_data = load_yaml(DEFAULT_TEMPLATE_FILE)
-        example_data = load_yaml(EXAMPLE_TEMPLATE_FILE)
-        return default_data, example_data
-
-    def ensure_official_sensor_tree(self, top_key):
-        """Create a complete sensor branch using the official project templates."""
-        default_data, example_data = self.load_official_templates()
-
-        default_stats = default_data.get("STATS", {})
-        example_stats = example_data.get("STATS", {})
-
-        if top_key not in default_stats and top_key not in example_stats:
-            raise KeyError(f"Unknown sensor template: {top_key}")
-
-        source = copy.deepcopy(example_stats.get(top_key, {}))
-        source = self.normalize_component_template(source)
-
-        # Add mandatory keys that may not be present in theme_example.yaml,
-        # such as deprecated compatibility blocks still accessed by stats.py.
-        self.deep_merge_missing(
-            source,
-            copy.deepcopy(default_stats.get(top_key, {})),
-        )
-
-        stats = self.theme_data.setdefault("STATS", {})
-        if top_key not in stats:
-            stats[top_key] = source
-        else:
-            self.deep_merge_missing(stats[top_key], source)
-
-        self.normalize_component_template(stats[top_key])
-        return stats[top_key]
-
-    @staticmethod
-    def set_show(node, value=True):
-        if isinstance(node, dict):
-            node["SHOW"] = bool(value)
-
-    def ensure_interval(self, node, fallback):
-        if isinstance(node, dict):
-            current = int(node.get("INTERVAL", 0) or 0)
-            node["INTERVAL"] = max(current, fallback)
-
-    def enable_template_component(self, component_id):
-        self.push_undo()
-        selected_path = None
-
-        try:
-            if component_id == "CPU.PERCENTAGE":
-                cpu = self.ensure_official_sensor_tree("CPU")
-                group = cpu["PERCENTAGE"]
-                self.ensure_interval(group, 1)
-                self.set_show(group["TEXT"])
-                self.set_show(group["GRAPH"])
-                selected_path = ("STATS", "CPU", "PERCENTAGE", "TEXT")
-
-            elif component_id == "CPU.TEMPERATURE":
-                cpu = self.ensure_official_sensor_tree("CPU")
-                group = cpu["TEMPERATURE"]
-                self.ensure_interval(group, 1)
-                self.set_show(group["TEXT"])
-                self.set_show(group["GRAPH"])
-                selected_path = ("STATS", "CPU", "TEMPERATURE", "TEXT")
-
-            elif component_id == "MEMORY":
-                memory = self.ensure_official_sensor_tree("MEMORY")
-                self.ensure_interval(memory, 5)
-                self.set_show(memory["VIRTUAL"]["PERCENT_TEXT"])
-                self.set_show(memory["VIRTUAL"]["GRAPH"])
-                selected_path = ("STATS", "MEMORY", "VIRTUAL", "PERCENT_TEXT")
-
-            elif component_id.startswith("GPU."):
-                gpu = self.ensure_official_sensor_tree("GPU")
-                self.ensure_interval(gpu, 1)
-                key = component_id.split(".", 1)[1]
-                self.set_show(gpu[key]["TEXT"])
-                if "GRAPH" in gpu[key]:
-                    self.set_show(gpu[key]["GRAPH"])
-                selected_path = ("STATS", "GPU", key, "TEXT")
-
-            elif component_id.startswith("NET."):
-                net = self.ensure_official_sensor_tree("NET")
-                self.ensure_interval(net, 5)
-                _, interface, direction = component_id.split(".")
-                self.set_show(net[interface][direction]["TEXT"])
-                selected_path = (
-                    "STATS", "NET", interface, direction, "TEXT"
-                )
-
-            elif component_id == "WEATHER":
-                weather = self.ensure_official_sensor_tree("WEATHER")
-                self.ensure_interval(weather, 300)
-                self.set_show(weather["TEMPERATURE"]["TEXT"])
-                self.set_show(weather["WEATHER_DESCRIPTION"]["TEXT"])
-                selected_path = (
-                    "STATS", "WEATHER", "TEMPERATURE", "TEXT"
-                )
-
-            elif component_id == "DISK":
-                disk = self.ensure_official_sensor_tree("DISK")
-                self.ensure_interval(disk, 10)
-                self.set_show(disk["USED"]["PERCENT_TEXT"])
-                self.set_show(disk["USED"]["GRAPH"])
-                selected_path = (
-                    "STATS", "DISK", "USED", "PERCENT_TEXT"
-                )
-
-            elif component_id == "PING":
-                ping = self.ensure_official_sensor_tree("PING")
-                self.ensure_interval(ping, 10)
-                self.set_show(ping["TEXT"])
-                selected_path = ("STATS", "PING", "TEXT")
-
-            elif component_id == "UPTIME":
-                uptime = self.ensure_official_sensor_tree("UPTIME")
-                self.ensure_interval(uptime, 1)
-                self.set_show(uptime["FORMATTED"]["TEXT"])
-                selected_path = (
-                    "STATS", "UPTIME", "FORMATTED", "TEXT"
-                )
-
-            elif component_id in ("DATE.DAY", "DATE.HOUR"):
-                date = self.ensure_official_sensor_tree("DATE")
-                self.ensure_interval(date, 1)
-                key = component_id.split(".", 1)[1]
-                self.set_show(date[key]["TEXT"])
-                selected_path = ("STATS", "DATE", key, "TEXT")
-
-            else:
-                raise KeyError(component_id)
-
-        except Exception as exc:
-            if self.undo_stack:
-                self.undo_stack.pop()
-            messagebox.showerror(
-                "Add component",
-                f"Could not create component:\n{exc}",
-            )
-            logger.exception("Could not create component %s", component_id)
-            return
-
-        self.populate_tree()
-        if selected_path:
-            self.select_path(selected_path)
-            self.refresh_selected_background_preview()
-
-        self.write_and_refresh(
-            f"Created component from official template: {component_id}"
-        )
-
     def add_component(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Add component")
@@ -1046,17 +535,35 @@ class ThemeEditorApp:
             label = listbox.get(selection[0])
             dialog.destroy()
 
-            kind, component_id = COMPONENT_PRESETS[label]
-
-            if kind == "custom" and component_id == "text":
+            if label == "Custom text":
                 self.add_custom_text()
                 return
-
-            if kind == "custom" and component_id == "image":
+            if label == "Static image":
                 self.add_static_image()
                 return
 
-            self.enable_template_component(component_id)
+            candidates = COMPONENT_PRESETS[label]
+            path = self.first_existing_path(candidates)
+            if path is None:
+                messagebox.showwarning(
+                    "Add component",
+                    f"The current theme does not contain a compatible block for “{label}”.\n\n"
+                    "This first editor version can enable existing sensor blocks, but it does not "
+                    "invent a complete sensor schema when the theme has none."
+                )
+                return
+
+            self.push_undo()
+            node = self.node_at_path(path)
+            changed = self.recursively_set_enabled(node, True)
+
+            if isinstance(node, dict) and "INTERVAL" not in node:
+                node["INTERVAL"] = 1
+                changed = True
+
+            self.populate_tree()
+            self.select_path(path)
+            self.write_and_refresh(f"Enabled component: {label}")
 
         button_bar = ttk.Frame(dialog)
         button_bar.pack(fill="x", padx=12, pady=12)
@@ -1078,7 +585,7 @@ class ThemeEditorApp:
             "FONT": "roboto-mono/RobotoMono-Regular.ttf",
             "FONT_SIZE": 24,
             "FONT_COLOR": [255, 255, 255],
-            "BACKGROUND_IMAGE": self.shared_background_name(),
+            "BACKGROUND_COLOR": [0, 0, 0, 0],
             "ALIGN": "center",
             "ANCHOR": "mm",
         }
@@ -1244,23 +751,7 @@ class ThemeEditorApp:
             parent = parent[part]
 
         self.push_undo()
-        deleted_key = self.selected_path[-1]
-        del parent[deleted_key]
-
-        # Never leave an empty top-level static_images/static_text mapping.
-        # Some round-trip YAML layouts can serialize an empty mapping as:
-        #
-        # static_images:
-        # {}
-        #
-        # which is invalid YAML because the empty mapping loses indentation.
-        if (
-            isinstance(parent, dict)
-            and not parent
-            and len(self.selected_path) == 2
-            and self.selected_path[0] in ("static_text", "static_images")
-        ):
-            self.theme_data.pop(self.selected_path[0], None)
+        del parent[self.selected_path[-1]]
 
         self.selected_path = None
         self.populate_tree()
@@ -1350,254 +841,6 @@ class ThemeEditorApp:
         shutil.copytree(THEME_DIR, destination)
         save_yaml(destination / "theme.yaml", self.theme_data)
         messagebox.showinfo("Save as copy", f"Theme copy created:\n{destination}")
-
-
-    @staticmethod
-    def is_text_render_node(node):
-        if not isinstance(node, dict):
-            return False
-
-        has_geometry = all(key in node for key in ("X", "Y", "WIDTH", "HEIGHT"))
-        has_text_style = any(
-            key in node
-            for key in ("FONT", "FONT_SIZE", "FONT_COLOR", "TEXT", "ALIGN", "ANCHOR")
-        )
-        return has_geometry and has_text_style
-
-    @classmethod
-    def apply_background_to_text_nodes(cls, node, filename):
-        changed = 0
-
-        if isinstance(node, dict):
-            if cls.is_text_render_node(node):
-                if node.get("BACKGROUND_IMAGE") != filename:
-                    node["BACKGROUND_IMAGE"] = filename
-                    changed += 1
-
-                if "BACKGROUND_COLOR" in node:
-                    node.pop("BACKGROUND_COLOR", None)
-                    changed += 1
-
-            for value in node.values():
-                if isinstance(value, (dict, list)):
-                    changed += cls.apply_background_to_text_nodes(value, filename)
-
-        elif isinstance(node, list):
-            for value in node:
-                if isinstance(value, (dict, list)):
-                    changed += cls.apply_background_to_text_nodes(value, filename)
-
-        return changed
-
-    def open_video_background_dialog(self):
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Generate background from video")
-        dialog.geometry("620x500")
-        dialog.minsize(620, 500)
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        video_path = tk.StringVar()
-        timestamp = tk.StringVar(value="1.0")
-        output_name = tk.StringVar(value="background.png")
-        apply_to_all = tk.BooleanVar(value=True)
-
-        ttk.Label(
-            dialog,
-            text="Extract one full-screen frame and use it as the shared BACKGROUND_IMAGE.",
-            font="bold",
-            wraplength=570,
-        ).pack(anchor="w", padx=16, pady=(16, 8))
-
-        ttk.Label(
-            dialog,
-            text=(
-                "The generated image is used by the editor as the preview base and by "
-                "text/sensor elements as a shared background. It is not added as a "
-                "full-screen static image, so it will not cover the native video."
-            ),
-            wraplength=570,
-        ).pack(anchor="w", padx=16, pady=(0, 14))
-
-        form = ttk.Frame(dialog)
-        form.pack(fill="x", padx=16)
-
-        ttk.Label(form, text="Local video").grid(row=0, column=0, sticky="w", pady=5)
-        video_entry = ttk.Entry(form, textvariable=video_path)
-        video_entry.grid(row=0, column=1, sticky="ew", padx=8, pady=5)
-
-        def browse_video():
-            selected = filedialog.askopenfilename(
-                parent=dialog,
-                title="Select the local copy of the theme video",
-                filetypes=(
-                    ("Video files", "*.mp4 *.mov *.mkv *.avi *.webm"),
-                    ("All files", "*.*"),
-                ),
-            )
-            if selected:
-                video_path.set(selected)
-
-        ttk.Button(form, text="Browse…", command=browse_video).grid(
-            row=0, column=2, pady=5
-        )
-
-        ttk.Label(form, text="Frame time (seconds)").grid(row=1, column=0, sticky="w", pady=5)
-        ttk.Entry(form, textvariable=timestamp, width=16).grid(
-            row=1, column=1, sticky="w", padx=8, pady=5
-        )
-
-        ttk.Label(form, text="Output file").grid(row=2, column=0, sticky="w", pady=5)
-        ttk.Entry(form, textvariable=output_name, width=30).grid(
-            row=2, column=1, sticky="w", padx=8, pady=5
-        )
-
-        ttk.Checkbutton(
-            form,
-            text="Apply BACKGROUND_IMAGE to all text and sensor value elements",
-            variable=apply_to_all,
-        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(12, 5))
-
-        form.columnconfigure(1, weight=1)
-
-        status = tk.StringVar(value="")
-        ttk.Label(dialog, textvariable=status, wraplength=570).pack(
-            anchor="w", padx=16, pady=12
-        )
-
-        def generate():
-            source = Path(video_path.get()).expanduser()
-            if not source.is_file():
-                messagebox.showerror("Video background", "Select a valid local video file.")
-                return
-
-            try:
-                seconds = float(timestamp.get())
-                if seconds < 0:
-                    raise ValueError
-            except ValueError:
-                messagebox.showerror(
-                    "Video background",
-                    "Frame time must be a non-negative number."
-                )
-                return
-
-            filename = output_name.get().strip()
-            if not filename:
-                filename = "background.png"
-            if "/" in filename or "\\" in filename:
-                messagebox.showerror(
-                    "Video background",
-                    "Output file must be a filename only."
-                )
-                return
-            if not filename.lower().endswith(".png"):
-                filename += ".png"
-
-            ffmpeg = shutil.which("ffmpeg")
-            if not ffmpeg:
-                messagebox.showerror(
-                    "Video background",
-                    "ffmpeg is required but was not found in PATH."
-                )
-                return
-
-            destination = THEME_DIR / filename
-            temporary = destination.with_suffix(".tmp.png")
-            status.set("Extracting video frame…")
-            dialog.update_idletasks()
-
-            command = [
-                ffmpeg,
-                "-y",
-                "-ss", str(seconds),
-                "-i", str(source),
-                "-frames:v", "1",
-                "-vf",
-                (
-                    f"scale={display.lcd.get_width()}:{display.lcd.get_height()}:"
-                    "force_original_aspect_ratio=increase,"
-                    f"crop={display.lcd.get_width()}:{display.lcd.get_height()}"
-                ),
-                str(temporary),
-            ]
-
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if result.returncode != 0 or not temporary.is_file():
-                temporary.unlink(missing_ok=True)
-                messagebox.showerror(
-                    "Video background",
-                    result.stderr.strip() or "ffmpeg could not extract the frame."
-                )
-                status.set("Failed")
-                return
-
-            try:
-                # Normalize image mode and dimensions before replacing the real file.
-                frame = Image.open(temporary).convert("RGB")
-                frame = frame.resize(
-                    (display.lcd.get_width(), display.lcd.get_height()),
-                    Image.Resampling.LANCZOS,
-                )
-                frame.save(destination, "PNG")
-            finally:
-                temporary.unlink(missing_ok=True)
-
-            self.push_undo()
-
-            video_config = self.theme_data.setdefault("video", {})
-            video_config["LOCAL_PATH"] = source.name
-            video_config["PREVIEW_BACKGROUND"] = filename
-            video_config["BACKGROUND_FRAME_TIME"] = seconds
-
-            changed = 0
-            if apply_to_all.get():
-                changed = self.apply_background_to_text_nodes(
-                    self.theme_data,
-                    filename,
-                )
-
-            save_yaml(THEME_FILE, self.theme_data)
-            self.populate_tree()
-            self.refresh_preview()
-
-            status.set(
-                f"Generated {filename}; updated {changed} text/sensor element(s)."
-            )
-            messagebox.showinfo(
-                "Video background",
-                (
-                    f"Generated:\n{destination}\n\n"
-                    f"BACKGROUND_IMAGE applied to {changed} element(s)."
-                ),
-            )
-
-        buttons = ttk.Frame(dialog)
-        buttons.pack(side="bottom", fill="x", padx=16, pady=16)
-
-        generate_btn = ttk.Button(
-            buttons,
-            text="Generate background",
-            command=generate,
-        )
-        generate_btn.pack(side="right", padx=(8, 0), ipadx=10, ipady=6)
-
-        close_btn = ttk.Button(
-            buttons,
-            text="Close",
-            command=dialog.destroy,
-        )
-        close_btn.pack(side="right", ipadx=10, ipady=6)
-
-        # Make Enter activate generation and Escape close the dialog.
-        dialog.bind("<Return>", lambda _event: generate())
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
 
     def open_yaml(self):
         if sys.platform == "win32":

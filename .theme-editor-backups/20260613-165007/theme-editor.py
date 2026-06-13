@@ -52,9 +52,6 @@ THEME_DIR = MAIN_DIRECTORY / "res" / "themes" / THEME_NAME
 THEME_FILE = THEME_DIR / "theme.yaml"
 BACKUP_FILE = THEME_DIR / "theme.yaml.editor-backup"
 PREVIEW_FILE = THEME_DIR / "preview.png"
-EDITOR_TEMPLATE_DIR = MAIN_DIRECTORY / "res" / "editor-templates"
-DEFAULT_TEMPLATE_FILE = EDITOR_TEMPLATE_DIR / "default.yaml"
-EXAMPLE_TEMPLATE_FILE = EDITOR_TEMPLATE_DIR / "theme_example.yaml"
 
 if not THEME_FILE.is_file():
     raise SystemExit(f"Theme file not found: {THEME_FILE}")
@@ -67,38 +64,47 @@ config.CONFIG_DATA["display"]["REVISION"] = "SIMU"
 from library.display import display
 
 EDITABLE_KEYS = (
-    "X", "Y", "WIDTH", "HEIGHT", "RADIUS",
-    "FONT", "FONT_SIZE", "FONT_COLOR",
-    "BACKGROUND_COLOR", "BACKGROUND_IMAGE",
-    "BAR_COLOR", "BAR_BACKGROUND_COLOR", "LINE_COLOR",
-    "MIN_VALUE", "MAX_VALUE", "HISTORY_SIZE", "LINE_WIDTH",
-    "ALIGN", "ANCHOR", "TEXT", "FORMAT",
-    "SHOW", "SHOW_UNIT", "INTERVAL", "PATH"
+    "X", "Y", "WIDTH", "HEIGHT",
+    "FONT_SIZE", "FONT_COLOR", "BACKGROUND_COLOR", "BACKGROUND_IMAGE",
+    "ALIGN", "ANCHOR", "TEXT", "SHOW", "INTERVAL", "PATH"
 )
 
-NUMERIC_KEYS = {"X", "Y", "WIDTH", "HEIGHT", "RADIUS", "FONT_SIZE", "INTERVAL", "MIN_VALUE", "MAX_VALUE", "HISTORY_SIZE", "LINE_WIDTH"}
-BOOLEAN_KEYS = {"SHOW", "SHOW_UNIT"}
+NUMERIC_KEYS = {"X", "Y", "WIDTH", "HEIGHT", "FONT_SIZE", "INTERVAL"}
+BOOLEAN_KEYS = {"SHOW"}
 
 
 COMPONENT_PRESETS = {
-    "Custom text": ("custom", "text"),
-    "Static image": ("custom", "image"),
-    "CPU usage": ("sensor", "CPU.PERCENTAGE"),
-    "CPU temperature": ("sensor", "CPU.TEMPERATURE"),
-    "RAM usage": ("sensor", "MEMORY"),
-    "GPU usage": ("sensor", "GPU.PERCENTAGE"),
-    "GPU temperature": ("sensor", "GPU.TEMPERATURE"),
-    "GPU memory usage": ("sensor", "GPU.MEMORY_PERCENT"),
-    "Internet download": ("sensor", "NET.WLO.DOWNLOAD"),
-    "Internet upload": ("sensor", "NET.WLO.UPLOAD"),
-    "Weather": ("sensor", "WEATHER"),
-    "Disk usage": ("sensor", "DISK"),
-    "Ping": ("sensor", "PING"),
-    "System uptime": ("sensor", "UPTIME"),
-    "Date": ("sensor", "DATE.DAY"),
-    "Time": ("sensor", "DATE.HOUR"),
+    "Custom text": ("static_text",),
+    "Static image": ("static_images",),
+    "CPU usage": (("STATS", "CPU", "PERCENTAGE"),),
+    "CPU temperature": (("STATS", "CPU", "TEMPERATURE"),),
+    "CPU frequency": (("STATS", "CPU", "FREQUENCY"),),
+    "CPU load": (("STATS", "CPU", "LOAD"),),
+    "CPU fan speed": (("STATS", "CPU", "FAN_SPEED"),),
+    "RAM usage": (("STATS", "MEMORY"),),
+    "GPU usage": (
+        ("STATS", "GPU", "PERCENTAGE"),
+        ("STATS", "GPU"),
+    ),
+    "GPU temperature": (
+        ("STATS", "GPU", "TEMPERATURE"),
+        ("STATS", "GPU"),
+    ),
+    "Date": (
+        ("STATS", "DATE", "DATE"),
+        ("STATS", "DATE"),
+    ),
+    "Time": (
+        ("STATS", "DATE", "HOUR"),
+        ("STATS", "DATE"),
+    ),
+    "Disk usage": (("STATS", "DISK"),),
+    "Network": (("STATS", "NET"),),
+    "Weather": (("STATS", "WEATHER"),),
+    "Ping": (("STATS", "PING"),),
+    "System uptime": (("STATS", "UPTIME"),),
+    "Custom sensor": (("STATS", "CUSTOM"),),
 }
-
 
 yaml = ruamel.yaml.YAML()
 yaml.preserve_quotes = True
@@ -177,12 +183,8 @@ def refresh_simulated_theme():
                 node = node[part]
             if isinstance(node, dict) and node.get("INTERVAL", 0) > 0:
                 callback()
-        except Exception as exc:
-            logger.exception(
-                "Preview render failed for %s: %s",
-                " / ".join(path),
-                exc,
-            )
+        except Exception:
+            pass
 
     display.lcd.screen_image.save(PREVIEW_FILE, "PNG")
     return display.lcd.screen_image.copy()
@@ -652,7 +654,13 @@ class ThemeEditorApp:
 
         self.push_undo()
         node["BACKGROUND_IMAGE"] = destination.name
-        node.pop("BACKGROUND_COLOR", None)
+
+        # Use a valid RGB fallback rather than an RGBA value with alpha 0,
+        # which can make text disappear in the original renderer.
+        if node.get("BACKGROUND_COLOR") == [0, 0, 0, 0]:
+            node["BACKGROUND_COLOR"] = [0, 0, 0]
+        elif "BACKGROUND_COLOR" not in node:
+            node["BACKGROUND_COLOR"] = [0, 0, 0]
 
         self.build_property_fields()
         self.write_and_refresh("Background image changed")
@@ -790,239 +798,6 @@ class ThemeEditorApp:
                 self.build_property_fields()
                 return
 
-
-    def shared_background_name(self):
-        return self.theme_data.get("video", {}).get(
-            "PREVIEW_BACKGROUND",
-            "background.png",
-        )
-
-    @staticmethod
-    def deep_merge_missing(target, source):
-        """Recursively add missing keys without replacing existing theme values."""
-        if not isinstance(target, dict) or not isinstance(source, dict):
-            return target
-
-        for key, value in source.items():
-            if key not in target:
-                target[key] = copy.deepcopy(value)
-            elif isinstance(target[key], dict) and isinstance(value, dict):
-                ThemeEditorApp.deep_merge_missing(target[key], value)
-        return target
-
-    @staticmethod
-    def normalize_color_values(node):
-        """Convert comma-separated colors from theme_example.yaml to integer lists."""
-        color_keys = {
-            "FONT_COLOR", "BACKGROUND_COLOR", "BAR_COLOR",
-            "BAR_BACKGROUND_COLOR", "LINE_COLOR", "AXIS_COLOR",
-        }
-
-        if isinstance(node, dict):
-            for key, value in list(node.items()):
-                if key in color_keys and isinstance(value, str):
-                    try:
-                        node[key] = [
-                            int(part.strip())
-                            for part in value.split(",")
-                        ]
-                    except Exception:
-                        pass
-                elif isinstance(value, (dict, list)):
-                    ThemeEditorApp.normalize_color_values(value)
-        elif isinstance(node, list):
-            for value in node:
-                if isinstance(value, (dict, list)):
-                    ThemeEditorApp.normalize_color_values(value)
-
-    def normalize_component_template(self, node):
-        """Prepare official template blocks for this video-overlay editor."""
-        self.normalize_color_values(node)
-        background = self.shared_background_name()
-
-        def visit(value):
-            if isinstance(value, dict):
-                # Disable everything first. The requested component is enabled later.
-                if "SHOW" in value:
-                    value["SHOW"] = False
-
-                # BACKGROUND_COLOR conflicts with BACKGROUND_IMAGE in this fork.
-                if value.get("BACKGROUND_IMAGE"):
-                    value["BACKGROUND_IMAGE"] = background
-                    value.pop("BACKGROUND_COLOR", None)
-
-                for child in value.values():
-                    if isinstance(child, (dict, list)):
-                        visit(child)
-
-            elif isinstance(value, list):
-                for child in value:
-                    if isinstance(child, (dict, list)):
-                        visit(child)
-
-        visit(node)
-        return node
-
-    def load_official_templates(self):
-        if not DEFAULT_TEMPLATE_FILE.is_file():
-            raise FileNotFoundError(
-                f"Missing editor template: {DEFAULT_TEMPLATE_FILE}"
-            )
-        if not EXAMPLE_TEMPLATE_FILE.is_file():
-            raise FileNotFoundError(
-                f"Missing editor template: {EXAMPLE_TEMPLATE_FILE}"
-            )
-
-        default_data = load_yaml(DEFAULT_TEMPLATE_FILE)
-        example_data = load_yaml(EXAMPLE_TEMPLATE_FILE)
-        return default_data, example_data
-
-    def ensure_official_sensor_tree(self, top_key):
-        """Create a complete sensor branch using the official project templates."""
-        default_data, example_data = self.load_official_templates()
-
-        default_stats = default_data.get("STATS", {})
-        example_stats = example_data.get("STATS", {})
-
-        if top_key not in default_stats and top_key not in example_stats:
-            raise KeyError(f"Unknown sensor template: {top_key}")
-
-        source = copy.deepcopy(example_stats.get(top_key, {}))
-        source = self.normalize_component_template(source)
-
-        # Add mandatory keys that may not be present in theme_example.yaml,
-        # such as deprecated compatibility blocks still accessed by stats.py.
-        self.deep_merge_missing(
-            source,
-            copy.deepcopy(default_stats.get(top_key, {})),
-        )
-
-        stats = self.theme_data.setdefault("STATS", {})
-        if top_key not in stats:
-            stats[top_key] = source
-        else:
-            self.deep_merge_missing(stats[top_key], source)
-
-        self.normalize_component_template(stats[top_key])
-        return stats[top_key]
-
-    @staticmethod
-    def set_show(node, value=True):
-        if isinstance(node, dict):
-            node["SHOW"] = bool(value)
-
-    def ensure_interval(self, node, fallback):
-        if isinstance(node, dict):
-            current = int(node.get("INTERVAL", 0) or 0)
-            node["INTERVAL"] = max(current, fallback)
-
-    def enable_template_component(self, component_id):
-        self.push_undo()
-        selected_path = None
-
-        try:
-            if component_id == "CPU.PERCENTAGE":
-                cpu = self.ensure_official_sensor_tree("CPU")
-                group = cpu["PERCENTAGE"]
-                self.ensure_interval(group, 1)
-                self.set_show(group["TEXT"])
-                self.set_show(group["GRAPH"])
-                selected_path = ("STATS", "CPU", "PERCENTAGE", "TEXT")
-
-            elif component_id == "CPU.TEMPERATURE":
-                cpu = self.ensure_official_sensor_tree("CPU")
-                group = cpu["TEMPERATURE"]
-                self.ensure_interval(group, 1)
-                self.set_show(group["TEXT"])
-                self.set_show(group["GRAPH"])
-                selected_path = ("STATS", "CPU", "TEMPERATURE", "TEXT")
-
-            elif component_id == "MEMORY":
-                memory = self.ensure_official_sensor_tree("MEMORY")
-                self.ensure_interval(memory, 5)
-                self.set_show(memory["VIRTUAL"]["PERCENT_TEXT"])
-                self.set_show(memory["VIRTUAL"]["GRAPH"])
-                selected_path = ("STATS", "MEMORY", "VIRTUAL", "PERCENT_TEXT")
-
-            elif component_id.startswith("GPU."):
-                gpu = self.ensure_official_sensor_tree("GPU")
-                self.ensure_interval(gpu, 1)
-                key = component_id.split(".", 1)[1]
-                self.set_show(gpu[key]["TEXT"])
-                if "GRAPH" in gpu[key]:
-                    self.set_show(gpu[key]["GRAPH"])
-                selected_path = ("STATS", "GPU", key, "TEXT")
-
-            elif component_id.startswith("NET."):
-                net = self.ensure_official_sensor_tree("NET")
-                self.ensure_interval(net, 5)
-                _, interface, direction = component_id.split(".")
-                self.set_show(net[interface][direction]["TEXT"])
-                selected_path = (
-                    "STATS", "NET", interface, direction, "TEXT"
-                )
-
-            elif component_id == "WEATHER":
-                weather = self.ensure_official_sensor_tree("WEATHER")
-                self.ensure_interval(weather, 300)
-                self.set_show(weather["TEMPERATURE"]["TEXT"])
-                self.set_show(weather["WEATHER_DESCRIPTION"]["TEXT"])
-                selected_path = (
-                    "STATS", "WEATHER", "TEMPERATURE", "TEXT"
-                )
-
-            elif component_id == "DISK":
-                disk = self.ensure_official_sensor_tree("DISK")
-                self.ensure_interval(disk, 10)
-                self.set_show(disk["USED"]["PERCENT_TEXT"])
-                self.set_show(disk["USED"]["GRAPH"])
-                selected_path = (
-                    "STATS", "DISK", "USED", "PERCENT_TEXT"
-                )
-
-            elif component_id == "PING":
-                ping = self.ensure_official_sensor_tree("PING")
-                self.ensure_interval(ping, 10)
-                self.set_show(ping["TEXT"])
-                selected_path = ("STATS", "PING", "TEXT")
-
-            elif component_id == "UPTIME":
-                uptime = self.ensure_official_sensor_tree("UPTIME")
-                self.ensure_interval(uptime, 1)
-                self.set_show(uptime["FORMATTED"]["TEXT"])
-                selected_path = (
-                    "STATS", "UPTIME", "FORMATTED", "TEXT"
-                )
-
-            elif component_id in ("DATE.DAY", "DATE.HOUR"):
-                date = self.ensure_official_sensor_tree("DATE")
-                self.ensure_interval(date, 1)
-                key = component_id.split(".", 1)[1]
-                self.set_show(date[key]["TEXT"])
-                selected_path = ("STATS", "DATE", key, "TEXT")
-
-            else:
-                raise KeyError(component_id)
-
-        except Exception as exc:
-            if self.undo_stack:
-                self.undo_stack.pop()
-            messagebox.showerror(
-                "Add component",
-                f"Could not create component:\n{exc}",
-            )
-            logger.exception("Could not create component %s", component_id)
-            return
-
-        self.populate_tree()
-        if selected_path:
-            self.select_path(selected_path)
-            self.refresh_selected_background_preview()
-
-        self.write_and_refresh(
-            f"Created component from official template: {component_id}"
-        )
-
     def add_component(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Add component")
@@ -1046,17 +821,35 @@ class ThemeEditorApp:
             label = listbox.get(selection[0])
             dialog.destroy()
 
-            kind, component_id = COMPONENT_PRESETS[label]
-
-            if kind == "custom" and component_id == "text":
+            if label == "Custom text":
                 self.add_custom_text()
                 return
-
-            if kind == "custom" and component_id == "image":
+            if label == "Static image":
                 self.add_static_image()
                 return
 
-            self.enable_template_component(component_id)
+            candidates = COMPONENT_PRESETS[label]
+            path = self.first_existing_path(candidates)
+            if path is None:
+                messagebox.showwarning(
+                    "Add component",
+                    f"The current theme does not contain a compatible block for “{label}”.\n\n"
+                    "This first editor version can enable existing sensor blocks, but it does not "
+                    "invent a complete sensor schema when the theme has none."
+                )
+                return
+
+            self.push_undo()
+            node = self.node_at_path(path)
+            changed = self.recursively_set_enabled(node, True)
+
+            if isinstance(node, dict) and "INTERVAL" not in node:
+                node["INTERVAL"] = 1
+                changed = True
+
+            self.populate_tree()
+            self.select_path(path)
+            self.write_and_refresh(f"Enabled component: {label}")
 
         button_bar = ttk.Frame(dialog)
         button_bar.pack(fill="x", padx=12, pady=12)
@@ -1078,7 +871,7 @@ class ThemeEditorApp:
             "FONT": "roboto-mono/RobotoMono-Regular.ttf",
             "FONT_SIZE": 24,
             "FONT_COLOR": [255, 255, 255],
-            "BACKGROUND_IMAGE": self.shared_background_name(),
+            "BACKGROUND_COLOR": [0, 0, 0, 0],
             "ALIGN": "center",
             "ANCHOR": "mm",
         }
@@ -1374,8 +1167,13 @@ class ThemeEditorApp:
                     node["BACKGROUND_IMAGE"] = filename
                     changed += 1
 
-                if "BACKGROUND_COLOR" in node:
-                    node.pop("BACKGROUND_COLOR", None)
+                # The original renderer expects an RGB fallback. Alpha-zero
+                # RGBA values may make the text itself disappear.
+                if node.get("BACKGROUND_COLOR") == [0, 0, 0, 0]:
+                    node["BACKGROUND_COLOR"] = [0, 0, 0]
+                    changed += 1
+                elif "BACKGROUND_COLOR" not in node:
+                    node["BACKGROUND_COLOR"] = [0, 0, 0]
                     changed += 1
 
             for value in node.values():
