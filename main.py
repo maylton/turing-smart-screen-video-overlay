@@ -168,30 +168,41 @@ if __name__ == "__main__":
                 logger.info("Program will now exit")
                 clean_stop()
 
-    # Create a tray icon for the program, with an Exit entry in menu
-    try:
-        tray_icon = pystray.Icon(
-            name='Turing System Monitor',
-            title='Turing System Monitor',
-            icon=Image.open(MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png"),
-            menu=pystray.Menu(
-                pystray.MenuItem(
-                    text='Configure',
-                    action=on_configure_tray),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(
-                    text='Exit',
-                    action=on_exit_tray)
-            )
-        )
+    # The GTK/Libadwaita application provides a modern StatusNotifierItem
+    # tray icon. Skip the original pystray/XEmbed icon when launched from it,
+    # because Wayland shells such as Noctalia do not provide an X11 tray
+    # manager and pystray would repeatedly log "Failed to dock icon".
+    disable_legacy_tray = (
+        os.environ.get("TURING_DISABLE_PYSTRAY", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
 
-        # For platforms != macOS, display the tray icon now with non-blocking function
-        if platform.system() != "Darwin":
-            tray_icon.run_detached()
-            logger.info("Tray icon has been displayed")
-    except:
+    if disable_legacy_tray:
         tray_icon = None
-        logger.warning("Tray icon is not supported on your platform")
+        logger.debug("Legacy pystray icon disabled; GTK StatusNotifierItem is active")
+    else:
+        try:
+            tray_icon = pystray.Icon(
+                name='Turing System Monitor',
+                title='Turing System Monitor',
+                icon=Image.open(MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png"),
+                menu=pystray.Menu(
+                    pystray.MenuItem(
+                        text='Configure',
+                        action=on_configure_tray),
+                    pystray.Menu.SEPARATOR,
+                    pystray.MenuItem(
+                        text='Exit',
+                        action=on_exit_tray)
+                )
+            )
+
+            if platform.system() != "Darwin":
+                tray_icon.run_detached()
+                logger.info("Tray icon has been displayed")
+        except Exception:
+            tray_icon = None
+            logger.warning("Tray icon is not supported on your platform")
 
     # Set the different stopping event handlers, to send a complete frame to the LCD before exit
     atexit.register(on_clean_exit)
@@ -209,10 +220,6 @@ if __name__ == "__main__":
 
     # Start serial queue handler
     scheduler.QueueHandler()
-
-    # Initialization queued STOP/OPTIONS commands must finish before video mode.
-    # Otherwise they can arrive after PLAY_VIDEO and cancel the native video.
-    wait_for_empty_queue(10)
 
     # Start native theme video, if configured
     display.start_theme_video()

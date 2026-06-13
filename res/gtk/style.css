@@ -1,0 +1,19 @@
+
+.navigation-sidebar {
+  background: alpha(@window_fg_color, 0.025);
+}
+
+.card {
+  border-radius: 18px;
+  background: @card_bg_color;
+  box-shadow: 0 1px 3px alpha(black, 0.16);
+}
+
+.display-preview {
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg,
+      alpha(@window_fg_color, 0.06),
+      alpha(@window_fg_color, 0.015));
+  padding: 10px;
+}

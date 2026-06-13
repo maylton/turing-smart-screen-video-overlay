@@ -68,10 +68,7 @@ STATS:
         ANCHOR: mm
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 80
-        FONT_COLOR:
-        - 255
-        - 255
-        - 255
+        FONT_COLOR: [255, 255, 255]
         BACKGROUND_IMAGE: background.png
         ALIGN: left
         INTERVAL: 1
@@ -89,11 +86,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 50, 50, 50
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -111,10 +105,7 @@ STATS:
         HEIGHT: 13
         MIN_VALUE: 0
         MAX_VALUE: 100
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         BAR_OUTLINE: false
         # BACKGROUND_COLOR: 0, 0, 0
         BACKGROUND_IMAGE: background.png
@@ -132,19 +123,13 @@ STATS:
         ANGLE_STEPS: 1
         ANGLE_SEP: 25
         CLOCKWISE: true
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         SHOW_TEXT: true
         SHOW_UNIT: true
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 0, 0, 0
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
       LINE_GRAPH:
         SHOW: false
@@ -156,16 +141,10 @@ STATS:
         MAX_VALUE: 120
         HISTORY_SIZE: 10
         AUTOSCALE: true
-        LINE_COLOR:
-        - 61
-        - 184
-        - 225
+        LINE_COLOR: [61, 184, 225]
         LINE_WIDTH: 2
         AXIS: true
-        AXIS_COLOR:
-        - 255
-        - 135
-        - 0
+        AXIS_COLOR: [255, 135, 0]
         AXIS_FONT: roboto/Roboto-Black.ttf
         AXIS_FONT_SIZE: 10
         # BACKGROUND_COLOR: 0, 0, 0
@@ -179,10 +158,7 @@ STATS:
         HEIGHT: 13
         MIN_VALUE: 0
         MAX_VALUE: 100
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         BAR_OUTLINE: false
         # BACKGROUND_COLOR: 0, 0, 0
         BACKGROUND_IMAGE: background.png
@@ -200,19 +176,13 @@ STATS:
         ANGLE_STEPS: 1
         ANGLE_SEP: 25
         CLOCKWISE: true
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         SHOW_TEXT: true
         SHOW_UNIT: true
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 0, 0, 0
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
       LINE_GRAPH:
         SHOW: false
@@ -224,16 +194,10 @@ STATS:
         MAX_VALUE: 120
         HISTORY_SIZE: 10
         AUTOSCALE: true
-        LINE_COLOR:
-        - 61
-        - 184
-        - 225
+        LINE_COLOR: [61, 184, 225]
         LINE_WIDTH: 2
         AXIS: true
-        AXIS_COLOR:
-        - 255
-        - 135
-        - 0
+        AXIS_COLOR: [255, 135, 0]
         AXIS_FONT: roboto/Roboto-Black.ttf
         AXIS_FONT_SIZE: 10
         # BACKGROUND_COLOR: 0, 0, 0
@@ -251,11 +215,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -272,11 +233,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -293,11 +251,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -314,11 +269,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -337,10 +289,7 @@ STATS:
         HEIGHT: 13
         MIN_VALUE: 0
         MAX_VALUE: 100
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         BAR_OUTLINE: false
         # BACKGROUND_COLOR: 0, 0, 0
         BACKGROUND_IMAGE: background.png
@@ -358,19 +307,13 @@ STATS:
         ANGLE_STEPS: 1
         ANGLE_SEP: 25
         CLOCKWISE: true
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         SHOW_TEXT: true
         SHOW_UNIT: true
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 0, 0, 0
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
       TEXT:
         SHOW: false
@@ -385,11 +328,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -403,16 +343,10 @@ STATS:
         MAX_VALUE: 100
         HISTORY_SIZE: 10
         AUTOSCALE: false
-        LINE_COLOR:
-        - 61
-        - 184
-        - 225
+        LINE_COLOR: [61, 184, 225]
         LINE_WIDTH: 2
         AXIS: true
-        AXIS_COLOR:
-        - 255
-        - 135
-        - 0
+        AXIS_COLOR: [255, 135, 0]
         AXIS_FONT: roboto/Roboto-Black.ttf
         AXIS_FONT_SIZE: 10
         # BACKGROUND_COLOR: 0, 0, 0
@@ -426,10 +360,7 @@ STATS:
         HEIGHT: 13
         MIN_VALUE: 0
         MAX_VALUE: 100
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         BAR_OUTLINE: false
         # BACKGROUND_COLOR: 0, 0, 0
         BACKGROUND_IMAGE: background.png
@@ -447,19 +378,13 @@ STATS:
         ANGLE_STEPS: 1
         ANGLE_SEP: 25
         CLOCKWISE: true
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         SHOW_TEXT: true
         SHOW_UNIT: true
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 0, 0, 0
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
       TEXT:
         SHOW: false
@@ -474,11 +399,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -492,16 +414,10 @@ STATS:
         MAX_VALUE: 100
         HISTORY_SIZE: 10
         AUTOSCALE: false
-        LINE_COLOR:
-        - 61
-        - 184
-        - 225
+        LINE_COLOR: [61, 184, 225]
         LINE_WIDTH: 2
         AXIS: true
-        AXIS_COLOR:
-        - 255
-        - 135
-        - 0
+        AXIS_COLOR: [255, 135, 0]
         AXIS_FONT: roboto/Roboto-Black.ttf
         AXIS_FONT_SIZE: 10
         # BACKGROUND_COLOR: 0, 0, 0
@@ -520,11 +436,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -542,11 +455,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -564,11 +474,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -580,10 +487,7 @@ STATS:
         HEIGHT: 13
         MIN_VALUE: 0
         MAX_VALUE: 100
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         BAR_OUTLINE: false
         # BACKGROUND_COLOR: 0, 0, 0
         BACKGROUND_IMAGE: background.png
@@ -601,19 +505,13 @@ STATS:
         ANGLE_STEPS: 20
         ANGLE_SEP: 5
         CLOCKWISE: true
-        BAR_COLOR:
-        - 0
-        - 255
-        - 0
+        BAR_COLOR: [0, 255, 0]
         SHOW_TEXT: true
         SHOW_UNIT: true
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 0, 0, 0
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
       LINE_GRAPH:
         SHOW: false
@@ -625,16 +523,10 @@ STATS:
         MAX_VALUE: 120
         HISTORY_SIZE: 10
         AUTOSCALE: true
-        LINE_COLOR:
-        - 61
-        - 184
-        - 225
+        LINE_COLOR: [61, 184, 225]
         LINE_WIDTH: 2
         AXIS: true
-        AXIS_COLOR:
-        - 255
-        - 135
-        - 0
+        AXIS_COLOR: [255, 135, 0]
         AXIS_FONT: roboto/Roboto-Black.ttf
         AXIS_FONT_SIZE: 10
         # BACKGROUND_COLOR: 0, 0, 0
@@ -653,11 +545,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -669,10 +558,7 @@ STATS:
         HEIGHT: 13
         MIN_VALUE: 0
         MAX_VALUE: 100
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         BAR_OUTLINE: false
         # BACKGROUND_COLOR: 0, 0, 0
         BACKGROUND_IMAGE: background.png
@@ -690,19 +576,13 @@ STATS:
         ANGLE_STEPS: 20
         ANGLE_SEP: 5
         CLOCKWISE: true
-        BAR_COLOR:
-        - 0
-        - 255
-        - 0
+        BAR_COLOR: [0, 255, 0]
         SHOW_TEXT: true
         SHOW_UNIT: true
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 0, 0, 0
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
       LINE_GRAPH:
         SHOW: false
@@ -714,16 +594,10 @@ STATS:
         MAX_VALUE: 300
         HISTORY_SIZE: 10
         AUTOSCALE: true
-        LINE_COLOR:
-        - 61
-        - 184
-        - 225
+        LINE_COLOR: [61, 184, 225]
         LINE_WIDTH: 2
         AXIS: true
-        AXIS_COLOR:
-        - 255
-        - 135
-        - 0
+        AXIS_COLOR: [255, 135, 0]
         AXIS_FONT: roboto/Roboto-Black.ttf
         AXIS_FONT_SIZE: 10
         # BACKGROUND_COLOR: 0, 0, 0
@@ -742,11 +616,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
         FONT_SIZE: 23
-        FONT_COLOR:
+        FONT_COLOR: [255, 255, 255]
         # BACKGROUND_COLOR: 132, 154, 165
-        - 255
-        - 255
-        - 255
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -758,10 +629,7 @@ STATS:
         HEIGHT: 13
         MIN_VALUE: 0
         MAX_VALUE: 100
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         BAR_OUTLINE: false
         # BACKGROUND_COLOR: 0, 0, 0
         BACKGROUND_IMAGE: background.png
@@ -779,19 +647,13 @@ STATS:
         ANGLE_STEPS: 20
         ANGLE_SEP: 5
         CLOCKWISE: true
-        BAR_COLOR:
-        - 0
-        - 255
-        - 0
+        BAR_COLOR: [0, 255, 0]
         SHOW_TEXT: true
         SHOW_UNIT: true
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 0, 0, 0
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
       LINE_GRAPH:
         SHOW: false
@@ -803,16 +665,10 @@ STATS:
         MAX_VALUE: 3000
         HISTORY_SIZE: 10
         AUTOSCALE: true
-        LINE_COLOR:
-        - 61
-        - 184
-        - 225
+        LINE_COLOR: [61, 184, 225]
         LINE_WIDTH: 2
         AXIS: true
-        AXIS_COLOR:
-        - 255
-        - 135
-        - 0
+        AXIS_COLOR: [255, 135, 0]
         AXIS_FONT: roboto/Roboto-Black.ttf
         AXIS_FONT_SIZE: 10
         # BACKGROUND_COLOR: 0, 0, 0
@@ -831,11 +687,8 @@ STATS:
         # HEIGHT: 50   # Uncomment to force static height
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 50, 50, 50
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
         ALIGN: left  # left / center / right
         ANCHOR: lt   # Check https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html
@@ -847,10 +700,7 @@ STATS:
         HEIGHT: 13
         MIN_VALUE: 0
         MAX_VALUE: 100
-        BAR_COLOR:
-        - 255
-        - 0
-        - 0
+        BAR_COLOR: [255, 0, 0]
         BAR_OUTLINE: false
         # BACKGROUND_COLOR: 0, 0, 0
         BACKGROUND_IMAGE: background.png
@@ -868,19 +718,13 @@ STATS:
         ANGLE_STEPS: 20
         ANGLE_SEP: 5
         CLOCKWISE: true
-        BAR_COLOR:
-        - 0
-        - 255
-        - 0
+        BAR_COLOR: [0, 255, 0]
         SHOW_TEXT: true
         SHOW_UNIT: true
         FONT: roboto-mono/RobotoMono-Bold.ttf
         FONT_SIZE: 13
-        FONT_COLOR:
+        FONT_COLOR: [200, 200, 200]
         # BACKGROUND_COLOR: 0, 0, 0
-        - 200
-        - 200
-        - 200
         BACKGROUND_IMAGE: background.png
       LINE_GRAPH:
         SHOW: false
@@ -892,16 +736,10 @@ STATS:
         MAX_VALUE: 100
         HISTORY_SIZE: 10
         AUTOSCALE: false
-        LINE_COLOR:
-        - 61
-        - 184
-        - 225
+        LINE_COLOR: [61, 184, 225]
         LINE_WIDTH: 2
         AXIS: true
-        AXIS_COLOR:
-        - 255
-        - 135
-        - 0
+        AXIS_COLOR: [255, 135, 0]
         AXIS_FONT: roboto/Roboto-Black.ttf
         AXIS_FONT_SIZE: 10
         # BACKGROUND_COLOR: 0, 0, 0
@@ -916,16 +754,13 @@ STATS:
 static_text:
   custom_text:
     TEXT: CPU
-    X: 71
-    Y: 386
+    X: 73
+    Y: 385
     WIDTH: 240
     HEIGHT: 50
     FONT: roboto/Roboto-Black.ttf
     FONT_SIZE: 25
-    FONT_COLOR:
-    - 255
-    - 255
-    - 255
+    FONT_COLOR: [255, 255, 255]
     BACKGROUND_IMAGE: background.png
     ALIGN: center
     ANCHOR: mm
