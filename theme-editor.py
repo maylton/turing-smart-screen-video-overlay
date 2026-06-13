@@ -1,383 +1,1022 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
-# turing-smart-screen-python - a Python system monitor and library for USB-C displays like Turing Smart Screen or XuanFang
-# https://github.com/mathoudebine/turing-smart-screen-python/
-#
-# Copyright (C) 2021 Matthieu Houdebine (mathoudebine)
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+Advanced visual theme editor for turing-smart-screen-python.
 
-# theme-editor.py: Allow to easily edit themes for System Monitor (main.py) in a preview window on the computer
-# The preview window is refreshed as soon as the theme file is modified
+Features:
+- Simulated live preview
+- Generic element/property editor
+- Drag selected elements on the preview
+- Undo / Redo
+- Restore session start
+- Save as copy
+- Apply to display only when requested
+"""
+
+from __future__ import annotations
 
 from library.pythoncheck import check_python_version
 check_python_version()
 
+import copy
 import locale
 import logging
 import os
-import platform
+import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, simpledialog
 
-try:
-    import tkinter
-    from PIL import ImageTk, Image
-except:
-    print(
-        "[ERROR] Tkinter dependency not installed. Please follow troubleshooting page: https://github.com/mathoudebine/turing-smart-screen-python/wiki/Troubleshooting#all-os-tkinter-dependency-not-installed")
-    try:
-        sys.exit(0)
-    except:
-        os._exit(0)
+from PIL import Image, ImageTk
+import ruamel.yaml
 
 if len(sys.argv) != 2:
-    print("Usage :")
-    print("        theme-editor.py theme-name")
-    print("Examples : ")
-    print("        theme-editor.py 3.5inchTheme2")
-    print("        theme-editor.py Landscape6Grid")
-    print("        theme-editor.py Cyberpunk")
-    try:
-        sys.exit(0)
-    except:
-        os._exit(0)
+    print("Usage: theme-editor.py theme-name")
+    raise SystemExit(2)
 
 import library.log
+library.log.logger.setLevel(logging.NOTSET)
 
-library.log.logger.setLevel(logging.NOTSET)  # Disable system monitor logging for the editor
-
-# Create a logger for the editor
-logger = logging.getLogger('turing-editor')
+logger = logging.getLogger("turing-editor")
 logger.setLevel(logging.DEBUG)
 
-# Hardcode specific configuration for theme editor
 from library import config
 
-config.CONFIG_DATA["config"]["HW_SENSORS"] = "STATIC"  # For theme editor always use stub data
-config.CONFIG_DATA["config"]["THEME"] = sys.argv[1]  # Theme is given as argument
+THEME_NAME = sys.argv[1]
+MAIN_DIRECTORY = Path(__file__).resolve().parent
+THEME_DIR = MAIN_DIRECTORY / "res" / "themes" / THEME_NAME
+THEME_FILE = THEME_DIR / "theme.yaml"
+BACKUP_FILE = THEME_DIR / "theme.yaml.editor-backup"
+PREVIEW_FILE = THEME_DIR / "preview.png"
 
+if not THEME_FILE.is_file():
+    raise SystemExit(f"Theme file not found: {THEME_FILE}")
+
+config.CONFIG_DATA["config"]["HW_SENSORS"] = "STATIC"
+config.CONFIG_DATA["config"]["THEME"] = THEME_NAME
 config.load_theme()
-
-# For theme editor, always use simulated LCD
 config.CONFIG_DATA["display"]["REVISION"] = "SIMU"
 
-from library.display import display  # Only import display after hardcoded config is set
+from library.display import display
 
-RGB_LED_MARGIN = 12
+EDITABLE_KEYS = (
+    "X", "Y", "WIDTH", "HEIGHT",
+    "FONT_SIZE", "FONT_COLOR", "BACKGROUND_COLOR",
+    "ALIGN", "ANCHOR", "TEXT", "SHOW", "INTERVAL", "PATH"
+)
 
-# Resize editor if display is too big (e.g. 8.8" displays are 1920x480), can be changed later by zoom buttons
-RESIZE_FACTOR = 2 if (display.lcd.get_width() > 1000 or display.lcd.get_height() > 1000) else 1
-
-ERROR_IN_THEME = Image.open("res/docs/error-in-theme.png")
+NUMERIC_KEYS = {"X", "Y", "WIDTH", "HEIGHT", "FONT_SIZE", "INTERVAL"}
+BOOLEAN_KEYS = {"SHOW"}
 
 
-def refresh_theme():
+COMPONENT_PRESETS = {
+    "Custom text": ("static_text",),
+    "Static image": ("static_images",),
+    "CPU usage": (("STATS", "CPU", "PERCENTAGE"),),
+    "CPU temperature": (("STATS", "CPU", "TEMPERATURE"),),
+    "CPU frequency": (("STATS", "CPU", "FREQUENCY"),),
+    "CPU load": (("STATS", "CPU", "LOAD"),),
+    "CPU fan speed": (("STATS", "CPU", "FAN_SPEED"),),
+    "RAM usage": (("STATS", "MEMORY"),),
+    "GPU usage": (
+        ("STATS", "GPU", "PERCENTAGE"),
+        ("STATS", "GPU"),
+    ),
+    "GPU temperature": (
+        ("STATS", "GPU", "TEMPERATURE"),
+        ("STATS", "GPU"),
+    ),
+    "Date": (
+        ("STATS", "DATE", "DATE"),
+        ("STATS", "DATE"),
+    ),
+    "Time": (
+        ("STATS", "DATE", "HOUR"),
+        ("STATS", "DATE"),
+    ),
+    "Disk usage": (("STATS", "DISK"),),
+    "Network": (("STATS", "NET"),),
+    "Weather": (("STATS", "WEATHER"),),
+    "Ping": (("STATS", "PING"),),
+    "System uptime": (("STATS", "UPTIME"),),
+    "Custom sensor": (("STATS", "CUSTOM"),),
+}
+
+yaml = ruamel.yaml.YAML()
+yaml.preserve_quotes = True
+
+
+def load_yaml(path: Path):
+    with path.open("r", encoding="utf-8") as stream:
+        return yaml.load(stream)
+
+
+def save_yaml(path: Path, data):
+    with path.open("w", encoding="utf-8") as stream:
+        yaml.dump(data, stream)
+
+
+def refresh_simulated_theme():
     config.load_theme()
-
-    # Initialize the display
     display.initialize_display()
-
-    # Create all static images
     display.display_static_images()
-
-    # Create all static texts
     display.display_static_text()
 
-    # Display all data on screen once
     import library.stats as stats
-    if config.THEME_DATA['STATS']['CPU']['PERCENTAGE'].get("INTERVAL", 0) > 0:
-        stats.CPU.percentage()
-    if config.THEME_DATA['STATS']['CPU']['FREQUENCY'].get("INTERVAL", 0) > 0:
-        stats.CPU.frequency()
-    if config.THEME_DATA['STATS']['CPU']['LOAD'].get("INTERVAL", 0) > 0:
-        stats.CPU.load()
-    if config.THEME_DATA['STATS']['CPU']['TEMPERATURE'].get("INTERVAL", 0) > 0:
-        stats.CPU.temperature()
-    if config.THEME_DATA['STATS']['CPU']['FAN_SPEED'].get("INTERVAL", 0) > 0:
-        stats.CPU.fan_speed()
-    if config.THEME_DATA['STATS']['GPU'].get("INTERVAL", 0) > 0:
-        stats.Gpu.stats()
-    if config.THEME_DATA['STATS']['MEMORY'].get("INTERVAL", 0) > 0:
-        stats.Memory.stats()
-    if config.THEME_DATA['STATS']['DISK'].get("INTERVAL", 0) > 0:
-        stats.Disk.stats()
-    if config.THEME_DATA['STATS']['NET'].get("INTERVAL", 0) > 0:
-        stats.Net.stats()
-    if config.THEME_DATA['STATS']['DATE'].get("INTERVAL", 0) > 0:
-        stats.Date.stats()
-    if config.THEME_DATA['STATS']['UPTIME'].get("INTERVAL", 0) > 0:
-        stats.SystemUptime.stats()
-    if config.THEME_DATA['STATS']['CUSTOM'].get("INTERVAL", 0) > 0:
-        stats.Custom.stats()
-    if config.THEME_DATA['STATS']['WEATHER'].get("INTERVAL", 0) > 0:
-        stats.Weather.stats()
-    if config.THEME_DATA['STATS']['PING'].get("INTERVAL", 0) > 0:
-        stats.Ping.stats()
+
+    stats_map = [
+        (("STATS", "CPU", "PERCENTAGE"), stats.CPU.percentage),
+        (("STATS", "CPU", "FREQUENCY"), stats.CPU.frequency),
+        (("STATS", "CPU", "LOAD"), stats.CPU.load),
+        (("STATS", "CPU", "TEMPERATURE"), stats.CPU.temperature),
+        (("STATS", "CPU", "FAN_SPEED"), stats.CPU.fan_speed),
+        (("STATS", "GPU"), stats.Gpu.stats),
+        (("STATS", "MEMORY"), stats.Memory.stats),
+        (("STATS", "DISK"), stats.Disk.stats),
+        (("STATS", "NET"), stats.Net.stats),
+        (("STATS", "DATE"), stats.Date.stats),
+        (("STATS", "UPTIME"), stats.SystemUptime.stats),
+        (("STATS", "CUSTOM"), stats.Custom.stats),
+        (("STATS", "WEATHER"), stats.Weather.stats),
+        (("STATS", "PING"), stats.Ping.stats),
+    ]
+
+    for path, callback in stats_map:
+        node = config.THEME_DATA
+        try:
+            for part in path:
+                node = node[part]
+            if isinstance(node, dict) and node.get("INTERVAL", 0) > 0:
+                callback()
+        except Exception:
+            pass
+
+    display.lcd.screen_image.save(PREVIEW_FILE, "PNG")
+    return display.lcd.screen_image.copy()
+
+
+class ThemeEditorApp:
+    def __init__(self):
+        locale.setlocale(locale.LC_ALL, "")
+        self.root = tk.Tk()
+        self.root.title(f"Turing Theme Editor — {THEME_NAME}")
+        self.root.geometry("1280x760")
+        self.root.minsize(1080, 680)
+
+        icon = MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png"
+        if icon.is_file():
+            self.root.iconphoto(True, tk.PhotoImage(file=str(icon)))
+
+        self.theme_data = load_yaml(THEME_FILE)
+        self.session_original = copy.deepcopy(self.theme_data)
+        self.undo_stack = []
+        self.redo_stack = []
+
+        if not BACKUP_FILE.exists():
+            shutil.copy2(THEME_FILE, BACKUP_FILE)
+
+        self.selected_path = None
+        self.preview_image_tk = None
+        self.preview_scale = 1.0
+        self.drag_origin = None
+        self.drag_element_origin = None
+        self.field_vars = {}
+        self._refresh_job = None
+        self._building_fields = False
+
+        self.build_ui()
+        self.populate_tree()
+        self.refresh_preview()
+        self.bind_shortcuts()
+
+    def build_ui(self):
+        toolbar = ttk.Frame(self.root, padding=8)
+        toolbar.pack(fill="x")
+
+        ttk.Button(toolbar, text="↶ Undo", command=self.undo).pack(side="left", padx=3)
+        ttk.Button(toolbar, text="↷ Redo", command=self.redo).pack(side="left", padx=3)
+        ttk.Button(toolbar, text="Restore session", command=self.restore_session).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Save", command=self.save_current).pack(side="left", padx=3)
+        ttk.Button(toolbar, text="Save as copy", command=self.save_as_copy).pack(side="left", padx=3)
+        ttk.Button(toolbar, text="Apply to display", command=self.apply_to_display).pack(side="left", padx=12)
+        ttk.Button(toolbar, text="Open YAML", command=self.open_yaml).pack(side="left", padx=3)
+        ttk.Button(toolbar, text="Refresh preview", command=self.refresh_preview).pack(side="left", padx=3)
+
+        self.status_var = tk.StringVar(value="Ready")
+        ttk.Label(toolbar, textvariable=self.status_var).pack(side="right", padx=8)
+
+        body = ttk.Panedwindow(self.root, orient="horizontal")
+        body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        left = ttk.Frame(body, padding=6)
+        center = ttk.Frame(body, padding=6)
+        right = ttk.Frame(body, padding=6)
+        body.add(left, weight=1)
+        body.add(center, weight=3)
+        body.add(right, weight=2)
+
+        ttk.Label(left, text="Theme elements", font="bold").pack(anchor="w")
+
+        component_actions = ttk.Frame(left)
+        component_actions.pack(fill="x", pady=(6, 2))
+        ttk.Button(component_actions, text="+ Add", command=self.add_component).pack(side="left", padx=(0, 3))
+        ttk.Button(component_actions, text="⧉ Duplicate", command=self.duplicate_selected).pack(side="left", padx=3)
+        ttk.Button(component_actions, text="Disable", command=self.disable_selected).pack(side="left", padx=3)
+        ttk.Button(component_actions, text="Delete", command=self.delete_selected).pack(side="left", padx=3)
+
+        self.tree = ttk.Treeview(left, show="tree")
+        tree_scroll = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=tree_scroll.set)
+        self.tree.pack(side="left", fill="both", expand=True, pady=(6, 0))
+        tree_scroll.pack(side="right", fill="y", pady=(6, 0))
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+
+        ttk.Label(center, text="Live preview", font="bold").pack(anchor="w")
+        preview_wrap = ttk.Frame(center)
+        preview_wrap.pack(fill="both", expand=True, pady=(6, 0))
+
+        self.canvas = tk.Canvas(preview_wrap, background="#202020", highlightthickness=0)
+        xscroll = ttk.Scrollbar(preview_wrap, orient="horizontal", command=self.canvas.xview)
+        yscroll = ttk.Scrollbar(preview_wrap, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(xscrollcommand=xscroll.set, yscrollcommand=yscroll.set)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+        preview_wrap.rowconfigure(0, weight=1)
+        preview_wrap.columnconfigure(0, weight=1)
+
+        self.canvas.bind("<ButtonPress-1>", self.on_preview_press)
+        self.canvas.bind("<B1-Motion>", self.on_preview_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_preview_release)
+
+        zoom_bar = ttk.Frame(center)
+        zoom_bar.pack(fill="x", pady=6)
+        ttk.Button(zoom_bar, text="Zoom −", command=lambda: self.change_zoom(-0.1)).pack(side="left")
+        ttk.Button(zoom_bar, text="Zoom +", command=lambda: self.change_zoom(0.1)).pack(side="left", padx=5)
+        ttk.Label(
+            zoom_bar,
+            text="Tip: select an element with X/Y, then drag it on the preview."
+        ).pack(side="left", padx=12)
+
+        ttk.Label(right, text="Properties", font="bold").pack(anchor="w")
+        self.properties_container = ttk.Frame(right)
+        self.properties_container.pack(fill="both", expand=True, pady=(6, 0))
+
+        self.fields_frame = ttk.Frame(self.properties_container)
+        self.fields_frame.pack(fill="x")
+
+        action_frame = ttk.Frame(right)
+        action_frame.pack(fill="x", pady=8)
+        ttk.Button(action_frame, text="Apply property changes", command=self.apply_fields).pack(fill="x")
+        ttk.Button(action_frame, text="Enable selected component", command=self.enable_selected).pack(fill="x", pady=(5, 0))
+        ttk.Button(action_frame, text="Disable selected component", command=self.disable_selected).pack(fill="x", pady=5)
+        ttk.Button(action_frame, text="Reset selected element", command=self.reset_selected).pack(fill="x")
+
+    def bind_shortcuts(self):
+        self.root.bind_all("<Control-z>", lambda _e: self.undo())
+        self.root.bind_all("<Control-y>", lambda _e: self.redo())
+        self.root.bind_all("<Control-s>", lambda _e: self.save_current())
+
+    def iter_editable_nodes(self, node=None, path=()):
+        if node is None:
+            node = self.theme_data
+
+        if isinstance(node, dict):
+            if any(key in node for key in EDITABLE_KEYS):
+                yield path, node
+            for key, value in node.items():
+                if isinstance(value, (dict, list)):
+                    yield from self.iter_editable_nodes(value, path + (key,))
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                if isinstance(value, (dict, list)):
+                    yield from self.iter_editable_nodes(value, path + (index,))
+
+    def node_at_path(self, path):
+        node = self.theme_data
+        for part in path:
+            node = node[part]
+        return node
+
+    def original_node_at_path(self, path):
+        node = self.session_original
+        for part in path:
+            node = node[part]
+        return node
+
+    def display_name(self, path):
+        if not path:
+            return "Theme"
+        return " / ".join(str(part) for part in path)
+
+    def populate_tree(self):
+        self.tree.delete(*self.tree.get_children())
+        self.path_by_item = {}
+
+        groups = {}
+        for path, _node in self.iter_editable_nodes():
+            parent = ""
+            partial = ()
+            for part in path:
+                partial += (part,)
+                if partial not in groups:
+                    item = self.tree.insert(parent, "end", text=str(part), open=len(partial) <= 2)
+                    groups[partial] = item
+                parent = groups[partial]
+            if path:
+                self.path_by_item[parent] = path
+
+    def on_tree_select(self, _event=None):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        item = selected[0]
+        path = self.path_by_item.get(item)
+        if path is None:
+            return
+        self.selected_path = path
+        self.build_property_fields()
+
+    def build_property_fields(self):
+        for child in self.fields_frame.winfo_children():
+            child.destroy()
+        self.field_vars.clear()
+
+        if self.selected_path is None:
+            return
+
+        node = self.node_at_path(self.selected_path)
+        ttk.Label(
+            self.fields_frame,
+            text=self.display_name(self.selected_path),
+            wraplength=300
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        row = 1
+        self._building_fields = True
+        for key in EDITABLE_KEYS:
+            if key not in node:
+                continue
+
+            ttk.Label(self.fields_frame, text=key).grid(
+                row=row, column=0, sticky="w", padx=(0, 8), pady=3
+            )
+
+            value = node[key]
+            if key in BOOLEAN_KEYS:
+                var = tk.BooleanVar(value=bool(value))
+                widget = ttk.Checkbutton(self.fields_frame, variable=var)
+            else:
+                var = tk.StringVar(value=self.value_to_text(value))
+                widget = ttk.Entry(self.fields_frame, textvariable=var)
+
+            widget.grid(row=row, column=1, sticky="ew", pady=3)
+            self.field_vars[key] = var
+            row += 1
+
+        self.fields_frame.columnconfigure(1, weight=1)
+        self._building_fields = False
+
+    @staticmethod
+    def value_to_text(value):
+        if isinstance(value, (list, tuple)):
+            return ", ".join(str(item) for item in value)
+        return str(value)
+
+    def parse_value(self, key, text, old_value):
+        if key in NUMERIC_KEYS:
+            return int(float(text))
+        if key in BOOLEAN_KEYS:
+            return bool(text)
+        if isinstance(old_value, (list, tuple)):
+            parts = [part.strip() for part in str(text).split(",")]
+            values = [int(part) for part in parts]
+            return values
+        return text
+
+    def push_undo(self):
+        self.undo_stack.append(copy.deepcopy(self.theme_data))
+        if len(self.undo_stack) > 100:
+            self.undo_stack.pop(0)
+        self.redo_stack.clear()
+
+    def apply_fields(self):
+        if self.selected_path is None:
+            return
+
+        node = self.node_at_path(self.selected_path)
+        changed = False
+        updated = {}
+
+        try:
+            for key, var in self.field_vars.items():
+                old = node[key]
+                raw = var.get()
+                new = self.parse_value(key, raw, old)
+                updated[key] = new
+                if new != old:
+                    changed = True
+        except Exception as exc:
+            messagebox.showerror("Invalid value", str(exc))
+            return
+
+        if not changed:
+            return
+
+        self.push_undo()
+        for key, value in updated.items():
+            node[key] = value
+
+        self.write_and_refresh("Properties updated")
+
+
+    def path_exists(self, path):
+        try:
+            self.node_at_path(path)
+            return True
+        except Exception:
+            return False
+
+    def first_existing_path(self, candidates):
+        for path in candidates:
+            if self.path_exists(path):
+                return path
+        return None
+
+    @staticmethod
+    def recursively_set_enabled(node, enabled):
+        changed = False
+
+        if isinstance(node, dict):
+            if "SHOW" in node and node["SHOW"] != enabled:
+                node["SHOW"] = enabled
+                changed = True
+
+            if "INTERVAL" in node:
+                new_value = max(1, int(node.get("INTERVAL", 0) or 0)) if enabled else 0
+                if node["INTERVAL"] != new_value:
+                    node["INTERVAL"] = new_value
+                    changed = True
+
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    changed = ThemeEditorApp.recursively_set_enabled(value, enabled) or changed
+
+        elif isinstance(node, list):
+            for value in node:
+                if isinstance(value, (dict, list)):
+                    changed = ThemeEditorApp.recursively_set_enabled(value, enabled) or changed
+
+        return changed
+
+    @staticmethod
+    def offset_coordinates(node, amount=10):
+        if isinstance(node, dict):
+            if "X" in node:
+                try:
+                    node["X"] = int(node["X"]) + amount
+                except Exception:
+                    pass
+            if "Y" in node:
+                try:
+                    node["Y"] = int(node["Y"]) + amount
+                except Exception:
+                    pass
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    ThemeEditorApp.offset_coordinates(value, amount)
+        elif isinstance(node, list):
+            for value in node:
+                if isinstance(value, (dict, list)):
+                    ThemeEditorApp.offset_coordinates(value, amount)
+
+    @staticmethod
+    def unique_mapping_key(mapping, base):
+        candidate = base
+        counter = 2
+        while candidate in mapping:
+            candidate = f"{base}_{counter}"
+            counter += 1
+        return candidate
+
+    def select_path(self, target_path):
+        for item, path in self.path_by_item.items():
+            if path == target_path:
+                self.tree.selection_set(item)
+                self.tree.focus(item)
+                self.tree.see(item)
+                self.selected_path = path
+                self.build_property_fields()
+                return
+
+    def add_component(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add component")
+        dialog.geometry("390x430")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text="Choose a component", font="bold").pack(anchor="w", padx=12, pady=(12, 6))
+
+        listbox = tk.Listbox(dialog, exportselection=False)
+        for label in COMPONENT_PRESETS:
+            listbox.insert(tk.END, label)
+        listbox.pack(fill="both", expand=True, padx=12, pady=6)
+        listbox.selection_set(0)
+
+        def confirm():
+            selection = listbox.curselection()
+            if not selection:
+                return
+
+            label = listbox.get(selection[0])
+            dialog.destroy()
+
+            if label == "Custom text":
+                self.add_custom_text()
+                return
+            if label == "Static image":
+                self.add_static_image()
+                return
+
+            candidates = COMPONENT_PRESETS[label]
+            path = self.first_existing_path(candidates)
+            if path is None:
+                messagebox.showwarning(
+                    "Add component",
+                    f"The current theme does not contain a compatible block for “{label}”.\n\n"
+                    "This first editor version can enable existing sensor blocks, but it does not "
+                    "invent a complete sensor schema when the theme has none."
+                )
+                return
+
+            self.push_undo()
+            node = self.node_at_path(path)
+            changed = self.recursively_set_enabled(node, True)
+
+            if isinstance(node, dict) and "INTERVAL" not in node:
+                node["INTERVAL"] = 1
+                changed = True
+
+            self.populate_tree()
+            self.select_path(path)
+            self.write_and_refresh(f"Enabled component: {label}")
+
+        button_bar = ttk.Frame(dialog)
+        button_bar.pack(fill="x", padx=12, pady=12)
+        ttk.Button(button_bar, text="Cancel", command=dialog.destroy).pack(side="right")
+        ttk.Button(button_bar, text="Add", command=confirm).pack(side="right", padx=6)
+        listbox.bind("<Double-Button-1>", lambda _event: confirm())
+
+    def add_custom_text(self):
+        self.push_undo()
+
+        container = self.theme_data.setdefault("static_text", {})
+        key = self.unique_mapping_key(container, "custom_text")
+        container[key] = {
+            "TEXT": "New text",
+            "X": 120,
+            "Y": 120,
+            "WIDTH": 240,
+            "HEIGHT": 50,
+            "FONT": "roboto-mono/RobotoMono-Regular.ttf",
+            "FONT_SIZE": 24,
+            "FONT_COLOR": [255, 255, 255],
+            "BACKGROUND_COLOR": [0, 0, 0, 0],
+            "ALIGN": "center",
+            "ANCHOR": "mm",
+        }
+
+        path = ("static_text", key)
+        self.populate_tree()
+        self.select_path(path)
+        self.write_and_refresh("Custom text added")
+
+    def add_static_image(self):
+        filename = filedialog.askopenfilename(
+            parent=self.root,
+            title="Choose an image",
+            filetypes=(
+                ("Image files", "*.png *.jpg *.jpeg *.webp *.bmp"),
+                ("All files", "*.*"),
+            )
+        )
+        if not filename:
+            return
+
+        source = Path(filename)
+        destination_name = source.name
+        destination = THEME_DIR / destination_name
+
+        if destination.exists() and source.resolve() != destination.resolve():
+            destination_name = self.unique_mapping_key(
+                {path.name: True for path in THEME_DIR.iterdir()},
+                source.stem
+            ) + source.suffix
+            destination = THEME_DIR / destination_name
+
+        try:
+            if source.resolve() != destination.resolve():
+                shutil.copy2(source, destination)
+        except Exception as exc:
+            messagebox.showerror("Add image", str(exc))
+            return
+
+        self.push_undo()
+
+        container = self.theme_data.setdefault("static_images", {})
+        key = self.unique_mapping_key(container, "custom_image")
+        container[key] = {
+            "PATH": destination_name,
+            "X": 120,
+            "Y": 120,
+            "WIDTH": 120,
+            "HEIGHT": 120,
+        }
+
+        path = ("static_images", key)
+        self.populate_tree()
+        self.select_path(path)
+        self.write_and_refresh("Static image added")
+
+    def duplicate_selected(self):
+        if self.selected_path is None:
+            messagebox.showwarning("Duplicate", "Select an element first.")
+            return
+
+        if not self.selected_path or self.selected_path[0] not in ("static_text", "static_images"):
+            messagebox.showwarning(
+                "Duplicate",
+                "In this first version, only custom/static text and image elements can be duplicated.\n\n"
+                "Sensor blocks have fixed names used by the scheduler, so duplicating them would not "
+                "create a second working sensor."
+            )
+            return
+
+        parent = self.theme_data
+        for part in self.selected_path[:-1]:
+            parent = parent[part]
+
+        key = self.selected_path[-1]
+        if not isinstance(parent, dict):
+            messagebox.showwarning("Duplicate", "This element cannot be duplicated safely.")
+            return
+
+        self.push_undo()
+
+        new_key = self.unique_mapping_key(parent, f"{key}_copy")
+        parent[new_key] = copy.deepcopy(parent[key])
+        self.offset_coordinates(parent[new_key], 10)
+
+        new_path = self.selected_path[:-1] + (new_key,)
+        self.populate_tree()
+        self.select_path(new_path)
+        self.write_and_refresh("Element duplicated")
+
+    def enable_selected(self):
+        if self.selected_path is None:
+            messagebox.showwarning("Enable", "Select a component first.")
+            return
+
+        self.push_undo()
+        node = self.node_at_path(self.selected_path)
+        changed = self.recursively_set_enabled(node, True)
+
+        if isinstance(node, dict) and "INTERVAL" not in node and self.selected_path[:1] == ("STATS",):
+            node["INTERVAL"] = 1
+            changed = True
+
+        if not changed:
+            self.undo_stack.pop()
+            self.status_var.set("Selected component is already enabled")
+            return
+
+        self.build_property_fields()
+        self.write_and_refresh("Component enabled")
+
+    def disable_selected(self):
+        if self.selected_path is None:
+            messagebox.showwarning("Disable", "Select a component first.")
+            return
+
+        if self.selected_path[0] in ("static_text", "static_images"):
+            messagebox.showinfo(
+                "Disable",
+                "Static text and image entries do not have a universal enable flag.\n"
+                "Use Delete to remove them, or Undo to bring them back."
+            )
+            return
+
+        self.push_undo()
+        node = self.node_at_path(self.selected_path)
+        changed = self.recursively_set_enabled(node, False)
+
+        if isinstance(node, dict) and "INTERVAL" not in node:
+            node["INTERVAL"] = 0
+            changed = True
+
+        if not changed:
+            self.undo_stack.pop()
+            self.status_var.set("Selected component is already disabled")
+            return
+
+        self.build_property_fields()
+        self.write_and_refresh("Component disabled")
+
+    def delete_selected(self):
+        if self.selected_path is None:
+            messagebox.showwarning("Delete", "Select an element first.")
+            return
+
+        if self.selected_path[0] not in ("static_text", "static_images"):
+            messagebox.showinfo(
+                "Delete",
+                "Sensor sections are not deleted because the project may expect their YAML keys to exist.\n\n"
+                "The selected sensor will be disabled instead."
+            )
+            self.disable_selected()
+            return
+
+        if not messagebox.askyesno(
+            "Delete element",
+            f"Delete this theme element?\n\n{self.display_name(self.selected_path)}"
+        ):
+            return
+
+        parent = self.theme_data
+        for part in self.selected_path[:-1]:
+            parent = parent[part]
+
+        self.push_undo()
+        del parent[self.selected_path[-1]]
+
+        self.selected_path = None
+        self.populate_tree()
+        self.build_property_fields()
+        self.write_and_refresh("Element deleted")
+
+    def reset_selected(self):
+        if self.selected_path is None:
+            return
+
+        try:
+            original = copy.deepcopy(self.original_node_at_path(self.selected_path))
+        except Exception:
+            messagebox.showerror("Reset", "The selected element did not exist when the editor opened.")
+            return
+
+        self.push_undo()
+
+        parent = self.theme_data
+        for part in self.selected_path[:-1]:
+            parent = parent[part]
+        parent[self.selected_path[-1]] = original
+
+        self.build_property_fields()
+        self.write_and_refresh("Selected element restored")
+
+    def undo(self):
+        if not self.undo_stack:
+            self.status_var.set("Nothing to undo")
+            return
+        self.redo_stack.append(copy.deepcopy(self.theme_data))
+        self.theme_data = self.undo_stack.pop()
+        self.populate_tree()
+        self.selected_path = None
+        self.build_property_fields()
+        self.write_and_refresh("Undo")
+
+    def redo(self):
+        if not self.redo_stack:
+            self.status_var.set("Nothing to redo")
+            return
+        self.undo_stack.append(copy.deepcopy(self.theme_data))
+        self.theme_data = self.redo_stack.pop()
+        self.populate_tree()
+        self.selected_path = None
+        self.build_property_fields()
+        self.write_and_refresh("Redo")
+
+    def restore_session(self):
+        if not messagebox.askyesno(
+            "Restore session",
+            "Discard every change made since this editor was opened?"
+        ):
+            return
+
+        self.push_undo()
+        self.theme_data = copy.deepcopy(self.session_original)
+        self.populate_tree()
+        self.selected_path = None
+        self.build_property_fields()
+        self.write_and_refresh("Session restored")
+
+    def save_current(self):
+        save_yaml(THEME_FILE, self.theme_data)
+        self.status_var.set("Theme saved")
+        messagebox.showinfo("Theme editor", f"Saved:\n{THEME_FILE}")
+
+    def save_as_copy(self):
+        name = simpledialog.askstring(
+            "Save as copy",
+            "New theme folder name:",
+            initialvalue=f"{THEME_NAME}_custom",
+            parent=self.root
+        )
+        if not name:
+            return
+
+        if any(char in name for char in ("/", "\\", "..")):
+            messagebox.showerror("Save as copy", "Invalid folder name.")
+            return
+
+        destination = MAIN_DIRECTORY / "res" / "themes" / name
+        if destination.exists():
+            messagebox.showerror("Save as copy", "That theme folder already exists.")
+            return
+
+        shutil.copytree(THEME_DIR, destination)
+        save_yaml(destination / "theme.yaml", self.theme_data)
+        messagebox.showinfo("Save as copy", f"Theme copy created:\n{destination}")
+
+    def open_yaml(self):
+        if sys.platform == "win32":
+            os.startfile(THEME_FILE)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(THEME_FILE)])
+        else:
+            subprocess.Popen(["xdg-open", str(THEME_FILE)])
+
+    def apply_to_display(self):
+        save_yaml(THEME_FILE, self.theme_data)
+
+        if not messagebox.askyesno(
+            "Apply to display",
+            "This will stop the current main.py process and start it again with the edited theme.\n\nContinue?"
+        ):
+            return
+
+        try:
+            subprocess.run(
+                ["pkill", "-f", "python3 main.py"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(2)
+            subprocess.Popen([sys.executable, str(MAIN_DIRECTORY / "main.py")])
+            self.status_var.set("Applied to display")
+        except Exception as exc:
+            messagebox.showerror("Apply to display", str(exc))
+
+    def write_and_refresh(self, status):
+        save_yaml(THEME_FILE, self.theme_data)
+        self.status_var.set(status)
+        self.schedule_preview_refresh()
+
+    def schedule_preview_refresh(self):
+        if self._refresh_job is not None:
+            self.root.after_cancel(self._refresh_job)
+        self._refresh_job = self.root.after(180, self.refresh_preview)
+
+    def refresh_preview(self):
+        self._refresh_job = None
+        try:
+            screen = refresh_simulated_theme()
+            theme_data = load_yaml(THEME_FILE)
+
+            if theme_data.get("display", {}).get("DISPLAY_SIZE") == '2.1"':
+                mask_path = MAIN_DIRECTORY / "res/backgrounds/circular-mask.png"
+                if mask_path.is_file():
+                    mask = Image.open(mask_path).convert("RGBA")
+                    screen = screen.convert("RGBA")
+                    screen.alpha_composite(mask)
+
+            width = max(1, int(screen.width * self.preview_scale))
+            height = max(1, int(screen.height * self.preview_scale))
+            resized = screen.resize((width, height), Image.Resampling.LANCZOS)
+
+            self.preview_image_tk = ImageTk.PhotoImage(resized)
+            self.canvas.delete("all")
+            self.canvas.create_image(0, 0, image=self.preview_image_tk, anchor="nw", tags="preview")
+            self.canvas.configure(scrollregion=(0, 0, width, height))
+            self.draw_selected_outline()
+            self.status_var.set("Preview updated")
+        except Exception as exc:
+            self.status_var.set("Preview error")
+            self.canvas.delete("all")
+            self.canvas.create_text(
+                20, 20,
+                text=f"Error rendering theme:\n{exc}",
+                fill="white",
+                anchor="nw",
+                width=500
+            )
+
+    def draw_selected_outline(self):
+        if self.selected_path is None:
+            return
+        try:
+            node = self.node_at_path(self.selected_path)
+            x = int(node["X"]) * self.preview_scale
+            y = int(node["Y"]) * self.preview_scale
+            width = int(node.get("WIDTH", 40)) * self.preview_scale
+            height = int(node.get("HEIGHT", 20)) * self.preview_scale
+        except Exception:
+            return
+
+        self.canvas.create_rectangle(
+            x, y, x + width, y + height,
+            outline="#ffcc00",
+            width=2,
+            dash=(5, 3),
+            tags="selection"
+        )
+
+    def change_zoom(self, delta):
+        self.preview_scale = min(2.0, max(0.3, self.preview_scale + delta))
+        self.refresh_preview()
+
+    def on_preview_press(self, event):
+        if self.selected_path is None:
+            return
+        try:
+            node = self.node_at_path(self.selected_path)
+            x = int(node["X"])
+            y = int(node["Y"])
+        except Exception:
+            return
+
+        self.drag_origin = (
+            self.canvas.canvasx(event.x),
+            self.canvas.canvasy(event.y)
+        )
+        self.drag_element_origin = (x, y)
+
+    def on_preview_drag(self, event):
+        if self.drag_origin is None or self.drag_element_origin is None:
+            return
+
+        current_x = self.canvas.canvasx(event.x)
+        current_y = self.canvas.canvasy(event.y)
+        dx = (current_x - self.drag_origin[0]) / self.preview_scale
+        dy = (current_y - self.drag_origin[1]) / self.preview_scale
+
+        node = self.node_at_path(self.selected_path)
+        node["X"] = int(round(self.drag_element_origin[0] + dx))
+        node["Y"] = int(round(self.drag_element_origin[1] + dy))
+
+        self.canvas.delete("selection")
+        self.draw_selected_outline()
+
+    def on_preview_release(self, _event):
+        if self.drag_origin is None:
+            return
+
+        node = self.node_at_path(self.selected_path)
+        new_position = (node.get("X"), node.get("Y"))
+
+        if new_position != self.drag_element_origin:
+            # Rebuild the undo snapshot with the original coordinates.
+            snapshot = copy.deepcopy(self.theme_data)
+            snapshot_node = snapshot
+            for part in self.selected_path:
+                snapshot_node = snapshot_node[part]
+            snapshot_node["X"], snapshot_node["Y"] = self.drag_element_origin
+            self.undo_stack.append(snapshot)
+            self.redo_stack.clear()
+
+            self.build_property_fields()
+            self.write_and_refresh("Element moved")
+
+        self.drag_origin = None
+        self.drag_element_origin = None
+
+    def run(self):
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.root.mainloop()
+
+    def on_close(self):
+        if self.theme_data != self.session_original:
+            choice = messagebox.askyesnocancel(
+                "Close editor",
+                "Save the current theme before closing?\n\n"
+                "Yes: save and close\n"
+                "No: restore the theme from when this session opened\n"
+                "Cancel: keep editing"
+            )
+            if choice is None:
+                return
+            if choice:
+                save_yaml(THEME_FILE, self.theme_data)
+            else:
+                save_yaml(THEME_FILE, self.session_original)
+
+        self.root.destroy()
 
 
 if __name__ == "__main__":
-    def on_closing():
-        logger.debug("Exit Theme Editor...")
-        try:
-            sys.exit(0)
-        except:
-            os._exit(0)
-
-
-    x0 = 0
-    y0 = 0
-
-
-    def draw_zone(x0, y0, x1, y1):
-        x = min(x0, x1)
-        y = min(y0, y1)
-        width = max(x0, x1) - min(x0, x1)
-        height = max(y0, y1) - min(y0, y1)
-        if width > 0 and height > 0:
-            label_zone.place(x=x + RGB_LED_MARGIN, y=y + RGB_LED_MARGIN, width=width, height=height)
-        else:
-            label_zone.place_forget()
-
-
-    def on_button1_press(event):
-        global x0, y0
-        x0, y0 = event.x, event.y
-        label_zone.place_forget()
-
-
-    def on_button1_press_and_drag(event):
-        display_width, display_height = int(display.lcd.get_width() / RESIZE_FACTOR), int(
-            display.lcd.get_height() / RESIZE_FACTOR)
-        x1, y1 = event.x, event.y
-
-        # Do not draw zone outside of theme preview
-        if x1 < 0:
-            x1 = 0
-        elif x1 >= display_width:
-            x1 = display_width - 1
-        if y1 < 0:
-            y1 = 0
-        elif y1 >= display_height:
-            y1 = display_height - 1
-
-        label_coord.config(text='Drawing zone from [{:0.0f},{:0.0f}] to [{:0.0f},{:0.0f}]'.format(x0 * RESIZE_FACTOR,
-                                                                                                  y0 * RESIZE_FACTOR,
-                                                                                                  x1 * RESIZE_FACTOR,
-                                                                                                  y1 * RESIZE_FACTOR))
-        draw_zone(x0, y0, x1, y1)
-
-
-    def on_button1_release(event):
-        display_width, display_height = int(display.lcd.get_width() / RESIZE_FACTOR), int(
-            display.lcd.get_height() / RESIZE_FACTOR)
-        x1, y1 = event.x, event.y
-        if x1 != x0 or y1 != y0:
-            # Do not draw zone outside of theme preview
-            if x1 < 0:
-                x1 = 0
-            elif x1 >= display_width:
-                x1 = display_width - 1
-            if y1 < 0:
-                y1 = 0
-            elif y1 >= display_height:
-                y1 = display_height - 1
-
-            # Display drawn zone and coordinates
-            draw_zone(x0, y0, x1, y1)
-
-            # Display relative zone coordinates, to set in theme
-            x = min(x0, x1)
-            y = min(y0, y1)
-            width = max(x0, x1) - min(x0, x1)
-            height = max(y0, y1) - min(y0, y1)
-
-            label_coord.config(text='Zone: X={:0.0f}, Y={:0.0f}, width={:0.0f} height={:0.0f}'.format(x * RESIZE_FACTOR,
-                                                                                                      y * RESIZE_FACTOR,
-                                                                                                      width * RESIZE_FACTOR,
-                                                                                                      height * RESIZE_FACTOR))
-        else:
-            # Display click coordinates
-            label_coord.config(
-                text='X={:0.0f}, Y={:0.0f} (click and drag to draw a zone)'.format(x0 * RESIZE_FACTOR,
-                                                                                   y0 * RESIZE_FACTOR))
-
-
-    def on_zone_click(event):
-        label_zone.place_forget()
-
-
-    def on_mousewheel(event):
-        global RESIZE_FACTOR
-        if event.delta > 0:
-            RESIZE_FACTOR = RESIZE_FACTOR - 0.2
-        else:
-            RESIZE_FACTOR = RESIZE_FACTOR + 0.2
-
-
-    def on_zoom_plus():
-        global RESIZE_FACTOR
-        RESIZE_FACTOR = RESIZE_FACTOR - 0.2
-
-
-    def on_zoom_minus():
-        global RESIZE_FACTOR
-        RESIZE_FACTOR = RESIZE_FACTOR + 0.2
-
-
-    # Apply system locale to this program
-    locale.setlocale(locale.LC_ALL, '')
-
-    logger.debug("Starting Theme Editor...")
-
-    # Get theme file to edit
-    theme_file = config.THEME_DATA['PATH'] + "theme.yaml"
-    last_edit_time = os.path.getmtime(theme_file)
-    logger.debug("Using theme file " + theme_file)
-
-    # Open theme in default editor. You can also open the file manually in another program
-    logger.debug("Opening theme file in your default editor. If it does not work, open it manually in the "
-                 "editor of your choice")
-    if platform.system() == 'Darwin':  # macOS
-        subprocess.call(('open', config.MAIN_DIRECTORY / theme_file))
-    elif platform.system() == 'Windows':  # Windows
-        os.startfile(config.MAIN_DIRECTORY / theme_file)
-    else:  # linux variants
-        subprocess.call(('xdg-open', config.MAIN_DIRECTORY / theme_file))
-
-    # Load theme file and generate first preview
-    try:
-        refresh_theme()
-        error_in_theme = False
-    except Exception as e:
-        logger.error(f"Error in theme: {e}")
-        error_in_theme = True
-
-    while True:
-        display_width, display_height = int(display.lcd.get_width() / RESIZE_FACTOR), int(
-            display.lcd.get_height() / RESIZE_FACTOR)
-        current_resize_factor = RESIZE_FACTOR
-
-        # Create preview window
-        logger.debug("Opening theme preview window with static data")
-        viewer = tkinter.Tk()
-        viewer.title("Turing SysMon Theme Editor")
-        viewer.iconphoto(True, tkinter.PhotoImage(file=config.MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png"))
-        viewer.geometry(str(display_width + 2 * RGB_LED_MARGIN) + "x" + str(display_height + 2 * RGB_LED_MARGIN + 80))
-        viewer.protocol("WM_DELETE_WINDOW", on_closing)
-        viewer.call('wm', 'attributes', '.', '-topmost', '1')  # Preview window always on top
-        viewer.config(cursor="cross")
-
-        # Display RGB backplate LEDs color as background color
-        led_color = config.THEME_DATA['display'].get("DISPLAY_RGB_LED", (255, 255, 255))
-        if isinstance(led_color, str):
-            led_color = tuple(map(int, led_color.split(', ')))
-        viewer.configure(bg='#%02x%02x%02x' % led_color)
-
-        circular_mask = Image.open(config.MAIN_DIRECTORY / "res/backgrounds/circular-mask.png")
-
-        # Display preview in the window
-        if not error_in_theme:
-            screen_image = display.lcd.screen_image
-            if config.THEME_DATA["display"].get("DISPLAY_SIZE", '3.5"') == '2.1"':
-                # This is a circular screen: apply a circle mask over the preview
-                screen_image.paste(circular_mask, mask=circular_mask)
-            display_image = ImageTk.PhotoImage(
-                screen_image.resize(
-                    (int(screen_image.width / RESIZE_FACTOR), int(screen_image.height / RESIZE_FACTOR))))
-        else:
-            size = display_width if display_width < display_height else display_height
-            display_image = ImageTk.PhotoImage(ERROR_IN_THEME.resize((size, size)))
-        viewer_picture = tkinter.Label(viewer, image=display_image, borderwidth=0)
-        viewer_picture.place(x=RGB_LED_MARGIN, y=RGB_LED_MARGIN)
-
-        # Allow to click on preview to show coordinates and draw zones
-        viewer_picture.bind("<ButtonPress-1>", on_button1_press)
-        viewer_picture.bind("<B1-Motion>", on_button1_press_and_drag)
-        viewer_picture.bind("<ButtonRelease-1>", on_button1_release)
-
-        # Allow to resize editor using mouse wheel or buttons
-        viewer.bind_all("<MouseWheel>", on_mousewheel)
-
-        zoom_plus_btn = tkinter.Button(viewer, text="Zoom +", command=lambda: on_zoom_plus())
-        zoom_plus_btn.place(x=RGB_LED_MARGIN, y=display_height + 2 * RGB_LED_MARGIN, height=30,
-                            width=int(display_width / 2))
-
-        zoom_minus_btn = tkinter.Button(viewer, text="Zoom -", command=lambda: on_zoom_minus())
-        zoom_minus_btn.place(x=int(display_width / 2) + RGB_LED_MARGIN, y=display_height + 2 * RGB_LED_MARGIN,
-                             height=30, width=int(display_width / 2))
-
-        label_coord = tkinter.Label(viewer, text="Click or draw a zone to show coordinates")
-        label_coord.place(x=0, y=display_height + 2 * RGB_LED_MARGIN + 40,
-                          width=display_width + 2 * RGB_LED_MARGIN)
-
-        label_info = tkinter.Label(viewer, text="This preview will reload when theme file is updated")
-        label_info.place(x=0, y=display_height + 2 * RGB_LED_MARGIN + 60,
-                         width=display_width + 2 * RGB_LED_MARGIN)
-
-        label_zone = tkinter.Label(viewer, bg='#%02x%02x%02x' % tuple(map(lambda x: 255 - x, led_color)))
-        label_zone.bind("<ButtonRelease-1>", on_zone_click)
-        viewer.update()
-
-        logger.debug(
-            "You can now edit the theme file in the editor. When you save your changes, the preview window will "
-            "update automatically")
-
-        while current_resize_factor == RESIZE_FACTOR:
-            # Every time the theme file is modified: reload preview
-            if os.path.exists(theme_file) and os.path.getmtime(theme_file) > last_edit_time:
-                logger.debug("The theme file has been updated, the preview window will refresh")
-                try:
-                    refresh_theme()
-                    error_in_theme = False
-                except Exception as e:
-                    logger.error(f"Error in theme: {e}")
-                    error_in_theme = True
-                last_edit_time = os.path.getmtime(theme_file)
-
-                # Update the preview.png that is in the theme folder
-                display.lcd.screen_image.save(config.THEME_DATA['PATH'] + "preview.png", "PNG")
-
-                # Display new picture
-                if not error_in_theme:
-                    screen_image = display.lcd.screen_image
-                    if config.THEME_DATA["display"].get("DISPLAY_SIZE", '3.5"') == '2.1"':
-                        # This is a circular screen: apply a circle mask over the preview
-                        screen_image.paste(circular_mask, mask=circular_mask)
-                    display_image = ImageTk.PhotoImage(
-                        screen_image.resize(
-                            (int(screen_image.width / RESIZE_FACTOR), int(screen_image.height / RESIZE_FACTOR))))
-                else:
-                    size = display_width if display_width < display_height else display_height
-                    display_image = ImageTk.PhotoImage(ERROR_IN_THEME.resize((size, size)))
-                viewer_picture.config(image=display_image)
-
-                # Refresh RGB backplate LEDs color
-                led_color = config.THEME_DATA['display'].get("DISPLAY_RGB_LED", (255, 255, 255))
-                if isinstance(led_color, str):
-                    led_color = tuple(map(int, led_color.split(', ')))
-                viewer.configure(bg='#%02x%02x%02x' % led_color)
-                label_zone.configure(bg='#%02x%02x%02x' % tuple(map(lambda x: 255 - x, led_color)))
-
-            # Regularly update the viewer window even if content unchanged, or it will appear as "not responding"
-            viewer.update()
-
-            time.sleep(0.1)
-
-        # Zoom level changed, reload editor
-        logger.info(
-            f"Zoom level changed from {current_resize_factor:.1f} to {RESIZE_FACTOR:.1f}, reloading theme editor")
-        viewer.destroy()
+    ThemeEditorApp().run()

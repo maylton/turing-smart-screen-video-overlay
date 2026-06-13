@@ -1,0 +1,65 @@
+author: "@mathoudebine"
+
+display:
+  DISPLAY_SIZE: 2.1"
+  DISPLAY_ORIENTATION: landscape
+  DISPLAY_RGB_LED: 236, 214, 180
+
+video:
+  ENABLED: true
+  MODE: native
+  PATH: /mnt/SDCARD/video/gengar.mp4
+  OVERLAY: true
+
+STATS:
+  CPU:
+    PERCENTAGE:
+      INTERVAL: 5
+      TEXT:
+        SHOW: false
+        SHOW_UNIT: true
+        X: 270
+        Y: 265
+        FONT: jetbrains-mono/JetBrainsMono-Light.ttf
+        FONT_SIZE: 26
+        FONT_COLOR: 255, 255, 255
+      GRAPH:
+        SHOW: true
+        X: 149
+        Y: 377
+        WIDTH: 192
+        HEIGHT: 9
+        MIN_VALUE: 0
+        MAX_VALUE: 100
+        BAR_COLOR: 236, 214, 180
+        BAR_OUTLINE: false
+        BACKGROUND_COLOR: 255, 255, 255
+
+    TEMPERATURE:
+      INTERVAL: 5
+      TEXT:
+        SHOW: true
+        SHOW_UNIT: true
+        X: 203
+        Y: 390
+        WIDTH: 95
+        HEIGHT: 36
+        FONT: roboto/Roboto-Black.ttf
+        FONT_SIZE: 25
+        FONT_COLOR: 255, 255, 255
+        ALIGN: left
+        ANCHOR: lt
+  DATE:
+    INTERVAL: 1
+    HOUR: # Format (12/24h, timezone translations) will match your computer locale
+      TEXT:
+        FORMAT: short # short (6:48 PM) / medium (6:48:53 PM) / long (6:48:53 PM UTC) / full (6:48:53 PM Coordinated Universal Time)
+        SHOW: true
+        X: 86
+        Y: 34
+        WIDTH: 300
+        HEIGHT: 103
+        ANCHOR: mm
+        FONT: roboto-mono/RobotoMono-Bold.ttf
+        FONT_SIZE: 80
+        FONT_COLOR: 255, 255, 255
