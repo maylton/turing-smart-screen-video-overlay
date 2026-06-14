@@ -45,6 +45,7 @@ SCREEN_CONTROL = ROOT / "screen-control.py"
 GTK_CHECKUP = ROOT / "gtk-checkup.py"
 UI_SETTINGS_DIR = Path.home() / ".config" / "turing-smart-screen"
 UI_SETTINGS_FILE = UI_SETTINGS_DIR / "ui-settings.conf"
+START_MINIMIZED_FILE = UI_SETTINGS_DIR / "start-minimized.conf"
 
 
 
@@ -61,6 +62,27 @@ def save_color_scheme(value: str) -> None:
     temporary = UI_SETTINGS_FILE.with_suffix(".tmp")
     temporary.write_text(value + "\n", encoding="utf-8")
     os.replace(temporary, UI_SETTINGS_FILE)
+
+
+
+def load_start_minimized() -> bool:
+    try:
+        value = START_MINIMIZED_FILE.read_text(
+            encoding="utf-8"
+        ).strip().lower()
+    except OSError:
+        return False
+    return value in {"1", "true", "yes", "on"}
+
+
+def save_start_minimized(enabled: bool) -> None:
+    UI_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = START_MINIMIZED_FILE.with_suffix(".tmp")
+    temporary.write_text(
+        "true\n" if enabled else "false\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, START_MINIMIZED_FILE)
 
 
 def apply_color_scheme(value: str) -> None:
@@ -799,6 +821,20 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         )
         appearance.add(self.style_row)
 
+        self.start_minimized_row = Adw.SwitchRow(
+            title="Start minimized to tray",
+            subtitle=(
+                "Open in the background and keep only the system tray icon "
+                "visible"
+            ),
+        )
+        self.start_minimized_row.set_active(load_start_minimized())
+        self.start_minimized_row.connect(
+            "notify::active",
+            self.on_start_minimized_changed,
+        )
+        appearance.add(self.start_minimized_row)
+
         box.append(appearance)
 
         maintenance = Adw.PreferencesGroup(
@@ -847,6 +883,20 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         }
         self.toast(labels[value])
 
+
+    def on_start_minimized_changed(self, row, _param):
+        enabled = row.get_active()
+        try:
+            save_start_minimized(enabled)
+        except Exception as exc:
+            self.toast(f"Could not save startup preference: {exc}")
+            return
+
+        self.toast(
+            "Application will start minimized to tray"
+            if enabled
+            else "Application will open normally"
+        )
 
     def run_checkup(self):
         if not GTK_CHECKUP.is_file():
@@ -1493,7 +1543,27 @@ class SmartScreenApplication(Adw.Application):
     def __init__(self):
         super().__init__(
             application_id=APP_ID,
-            flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
+            flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE,
+        )
+
+        self.force_minimized_once = False
+        self.force_show_once = False
+
+        self.add_main_option(
+            "minimized",
+            0,
+            GLib.OptionFlags.NONE,
+            GLib.OptionArg.NONE,
+            "Start minimized to the system tray",
+            None,
+        )
+        self.add_main_option(
+            "show",
+            0,
+            GLib.OptionFlags.NONE,
+            GLib.OptionArg.NONE,
+            "Open and show the main window",
+            None,
         )
 
         GLib.set_application_name(APP_NAME)
@@ -1528,11 +1598,41 @@ class SmartScreenApplication(Adw.Application):
         self.tray_item.stop()
         Adw.Application.do_shutdown(self)
 
+    def do_command_line(self, command_line):
+        options = command_line.get_options_dict()
+
+        self.force_minimized_once = bool(
+            options.contains("minimized")
+        )
+        self.force_show_once = bool(options.contains("show"))
+
+        self.activate()
+        return 0
+
     def do_activate(self):
         window = self.props.active_window
+        first_activation = window is None
+
         if window is None:
             window = SmartScreenWindow(self)
-        window.present()
+
+        should_minimize = (
+            self.force_minimized_once
+            or (
+                first_activation
+                and load_start_minimized()
+                and not self.force_show_once
+            )
+        )
+
+        self.force_minimized_once = False
+        force_show = self.force_show_once
+        self.force_show_once = False
+
+        if should_minimize and not force_show:
+            window.set_visible(False)
+        else:
+            window.present()
 
     def show_about(self, *_args):
         window = self.props.active_window

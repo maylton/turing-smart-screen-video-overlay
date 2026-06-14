@@ -1,12 +1,57 @@
 #!/usr/bin/env python3
-"""Small command-line controller for the configured Turing display."""
-
 from __future__ import annotations
 
 import sys
 import time
 
 from library.display import display
+
+
+def power_off() -> None:
+    lcd = display.lcd
+    if lcd is None:
+        raise RuntimeError("The configured display revision is unknown")
+
+    # This helper runs without main.py's scheduler, so queued commands would
+    # never be sent. Force synchronous USB/serial writes.
+    lcd.update_queue = None
+    lcd.InitializeComm()
+
+    try:
+        lcd.SetBrightness(0)
+    except Exception:
+        pass
+
+    display.turn_off()
+    time.sleep(0.25)
+
+    try:
+        display.turn_off()
+    except Exception:
+        pass
+
+    time.sleep(0.25)
+
+    try:
+        lcd.closeSerial()
+    except Exception:
+        pass
+
+
+def power_on() -> None:
+    lcd = display.lcd
+    if lcd is None:
+        raise RuntimeError("The configured display revision is unknown")
+
+    lcd.update_queue = None
+    lcd.InitializeComm()
+    display.turn_on()
+    time.sleep(0.25)
+
+    try:
+        lcd.closeSerial()
+    except Exception:
+        pass
 
 
 def main() -> int:
@@ -16,21 +61,8 @@ def main() -> int:
         print("Usage: screen-control.py off|on", file=sys.stderr)
         return 2
 
-    if display.lcd is None:
-        print("The configured display revision is unknown.", file=sys.stderr)
-        return 1
-
     try:
-        # Initialize communication without resetting or redrawing the screen.
-        display.lcd.InitializeComm()
-
-        if command == "off":
-            display.turn_off()
-        else:
-            display.turn_on()
-
-        # Give queued USB/serial commands a moment to leave the process.
-        time.sleep(0.5)
+        power_off() if command == "off" else power_on()
         return 0
     except Exception as exc:
         print(f"Display power command failed: {exc}", file=sys.stderr)
