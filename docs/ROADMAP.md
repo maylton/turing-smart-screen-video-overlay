@@ -328,3 +328,27 @@ token references are resolved only when a semantic token mapping is supplied.
 Still pending for later phases: GTK controls for component presets, richer
 component detection, complete layout presets, automatic contrast checks, and
 preview-assisted application.
+
+## Theme Composition Presets
+
+Composition presets combine one semantic visual preset with a set of component
+rules. They provide a pure foundation for broader visual systems such as a video
+HUD, compact metrics grid, or high-contrast readout. A composition first applies
+the semantic token mapping to a theme copy, then applies matching component
+presets to existing nodes only.
+
+Initial composition presets:
+
+- `video_hud_readable`;
+- `compact_metrics_grid`;
+- `monochrome_accessible_readout`.
+
+Composition rules match existing nodes by path tokens and existing property
+keys. They do not create missing elements, do not add missing properties, do not
+save YAML, do not render previews, and do not call the GTK editor. Geometry,
+text content, media paths, and unrelated sibling elements remain preserved by
+default.
+
+Still pending for later phases: editor integration, richer rule authoring,
+complete generated layouts, preview comparison, contrast scoring, and
+accessibility-specific validation.
