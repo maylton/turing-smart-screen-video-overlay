@@ -220,3 +220,44 @@ discovered inside the selected theme directory with `.png`, `.jpg`, `.jpeg`,
 Still pending for later roadmap stages: context-aware preset filtering, compound
 quick presets, property validation, live preview/debounce behavior, and broader
 theme editor module extraction.
+
+## Theme text and effect presets
+
+Text style presets are compound helpers for the selected text-like element.
+Unlike simple property presets, one text style preset can fill several existing
+property controls at once. They are filtered by text category so clock presets
+do not appear for metric percentages, and metric presets do not appear for
+labels. They still do not save automatically: values remain editable and are
+persisted only when `Apply property changes` is clicked.
+
+Initial text style presets:
+
+- `Large clock`;
+- `Centered title`;
+- `Metric value`;
+- `Compact value`;
+- `Small label`;
+- `Caption`.
+
+Text style presets only fill controls for properties already present on the
+selected node. They do not add missing YAML keys, do not change `X` or `Y`, and
+do not change text content, format, font, colors, visibility, intervals,
+backgrounds, or effects.
+
+Text effect presets fill the controls in the existing Text effects dialog and
+are applied to the selected element only after the dialog's `Apply` response.
+Initial effect presets:
+
+- `None`;
+- `Soft shadow`;
+- `Strong shadow`;
+- `Subtle glow`;
+- `Neon glow`;
+- `Thin outline`;
+- `High-contrast outline`;
+- `Glow + outline`;
+- `Video overlay readable`.
+
+Still pending for later roadmap stages: graph presets, radial indicator presets,
+coordinate and size validation, palette/global style presets, live preview,
+debounce behavior, multi-element application, and wizard-style theme creation.
