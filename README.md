@@ -1,5 +1,43 @@
 # ![Icon](https://raw.githubusercontent.com/mathoudebine/turing-smart-screen-python/main/res/icons/monitor-icon-17865/24.png) turing-smart-screen-python
 
+
+<!-- MAYLTON_FORK_OVERVIEW -->
+> [!NOTE]
+> This repository is a Linux-focused fork that adds a GTK4/Libadwaita
+> configuration center, safe single-owner display runtime coordination,
+> and native Rev. C video/storage management. The native video workflow
+> has been physically validated on a Turing Smart Screen Rev. C 2.1-inch
+> display (ROM 88).
+
+## Fork quick start
+
+```bash
+git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
+cd turing-smart-screen-video-overlay
+./install.sh
+turing-smart-screen
+```
+
+Use `./install.sh --autostart` to create a desktop autostart entry.
+Running the installer again updates the application while preserving
+`config.yaml`, custom themes, and local video folders by default.
+
+- [Installation and update guide](docs/INSTALLATION.md)
+- [Project roadmap](docs/ROADMAP.md)
+- [Media preparation editor roadmap](https://github.com/maylton/turing-smart-screen-video-overlay/issues/7)
+
+Current fork highlights:
+
+- GTK4/Libadwaita desktop configuration center;
+- Noctalia-compatible tray integration;
+- exclusive process-wide device ownership and safe shutdown;
+- structured native-video CLI and GTK manager;
+- media compatibility checks using `ffprobe`;
+- SD/internal video listing, upload, playback, stop, size, and delete.
+
+---
+
+
 > [!WARNING]
 > 
 > This project is **not affiliated, associated, authorized, endorsed by, or in any way officially connected with Turing / XuanFang / Kipye brands**, or any of theirs subsidiaries, affiliates, manufacturers or sellers of their products. All product and company names are the registered trademarks of their original owners.
@@ -19,7 +57,7 @@ Supported operating systems : macOS, Windows, Linux (incl. Raspberry Pi), basica
 | ✅ Turing Smart Screen / TURZX                                                                                                                                                                                                                                                                                                                                                                  |
 |------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | <img src="res/docs/turing.webp" width="30%" height="30%"/> <img src="res/docs/turing46inch.png" width="30%" height="30%"/> <img src="res/docs/turing5inch.png" width="30%" height="30%"/> <br/> <img src="res/docs/turing2inch.webp" width="30%" height="30%"/> <img src="res/docs/turing8inch.png" width="30%" height="30%"/> <img src="res/docs/turing8inch.webp" width="30%" height="30%"/> |
-| All available sizes and hardware revisions supported: **2.1" / 2.8" / 3.5" / 4.6" / 5" / 5.2" / 8.0" / 8.8" / 9.2" / 12.3"** <br/>UART and USB protocols supported. Note: no video or storage support for now                                                                                                                                                                                  |
+| All available sizes and hardware revisions supported for the inherited system-monitor functionality: **2.1" / 2.8" / 3.5" / 4.6" / 5" / 5.2" / 8.0" / 8.8" / 9.2" / 12.3"** <br/>UART and USB protocols are supported. Native video and storage management in this fork is currently validated for the Turing Rev. C 2.1-inch profile; other models remain unverified for those media-specific operations.                                                                                                                                                                                  |
 
 | ✅ XuanFang 3.5"                                   | ✅ [UsbPCMonitor 3.5" / 5"](https://aliexpress.com/item/1005003931363455.html)                       | ✅ Kipye Qiye Smart Display 3.5"                                                  |
 |---------------------------------------------------|-----------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|

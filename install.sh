@@ -125,6 +125,9 @@ RSYNC_ARGS=(
   --exclude '*.pcapng'
   --exclude '.gtk-ui-backups/'
   --exclude '.theme-editor-backups/'
+  --exclude '.test-environment/'
+  --exclude '.test-media/'
+  --exclude '.packaging-test/'
   --exclude 'res/themes/*/theme.yaml.tmp'
   --exclude 'res/themes/*/theme.yaml.editor-backup'
   --exclude 'res/themes/*/theme.yaml.before-sequence-repair'
@@ -187,26 +190,65 @@ fi
 $SUDO rm -rf "$PREFIX/venv"
 
 if [[ "$MODE" == "system" ]]; then
-  sudo /usr/bin/python3 -m venv "$PREFIX/venv"
+  sudo /usr/bin/python3 -m venv --system-site-packages "$PREFIX/venv"
   if [[ -f "$PREFIX/requirements.txt" ]]; then
-    sudo "$PREFIX/venv/bin/pip" install --upgrade pip
-    sudo "$PREFIX/venv/bin/pip" install -r "$PREFIX/requirements.txt"
+    sudo "$PREFIX/venv/bin/python3" -m pip install --upgrade pip
+    sudo "$PREFIX/venv/bin/python3" -m pip install -r "$PREFIX/requirements.txt"
   fi
 else
-  /usr/bin/python3 -m venv "$PREFIX/venv"
+  /usr/bin/python3 -m venv --system-site-packages "$PREFIX/venv"
   if [[ -f "$PREFIX/requirements.txt" ]]; then
-    "$PREFIX/venv/bin/pip" install --upgrade pip
-    "$PREFIX/venv/bin/pip" install -r "$PREFIX/requirements.txt"
+    "$PREFIX/venv/bin/python3" -m pip install --upgrade pip
+    "$PREFIX/venv/bin/python3" -m pip install -r "$PREFIX/requirements.txt"
   fi
 fi
 
-# Validate the installed GTK frontend and backend.
-$SUDO /usr/bin/python3 -m py_compile "$PREFIX/configure-gtk.py"
-if [[ -x "$PREFIX/venv/bin/python3" ]]; then
-  $SUDO "$PREFIX/venv/bin/python3" -m py_compile "$PREFIX/main.py"
-  if [[ -f "$PREFIX/screen-control.py" ]]; then
-    $SUDO "$PREFIX/venv/bin/python3" -m py_compile "$PREFIX/screen-control.py"
-  fi
+# Validate both the system GTK runtime and the project backend environment.
+echo "Validating GTK4, Libadwaita and project dependencies..."
+/usr/bin/python3 -c '
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gtk
+print("System GTK4 and Libadwaita imports OK")
+'
+
+$SUDO "$PREFIX/venv/bin/python3" -c '
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gtk
+import PIL
+import ruamel.yaml
+print("Project venv GTK, Pillow and ruamel.yaml imports OK")
+'
+
+PYTHON_ENTRYPOINTS=(
+  configure-gtk.py
+  configure_gtk_app.py
+  main.py
+  screen-control.py
+  theme-editor-gtk.py
+  video-manager-gtk.py
+  video_manager_gtk_app.py
+  video_manager.py
+  video_manager_backend.py
+  gtk-checkup.py
+  library/runtime.py
+  library/video_media.py
+)
+
+for relative in "${PYTHON_ENTRYPOINTS[@]}"; do
+  [[ -f "$PREFIX/$relative" ]] || continue
+  $SUDO "$PREFIX/venv/bin/python3" -m py_compile "$PREFIX/$relative"
+done
+
+if [[ -f "$PREFIX/gtk-checkup.py" ]]; then
+  echo "Running installed application checkup..."
+  (
+    cd "$PREFIX"
+    /usr/bin/python3 "$PREFIX/gtk-checkup.py" "$PREFIX"
+  )
 fi
 
 # Native launcher.

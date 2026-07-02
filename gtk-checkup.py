@@ -40,6 +40,10 @@ def main() -> int:
         "library/video_media.py",
         "tests/test_runtime_lock.py",
         "tests/test_video_media.py",
+        "tests/test_packaging.py",
+        "scripts/test-install.py",
+        "docs/INSTALLATION.md",
+        "docs/ROADMAP.md",
         "theme-editor.py",
         "main.py",
         "config.yaml",
@@ -100,6 +104,7 @@ def main() -> int:
             "-q",
             "tests.test_runtime_lock",
             "tests.test_video_media",
+            "tests.test_packaging",
         ],
         cwd=str(root),
         text=True,
@@ -118,7 +123,14 @@ def main() -> int:
             [
                 str(venv_python),
                 "-c",
-                "import PIL, ruamel.yaml; print('Pillow and ruamel.yaml OK')",
+                (
+                    "import gi; "
+                    "gi.require_version('Gtk', '4.0'); "
+                    "gi.require_version('Adw', '1'); "
+                    "from gi.repository import Adw, Gtk; "
+                    "import PIL, ruamel.yaml; "
+                    "print('GTK, Pillow and ruamel.yaml OK')"
+                ),
             ],
             cwd=str(root),
             text=True,
@@ -127,7 +139,7 @@ def main() -> int:
         )
         checks.append(result(
             probe.returncode == 0,
-            "Project virtual environment imports",
+            "Project virtual environment imports (GTK, Pillow, ruamel.yaml)",
             (probe.stdout or probe.stderr).strip(),
         ))
 
