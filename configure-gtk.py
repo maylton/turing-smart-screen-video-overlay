@@ -59,6 +59,28 @@ def install_runtime_patches(app):
     original_init = app.SmartScreenWindow.__init__
     original_refresh_overview = app.SmartScreenWindow.refresh_overview
 
+    def reap_monitor_child(self, timeout=2.0):
+        """Collect a monitor process started by this GTK application."""
+        process = (
+            self.monitor_process
+            if self.monitor_process is not None
+            else self.runtime_controller.child
+        )
+        if process is None:
+            return False
+
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return False
+        except (ChildProcessError, OSError):
+            if process.poll() is None:
+                return False
+
+        if self.runtime_controller.child is process:
+            self.runtime_controller.child = None
+        return True
+
     def patched_init(self, application):
         self.runtime_controller = MonitorController(
             root=app.ROOT,
@@ -249,6 +271,8 @@ def install_runtime_patches(app):
         process = self.monitor_process
         if process is not None and process.poll() is not None:
             self.toast(f"Monitor exited with status {process.returncode}")
+            reap_monitor_child(self, timeout=0.0)
+            self.monitor_process = None
         self.refresh_overview()
         return False
 
@@ -271,6 +295,7 @@ def install_runtime_patches(app):
         def worker():
             try:
                 result = self.runtime_controller.terminate_monitor()
+                reap_monitor_child(self)
                 error = ""
             except Exception as exc:
                 result = None
@@ -305,6 +330,7 @@ def install_runtime_patches(app):
                 state = self.runtime_controller.state()
                 if state.monitor_running:
                     self.runtime_controller.terminate_monitor()
+                    reap_monitor_child(self)
                 elif state.busy:
                     raise DeviceBusyError(state.owner)
 
