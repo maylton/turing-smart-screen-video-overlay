@@ -233,9 +233,13 @@ PYTHON_ENTRYPOINTS=(
   video_manager_gtk_app.py
   video_manager.py
   video_manager_backend.py
+  media-preparation-gtk.py
+  media_preparation_gtk_app.py
+  media-preparation.py
   gtk-checkup.py
   library/runtime.py
   library/video_media.py
+  library/media_preparation.py
 )
 
 for relative in "${PYTHON_ENTRYPOINTS[@]}"; do
@@ -364,6 +368,7 @@ echo "  - GTK4/Libadwaita interface"
 echo "  - Noctalia-compatible StatusNotifierItem tray"
 echo "  - Compatible-theme filtering and blank-theme creation"
 echo "  - Automatic restoration of the last selected theme"
+echo "  - Native video management and media preparation editor"
 echo "  - Display power-off control"
 echo
 echo "Close any older instance and launch:"

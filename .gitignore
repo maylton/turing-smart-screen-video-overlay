@@ -180,3 +180,6 @@ __pycache__/
 config.yaml.original-da-branch
 *.before-shutdown-fix
 *.before-video-shutdown-fix
+
+# Local media-editor validation
+.media-preparation-test/
