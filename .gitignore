@@ -172,3 +172,11 @@ __pycache__/
 *~
 *.swp
 *.swo
+
+# Local hardware and packaging test artifacts
+.test-environment/
+.test-media/
+.packaging-test/
+config.yaml.original-da-branch
+*.before-shutdown-fix
+*.before-video-shutdown-fix
