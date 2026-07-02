@@ -34,6 +34,7 @@ Current fork highlights:
 - structured native-video CLI and GTK manager;
 - media compatibility checks using `ffprobe`;
 - profile-aware GIF/video preparation with advanced framing, storage estimates, preview, and guarded upload;
+- safe automatic display detection with compatible revision/theme loading;
 - SD/internal video listing, upload, playback, stop, size, and delete.
 
 ---

@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 try:
@@ -43,6 +44,7 @@ VIDEO_MANAGER = ROOT / "video-manager-gtk.py"
 MAIN_PROGRAM = ROOT / "main.py"
 SCREEN_CONTROL = ROOT / "screen-control.py"
 GTK_CHECKUP = ROOT / "gtk-checkup.py"
+DISPLAY_DETECTION = ROOT / "display-detection.py"
 UI_SETTINGS_DIR = Path.home() / ".config" / "turing-smart-screen"
 UI_SETTINGS_FILE = UI_SETTINGS_DIR / "ui-settings.conf"
 START_MINIMIZED_FILE = UI_SETTINGS_DIR / "start-minimized.conf"
@@ -308,6 +310,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         self.current_theme = read_current_theme()
         self.monitor_process: subprocess.Popen | None = None
         self.saved_color_scheme = load_saved_color_scheme()
+        self.detection_running = False
         apply_color_scheme(self.saved_color_scheme)
 
         self.toast_overlay = Adw.ToastOverlay()
@@ -362,7 +365,8 @@ class SmartScreenWindow(Adw.ApplicationWindow):
 
         # Apply the theme stored in config.yaml automatically when the app
         # opens. This makes the application suitable for desktop autostart.
-        GLib.timeout_add(900, self.auto_apply_last_theme)
+        GLib.timeout_add(220, self.auto_detect_display)
+        GLib.timeout_add(1800, self.auto_apply_last_theme)
 
     def install_actions(self):
         actions = {
@@ -373,12 +377,68 @@ class SmartScreenWindow(Adw.ApplicationWindow):
             "stop-monitor": self.stop_monitor,
             "turn-off-display": self.turn_off_display,
             "refresh": lambda *_: self.refresh_all(),
+            "detect-display": self.detect_display,
         }
 
         for name, callback in actions.items():
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", callback)
             self.add_action(action)
+
+    def auto_detect_display(self):
+        self.detect_display()
+        return False
+
+    def detect_display(self, *_args):
+        if self.detection_running:
+            return
+        self.detection_running = True
+        self.detection_status_row.set_subtitle("Scanning USB and serial descriptors…")
+
+        def worker():
+            try:
+                result = subprocess.run(
+                    [project_python(), str(DISPLAY_DETECTION), "--json", "apply"],
+                    cwd=str(ROOT),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                import json
+                payload = json.loads((result.stdout or "").strip())
+                GLib.idle_add(
+                    self.finish_display_detection,
+                    result.returncode,
+                    payload,
+                    result.stderr,
+                )
+            except Exception as exc:
+                GLib.idle_add(self.finish_display_detection, 1, None, str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_display_detection(self, code, payload, stderr):
+        self.detection_running = False
+        if code or not isinstance(payload, dict) or not payload.get("ok"):
+            error = (payload or {}).get("error", {}) if isinstance(payload, dict) else {}
+            message = error.get("message") or (stderr or "Detection failed").strip()
+            self.detection_status_row.set_subtitle(message)
+            return False
+
+        data = payload.get("data") or {}
+        selected = data.get("selected") or {}
+        subtitle = (
+            f"{selected.get('label', '')} · {selected.get('device') or ''}"
+        ).strip(" ·")
+        self.detection_status_row.set_subtitle(
+            subtitle or data.get("message", "Detection completed")
+        )
+        self.current_theme = read_current_theme()
+        self.refresh_all()
+        self.toast_overlay.add_toast(
+            Adw.Toast(title=data.get("message", "Detection completed"), timeout=4)
+        )
+        return False
 
     def build_sidebar(self) -> Gtk.Widget:
         wrap = Gtk.Box(
@@ -523,8 +583,21 @@ class SmartScreenWindow(Adw.ApplicationWindow):
             title="Monitor process",
             icon_name="media-playback-start-symbolic",
         )
+        self.detection_status_row = Adw.ActionRow(
+            title="Connected display",
+            subtitle="Detection has not run yet",
+            icon_name="video-display-symbolic",
+        )
+        self.detection_status_row.add_suffix(
+            Gtk.Button(
+                label="Detect now",
+                valign=Gtk.Align.CENTER,
+                action_name="win.detect-display",
+            )
+        )
         status_group.add(self.theme_status_row)
         status_group.add(self.process_status_row)
+        status_group.add(self.detection_status_row)
         info.append(status_group)
 
         button_box = Gtk.Box(
