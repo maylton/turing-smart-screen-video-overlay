@@ -24,6 +24,8 @@ Running the installer again updates the application while preserving
 
 - [Installation and update guide](docs/INSTALLATION.md)
 - [Project roadmap](docs/ROADMAP.md)
+- [Release candidate notes](docs/releases/0.1.0-rc1.md)
+- [Changelog](CHANGELOG.md)
 - [Media preparation editor roadmap](https://github.com/maylton/turing-smart-screen-video-overlay/issues/7)
 
 Current fork highlights:
@@ -36,9 +38,27 @@ Current fork highlights:
 - profile-aware GIF/video preparation with advanced framing, storage estimates, preview, and guarded upload;
 - safe automatic display detection with compatible revision/theme loading;
 - SD/internal video listing, upload, playback, stop, size, and delete.
+- release-readiness manifest, changelog, candidate notes, and repeatable validation.
 
 ---
 
+
+## Release candidate status
+
+The fork is prepared for local validation as `0.1.0-rc1`; no tag or GitHub
+Release has been published. Native media upload is hardware-validated only on
+the Turing Rev. C 2.1-inch ROM 88 profile. Other media profiles are available
+for conversion and preview only.
+
+Run the complete release contract from a development checkout with:
+
+```bash
+scripts/verify-release-readiness.sh
+```
+
+See [the candidate release notes](docs/releases/0.1.0-rc1.md) and
+[release manifest](release-manifest.yaml) for platforms, tools, validation
+scope, and known limitations.
 
 > [!WARNING]
 > 

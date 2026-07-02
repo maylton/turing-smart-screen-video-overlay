@@ -127,3 +127,17 @@ Status: **implemented for isolated and hardware validation**
 - repeatable release packaging;
 - broader hardware/profile validation;
 - promotion of additional profiles from preview-only to native-upload support.
+
+
+## Current implementation — Release readiness
+
+Status: **implemented for isolated validation**
+
+The release-readiness layer adds:
+
+- a versioned changelog and first release-candidate notes;
+- a machine-readable release manifest;
+- explicit hardware-validation and preview-only boundaries;
+- repeatable shell, Python, metadata, unit, whitespace, and FFmpeg checks;
+- contract tests for required release files and fields;
+- documented limitations without publishing a tag or GitHub Release.
