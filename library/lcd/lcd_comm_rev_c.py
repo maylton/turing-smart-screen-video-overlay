@@ -132,6 +132,9 @@ class LcdCommRevC(LcdComm):
         logger.debug("HW revision: C")
         LcdComm.__init__(self, com_port, display_width, display_height, update_queue)
 
+        self.sub_revision = self._get_sub_revision()
+        self.rom_version = 87
+
         # Native video overlay state. The overlay canvas is updated by sensor
         # callbacks, while a single worker sends only the newest complete frame.
         # This avoids accumulating old clock/sensor frames in the serial queue.
@@ -235,9 +238,17 @@ class LcdCommRevC(LcdComm):
             if readsize:
                 self.update_queue.put((self.ReadData, [readsize]))
 
+    def _get_sub_revision(self) -> SubRevision:
+        dimensions = (self.display_width, self.display_height)
+        return {
+            (480, 480): SubRevision.REV_2INCH,
+            (480, 800): SubRevision.REV_5INCH,
+            (480, 1920): SubRevision.REV_8INCH,
+        }.get(dimensions, SubRevision.UNKNOWN)
+
     def _hello(self):
         # This command reads LCD answer on serial link, so it bypasses the queue
-        self.sub_revision = SubRevision.UNKNOWN
+        self.sub_revision = self._get_sub_revision()
         self.serial_flush_input()
         self._send_command(Command.HELLO, bypass_queue=True)
         response = ''.join(
@@ -255,13 +266,8 @@ class LcdCommRevC(LcdComm):
 
         # Note: ID returned by display are not reliable for some models e.g. 2.1" displays return "chs_5inch"
         # Rely on width/height for sub-revision detection
-        if self.display_width == 480 and self.display_height == 480:
-            self.sub_revision = SubRevision.REV_2INCH
-        elif self.display_width == 480 and self.display_height == 800:
-            self.sub_revision = SubRevision.REV_5INCH
-        elif self.display_width == 480 and self.display_height == 1920:
-            self.sub_revision = SubRevision.REV_8INCH
-        else:
+        self.sub_revision = self._get_sub_revision()
+        if self.sub_revision == SubRevision.UNKNOWN:
             logger.error(f"Unsupported resolution {self.display_width}x{self.display_height} for revision C")
 
         # Detect ROM version
@@ -336,12 +342,21 @@ class LcdCommRevC(LcdComm):
         self.orientation = orientation
         # logger.info(f"Call SetOrientation to: {self.orientation.name}")
 
-        # if self.orientation == Orientation.REVERSE_LANDSCAPE or self.orientation == Orientation.REVERSE_PORTRAIT:
-        #   b = Command.STARTMODE_DEFAULT.value + Padding.NULL.value + Command.FLIP_180.value + SleepInterval.OFF.value
-        #   self._send_command(Command.OPTIONS, payload=b)
-        # else:
-        b = Command.STARTMODE_DEFAULT.value + Padding.NULL.value + Command.NO_FLIP.value + SleepInterval.OFF.value
-        self._send_command(Command.OPTIONS, payload=b)
+        if self.orientation in {
+            Orientation.REVERSE_LANDSCAPE,
+            Orientation.REVERSE_PORTRAIT,
+        }:
+            flip = Command.FLIP_180.value
+        else:
+            flip = Command.NO_FLIP.value
+
+        payload = (
+            Command.STARTMODE_DEFAULT.value
+            + Padding.NULL.value
+            + flip
+            + SleepInterval.OFF.value
+        )
+        self._send_command(Command.OPTIONS, payload=payload)
 
 
     @staticmethod
@@ -770,12 +785,7 @@ class LcdCommRevC(LcdComm):
                         f"Unsupported Rev. C resolution: {self.display_width}x{self.display_height}"
                     )
 
-                self._send_command(
-                    display_bmp_cmd,
-                    payload=bytearray(
-                        int(self.display_width * self.display_height / 64).to_bytes(2, "big")
-                    )
-                )
+                self._send_command(display_bmp_cmd)
                 self._send_command(
                     Command.SEND_PAYLOAD,
                     payload=bytearray(self._generate_full_image(image)),
