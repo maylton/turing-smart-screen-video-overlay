@@ -29,12 +29,14 @@ Status: **implemented by the packaging/documentation checkpoint**
   documentation;
 - corrected README support scope for native Rev. C video/storage features.
 
-## Next implementation — Media preparation editor MVP
+## Current implementation — Media preparation editor MVP
+
+Status: **implemented for isolated and hardware validation**
 
 Tracking issue:
 [#7 — Media preparation editor for GIF and arbitrary video inputs](https://github.com/maylton/turing-smart-screen-video-overlay/issues/7)
 
-The next feature branch should provide a GTK workflow that:
+The MVP branch provides a GTK workflow that:
 
 - imports GIF, MP4, MKV, WebM, MOV, and AVI;
 - displays source metadata from FFprobe;

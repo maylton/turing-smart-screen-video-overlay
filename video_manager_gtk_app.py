@@ -19,6 +19,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 APP_ID = "io.github.turing.SmartScreen.VideoManager"
 ROOT = Path(__file__).resolve().parent
 BACKEND = ROOT / "video_manager.py"
+MEDIA_PREPARATION = ROOT / "media-preparation-gtk.py"
 
 
 def backend_python() -> str:
@@ -145,11 +146,18 @@ class VideoManagerWindow(Adw.ApplicationWindow):
         scrolled.set_child(self.video_list)
         left_box.append(scrolled)
 
+        prepare_button = Gtk.Button(
+            label="Import and prepare media…",
+            icon_name="applications-multimedia-symbolic",
+        )
+        prepare_button.add_css_class("suggested-action")
+        prepare_button.connect("clicked", self.open_media_preparation)
+        left_box.append(prepare_button)
+
         upload_button = Gtk.Button(
-            label="Upload video…",
+            label="Upload compatible MP4…",
             icon_name="document-send-symbolic",
         )
-        upload_button.add_css_class("suggested-action")
         upload_button.connect("clicked", self.choose_upload)
         left_box.append(upload_button)
 
@@ -402,6 +410,24 @@ class VideoManagerWindow(Adw.ApplicationWindow):
         self.toast(f"Deleted {filename}")
         self.selected_file = None
         self.refresh_videos()
+
+    def open_media_preparation(self, _button):
+        if not MEDIA_PREPARATION.is_file():
+            self.toast("Media preparation editor was not found")
+            return
+        try:
+            subprocess.Popen(
+                [sys.executable, str(MEDIA_PREPARATION)],
+                cwd=str(ROOT),
+                start_new_session=True,
+            )
+        except Exception as exc:
+            dialog = Adw.AlertDialog(
+                heading="Could not open media preparation",
+                body=str(exc),
+            )
+            dialog.add_response("close", "Close")
+            dialog.present(self)
 
     def choose_upload(self, _button):
         dialog = Gtk.FileDialog(
