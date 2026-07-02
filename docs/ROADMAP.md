@@ -261,3 +261,44 @@ Initial effect presets:
 Still pending for later roadmap stages: graph presets, radial indicator presets,
 coordinate and size validation, palette/global style presets, live preview,
 debounce behavior, multi-element application, and wizard-style theme creation.
+
+## Theme Engine Semantic Presets
+
+Semantic presets define global visual identities through named color roles such
+as `BACKGROUND`, `SURFACE`, `PRIMARY`, `ON_SURFACE`, `OUTLINE`, `SUCCESS`,
+`WARNING`, and `DANGER`. They are different from property presets: a property
+preset fills one field in the editor, while a semantic visual preset resolves a
+coherent token set and can apply those roles to existing color properties across
+a theme copy.
+
+Initial global presets:
+
+- `tonal_expressive_dark`;
+- `tonal_expressive_light`;
+- `soft_neutral_dark`;
+- `soft_neutral_light`;
+- `technical_data_dark`;
+- `technical_data_light`;
+- `video_overlay_readable`;
+- `monochrome_high_contrast`.
+
+Initial YAML color mapping:
+
+- `FONT_COLOR` -> `ON_SURFACE`;
+- `BACKGROUND_COLOR` -> `SURFACE`;
+- `BAR_COLOR` -> `PRIMARY`;
+- `BAR_BACKGROUND_COLOR` -> `SURFACE_ALT`;
+- `LINE_COLOR` -> `PRIMARY`;
+- `AXIS_COLOR` -> `OUTLINE`;
+- `DISPLAY_RGB_LED` -> `PRIMARY`.
+
+The engine applies presets as a pure operation over a deep copy. It does not
+save YAML, update previews, access files, or call the GTK editor. Geometry,
+text content, font/media paths, video sections, static images, hierarchy, and
+missing properties are preserved. `video_overlay_readable` preserves existing
+`BACKGROUND_COLOR` by default so video or captured backgrounds remain readable,
+while explicit `preserve_background=False` can override that policy.
+
+Future phases remain intentionally separate: GTK integration, typography
+presets, effect presets, bars, radial indicators, line graphs, complete layouts,
+automated accessibility presets, and contrast validation.
