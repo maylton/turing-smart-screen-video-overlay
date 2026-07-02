@@ -86,18 +86,40 @@ def perform_cleanup(tray_icon=None) -> None:
         pass
 
     if _DISPLAY is not None:
+        lcd = getattr(_DISPLAY, "lcd", None)
+
+        # Final shutdown commands must not remain stranded in the asynchronous
+        # update queue. From this point onward, communicate synchronously.
+        if lcd is not None:
+            try:
+                lcd.update_queue = None
+            except Exception:
+                pass
+
+        # Native video playback continues inside the display firmware even
+        # after the Python process exits, so stop it explicitly first.
+        if lcd is not None and hasattr(lcd, "StopVideoOverlay"):
+            try:
+                if getattr(lcd, "video_overlay_enabled", False):
+                    lcd.StopVideoOverlay()
+            except Exception as exc:
+                logger.warning(
+                    "Could not stop the native video overlay during shutdown: %s",
+                    exc,
+                )
+
         try:
             _DISPLAY.turn_off()
+            # Give Rev. C firmware time to process STOP_MEDIA and TURNOFF
+            # before closing the serial connection.
+            time.sleep(0.35)
         except Exception as exc:
-            logger.warning("Could not turn the display off during shutdown: %s", exc)
+            logger.warning(
+                "Could not turn the display off during shutdown: %s",
+                exc,
+            )
 
         try:
-            wait_for_empty_queue(5)
-        except Exception as exc:
-            logger.warning("Could not drain the display queue: %s", exc)
-
-        try:
-            lcd = getattr(_DISPLAY, "lcd", None)
             if lcd is not None:
                 lcd.closeSerial()
         except Exception:
