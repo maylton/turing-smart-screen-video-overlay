@@ -52,17 +52,40 @@ EDITABLE_KEYS = (
     "FONT", "FONT_SIZE", "FONT_COLOR",
     "BACKGROUND_IMAGE", "BACKGROUND_COLOR",
     "BAR_COLOR", "BAR_BACKGROUND_COLOR", "LINE_COLOR",
-    "MIN_VALUE", "MAX_VALUE", "HISTORY_SIZE", "LINE_WIDTH",
+    "AXIS_COLOR", "DISPLAY_RGB_LED",
+    "MIN_VALUE", "MAX_VALUE", "MIN_SIZE",
+    "HISTORY_SIZE", "LINE_WIDTH", "AXIS_FONT_SIZE",
+    "ANGLE_START", "ANGLE_END", "ANGLE_STEPS", "ANGLE_SEP",
     "ALIGN", "ANCHOR", "TEXT", "FORMAT",
-    "SHOW", "SHOW_UNIT", "INTERVAL", "PATH",
+    "SHOW", "SHOW_UNIT", "SHOW_TEXT",
+    "BAR_OUTLINE", "REVERSE_DIRECTION", "AUTOSCALE",
+    "AXIS", "CLOCKWISE", "DRAW_BAR_BACKGROUND",
+    "INTERVAL", "REFRESH_INTERVAL", "PATH",
+    "MODE", "ENABLED", "OVERLAY", "PREVIEW_BACKGROUND",
+    "AXIS_FONT", "CUSTOM_BBOX", "TEXT_OFFSET",
+    "BAR_DECORATION",
 )
 
 NUMERIC_KEYS = {
     "X", "Y", "WIDTH", "HEIGHT", "RADIUS",
-    "FONT_SIZE", "INTERVAL", "MIN_VALUE",
-    "MAX_VALUE", "HISTORY_SIZE", "LINE_WIDTH",
+    "FONT_SIZE", "INTERVAL", "REFRESH_INTERVAL",
+    "MIN_VALUE", "MAX_VALUE", "MIN_SIZE",
+    "HISTORY_SIZE", "LINE_WIDTH", "AXIS_FONT_SIZE",
+    "ANGLE_START", "ANGLE_END", "ANGLE_STEPS", "ANGLE_SEP",
 }
-BOOLEAN_KEYS = {"SHOW", "SHOW_UNIT"}
+
+BOOLEAN_KEYS = {
+    "SHOW", "SHOW_UNIT", "SHOW_TEXT",
+    "BAR_OUTLINE", "REVERSE_DIRECTION", "AUTOSCALE",
+    "AXIS", "CLOCKWISE", "DRAW_BAR_BACKGROUND",
+    "ENABLED", "OVERLAY",
+}
+
+COLOR_KEYS = {
+    "FONT_COLOR", "BACKGROUND_COLOR", "BAR_COLOR",
+    "BAR_BACKGROUND_COLOR", "LINE_COLOR", "AXIS_COLOR",
+    "DISPLAY_RGB_LED",
+}
 
 COMPONENT_PRESETS = {
     "Custom text": ("custom", "text"),
@@ -758,38 +781,102 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.property_rows.clear()
         self.property_widgets.clear()
 
-    def create_color_selector(self, value):
-        rgba = Gdk.RGBA()
-        components = list(value) if isinstance(value, (list, tuple)) else [255, 255, 255]
-        while len(components) < 4:
-            components.append(255)
+    @staticmethod
+    def parse_theme_color(value, default=(255, 255, 255, 255)):
+        if isinstance(value, (list, tuple)):
+            parts = [int(component) for component in value]
+        elif isinstance(value, str):
+            raw = value.strip()
+            comma_parts = [part.strip() for part in raw.split(",")]
+            if len(comma_parts) in (3, 4):
+                try:
+                    parts = [int(component) for component in comma_parts]
+                except ValueError:
+                    parts = []
+            else:
+                parts = []
 
-        rgba.red = max(0, min(255, int(components[0]))) / 255.0
-        rgba.green = max(0, min(255, int(components[1]))) / 255.0
-        rgba.blue = max(0, min(255, int(components[2]))) / 255.0
-        rgba.alpha = max(0, min(255, int(components[3]))) / 255.0
-
-        if hasattr(Gtk, "ColorDialogButton"):
-            dialog = Gtk.ColorDialog()
-            dialog.set_with_alpha(len(value) == 4 if isinstance(value, (list, tuple)) else True)
-            button = Gtk.ColorDialogButton(dialog=dialog)
+            if not parts:
+                rgba = Gdk.RGBA()
+                if not rgba.parse(raw):
+                    raise ValueError(f"Unsupported color value: {value}")
+                parts = [
+                    round(rgba.red * 255),
+                    round(rgba.green * 255),
+                    round(rgba.blue * 255),
+                    round(rgba.alpha * 255),
+                ]
         else:
-            button = Gtk.ColorButton()
+            parts = list(default)
+
+        if len(parts) not in (3, 4):
+            raise ValueError("Colors must contain 3 or 4 components.")
+        if any(component < 0 or component > 255 for component in parts):
+            raise ValueError("Color components must be between 0 and 255.")
+
+        while len(parts) < 4:
+            parts.append(255)
+        return tuple(parts[:4])
+
+    @staticmethod
+    def theme_color_length(value, force_alpha=False):
+        if force_alpha:
+            return 4
+        if isinstance(value, (list, tuple)) and len(value) in (3, 4):
+            return len(value)
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.split(",")]
+            if len(parts) in (3, 4):
+                try:
+                    [int(part) for part in parts]
+                except ValueError:
+                    pass
+                else:
+                    return len(parts)
+        return 3
+
+    def create_color_selector(self, value, force_alpha=False):
+        components = self.parse_theme_color(value)
+        rgba = Gdk.RGBA()
+        rgba.red = components[0] / 255.0
+        rgba.green = components[1] / 255.0
+        rgba.blue = components[2] / 255.0
+        rgba.alpha = components[3] / 255.0
+
+        use_alpha = force_alpha or self.theme_color_length(value) == 4
+
+        if hasattr(Gtk, "ColorDialogButton") and hasattr(Gtk, "ColorDialog"):
+            dialog = Gtk.ColorDialog()
+            dialog.set_with_alpha(use_alpha)
+            try:
+                button = Gtk.ColorDialogButton.new(dialog)
+            except AttributeError:
+                button = Gtk.ColorDialogButton(dialog=dialog)
+        elif hasattr(Gtk, "ColorButton"):
+            try:
+                button = Gtk.ColorButton.new_with_rgba(rgba)
+            except AttributeError:
+                button = Gtk.ColorButton()
             if hasattr(button, "set_use_alpha"):
-                button.set_use_alpha(
-                    len(value) == 4 if isinstance(value, (list, tuple)) else True
-                )
+                button.set_use_alpha(use_alpha)
+        else:
+            raise RuntimeError(
+                "This GTK build does not provide a supported color selector."
+            )
 
         button.set_rgba(rgba)
-        button._theme_color_widget = True
-        button._theme_color_length = (
-            len(value) if isinstance(value, (list, tuple)) and len(value) in (3, 4) else 4
-        )
+        button.set_size_request(72, 34)
+        button.set_valign(Gtk.Align.CENTER)
         button.set_tooltip_text("Choose a color")
+        button._theme_color_widget = True
+        button._theme_color_length = self.theme_color_length(
+            value,
+            force_alpha=force_alpha,
+        )
         return button
 
     @staticmethod
-    def color_selector_value(widget):
+    def color_selector_value(widget, length=None):
         rgba = widget.get_rgba()
         values = [
             round(rgba.red * 255),
@@ -797,7 +884,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             round(rgba.blue * 255),
             round(rgba.alpha * 255),
         ]
-        return values[:getattr(widget, "_theme_color_length", 4)]
+        target_length = length or getattr(widget, "_theme_color_length", 3)
+        return values[:target_length]
 
     def build_property_rows(self):
         self.clear_property_group()
@@ -809,53 +897,97 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         node = self.node_at_path(self.selected_path)
         self.path_label.set_label(" / ".join(str(p) for p in self.selected_path))
 
-        for key in EDITABLE_KEYS:
-            if key not in node:
-                continue
+        if not isinstance(node, dict):
+            return
 
+        ordered_keys = [key for key in EDITABLE_KEYS if key in node]
+        ordered_keys.extend(
+            key
+            for key, value in node.items()
+            if key not in ordered_keys
+            and key != "EFFECTS"
+            and not isinstance(value, dict)
+            and not (
+                isinstance(value, list)
+                and any(isinstance(item, (dict, list)) for item in value)
+            )
+        )
+
+        for key in ordered_keys:
             value = node[key]
             is_color = (
-                key.endswith("_COLOR")
-                and isinstance(value, (list, tuple))
-                and len(value) in (3, 4)
+                key in COLOR_KEYS or key.endswith("_COLOR")
             )
 
-            if key in BOOLEAN_KEYS:
+            if key in BOOLEAN_KEYS or isinstance(value, bool):
                 row = Adw.SwitchRow(title=key)
                 row.set_active(bool(value))
-                self.dynamic_group.add(row)
-                self.property_widgets[key] = row
+                widget = row
             elif is_color:
-                row = Adw.ActionRow(
-                    title=key,
-                    subtitle=self.value_to_text(value),
-                )
-                selector = self.create_color_selector(value)
-                selector.set_valign(Gtk.Align.CENTER)
-                row.add_suffix(selector)
-                self.dynamic_group.add(row)
-                self.property_widgets[key] = selector
+                try:
+                    selector = self.create_color_selector(value)
+                except (TypeError, ValueError):
+                    row = Adw.EntryRow(title=key)
+                    row.set_text(self.value_to_text(value))
+                    widget = row
+                else:
+                    row = Adw.ActionRow(
+                        title=key,
+                        subtitle=self.value_to_text(value),
+                    )
+                    row.add_suffix(selector)
+                    widget = selector
             else:
                 row = Adw.EntryRow(title=key)
                 row.set_text(self.value_to_text(value))
-                self.dynamic_group.add(row)
-                self.property_widgets[key] = row
+                widget = row
 
-            if hasattr(self, "property_rows"):
-                self.property_rows.append(row)
+            self.dynamic_group.add(row)
+            self.property_rows.append(row)
+            self.property_widgets[key] = widget
 
+    @staticmethod
     def value_to_text(value):
         if isinstance(value, (list, tuple)):
             return ", ".join(str(item) for item in value)
+        if value is None:
+            return ""
         return str(value)
 
     def parse_value(self, key, raw, old_value):
+        if isinstance(old_value, bool):
+            return bool(raw)
+
+        if isinstance(old_value, int) and not isinstance(old_value, bool):
+            return int(float(raw))
+
+        if isinstance(old_value, float):
+            return float(raw)
+
+        if isinstance(old_value, (list, tuple)):
+            parts = [part.strip() for part in str(raw).split(",")]
+            if all(
+                isinstance(item, int) and not isinstance(item, bool)
+                for item in old_value
+            ):
+                return [int(float(part)) for part in parts]
+            if all(
+                isinstance(item, (int, float)) and not isinstance(item, bool)
+                for item in old_value
+            ):
+                return [float(part) for part in parts]
+            return parts
+
+        if old_value is None and str(raw).strip().lower() in {
+            "",
+            "none",
+            "null",
+        }:
+            return None
+
         if key in NUMERIC_KEYS:
             return int(float(raw))
-        if key in BOOLEAN_KEYS:
-            return bool(raw)
-        if isinstance(old_value, (list, tuple)):
-            return [int(part.strip()) for part in str(raw).split(",")]
+
         return raw
 
     def restore_tree_selection(self, target_path):
@@ -1261,11 +1393,6 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             return
 
         node = self.node_at_path(self.selected_path)
-
-        # Text elements are not limited to nodes with a literal TEXT field.
-        # Dynamic values such as date, time and sensor labels are rendered
-        # as text too, and usually expose FONT/FONT_SIZE/FONT_COLOR plus
-        # FORMAT instead of TEXT.
         text_like_keys = {
             "TEXT",
             "FORMAT",
@@ -1278,10 +1405,9 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         is_text_element = (
             isinstance(node, dict)
             and bool(text_like_keys.intersection(node.keys()))
-            and (
-                "FONT" in node
-                or "FONT_SIZE" in node
-                or "FONT_COLOR" in node
+            and any(
+                key in node
+                for key in ("FONT", "FONT_SIZE", "FONT_COLOR")
             )
         )
 
@@ -1290,102 +1416,174 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             return
 
         effects = copy.deepcopy(node.get("EFFECTS", {}))
-        box = Gtk.Box(
+        content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
-            spacing=8,
+            spacing=16,
             margin_top=8,
+            margin_bottom=8,
+            margin_start=8,
+            margin_end=8,
         )
 
-        def add_entry(label, value):
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            title = Gtk.Label(label=label, xalign=0, hexpand=True)
-            entry = Gtk.Entry(text=str(value), width_chars=16)
-            row.append(title)
-            row.append(entry)
-            box.append(row)
-            return entry
+        def add_color_row(group, title, value):
+            row = Adw.ActionRow(title=title)
+            selector = self.create_color_selector(
+                value,
+                force_alpha=True,
+            )
+            row.add_suffix(selector)
+            group.add(row)
+            return selector
 
-        shadow_switch = Gtk.Switch(
-            active=bool(effects.get("SHADOW", {}).get("ENABLED", False))
+        def add_spin_row(
+            group,
+            title,
+            value,
+            lower,
+            upper,
+            step=1,
+            digits=0,
+        ):
+            row = Adw.ActionRow(title=title)
+            spin = Gtk.SpinButton.new_with_range(lower, upper, step)
+            spin.set_digits(digits)
+            spin.set_value(float(value))
+            spin.set_valign(Gtk.Align.CENTER)
+            spin.set_size_request(120, -1)
+            row.add_suffix(spin)
+            group.add(row)
+            return spin
+
+        shadow_group = Adw.PreferencesGroup(
+            title="Shadow",
+            description="Draw a blurred copy behind the text.",
         )
-        shadow_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        shadow_row.append(Gtk.Label(label="Shadow", xalign=0, hexpand=True))
-        shadow_row.append(shadow_switch)
-        box.append(shadow_row)
-        shadow_color = add_entry(
-            "Shadow RGBA",
-            ",".join(map(str, effects.get("SHADOW", {}).get(
-                "COLOR", [0, 0, 0, 180]
-            ))),
+        shadow_switch = Adw.SwitchRow(title="Enabled")
+        shadow_switch.set_active(
+            bool(effects.get("SHADOW", {}).get("ENABLED", False))
         )
-        shadow_x = add_entry(
-            "Shadow offset X",
+        shadow_group.add(shadow_switch)
+        shadow_color = add_color_row(
+            shadow_group,
+            "Color",
+            effects.get("SHADOW", {}).get(
+                "COLOR",
+                [0, 0, 0, 180],
+            ),
+        )
+        shadow_x = add_spin_row(
+            shadow_group,
+            "Horizontal offset",
             effects.get("SHADOW", {}).get("OFFSET_X", 3),
+            -40,
+            40,
         )
-        shadow_y = add_entry(
-            "Shadow offset Y",
+        shadow_y = add_spin_row(
+            shadow_group,
+            "Vertical offset",
             effects.get("SHADOW", {}).get("OFFSET_Y", 3),
+            -40,
+            40,
         )
-        shadow_blur = add_entry(
-            "Shadow blur",
+        shadow_blur = add_spin_row(
+            shadow_group,
+            "Blur radius",
             effects.get("SHADOW", {}).get("BLUR_RADIUS", 4),
+            0,
+            40,
+            0.5,
+            1,
         )
+        content.append(shadow_group)
 
-        glow_switch = Gtk.Switch(
-            active=bool(effects.get("GLOW", {}).get("ENABLED", False))
+        glow_group = Adw.PreferencesGroup(
+            title="Glow",
+            description="Draw a colored blurred halo around the text.",
         )
-        glow_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        glow_row.append(Gtk.Label(label="Glow", xalign=0, hexpand=True))
-        glow_row.append(glow_switch)
-        box.append(glow_row)
-        glow_color = add_entry(
-            "Glow RGBA",
-            ",".join(map(str, effects.get("GLOW", {}).get(
-                "COLOR", [255, 255, 255, 160]
-            ))),
+        glow_switch = Adw.SwitchRow(title="Enabled")
+        glow_switch.set_active(
+            bool(effects.get("GLOW", {}).get("ENABLED", False))
         )
-        glow_blur = add_entry(
-            "Glow blur",
+        glow_group.add(glow_switch)
+        glow_color = add_color_row(
+            glow_group,
+            "Color",
+            effects.get("GLOW", {}).get(
+                "COLOR",
+                [255, 255, 255, 160],
+            ),
+        )
+        glow_blur = add_spin_row(
+            glow_group,
+            "Blur radius",
             effects.get("GLOW", {}).get("BLUR_RADIUS", 8),
+            0,
+            40,
+            0.5,
+            1,
         )
-        glow_intensity = add_entry(
-            "Glow intensity",
+        glow_intensity = add_spin_row(
+            glow_group,
+            "Intensity",
             effects.get("GLOW", {}).get("INTENSITY", 1),
+            1,
+            4,
         )
+        content.append(glow_group)
 
-        outline_switch = Gtk.Switch(
-            active=bool(effects.get("OUTLINE", {}).get("ENABLED", False))
+        outline_group = Adw.PreferencesGroup(
+            title="Outline",
+            description="Draw a solid stroke around the glyphs.",
         )
-        outline_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        outline_row.append(Gtk.Label(label="Outline", xalign=0, hexpand=True))
-        outline_row.append(outline_switch)
-        box.append(outline_row)
-        outline_color = add_entry(
-            "Outline RGBA",
-            ",".join(map(str, effects.get("OUTLINE", {}).get(
-                "COLOR", [0, 0, 0, 255]
-            ))),
+        outline_switch = Adw.SwitchRow(title="Enabled")
+        outline_switch.set_active(
+            bool(effects.get("OUTLINE", {}).get("ENABLED", False))
         )
-        outline_width = add_entry(
-            "Outline width",
+        outline_group.add(outline_switch)
+        outline_color = add_color_row(
+            outline_group,
+            "Color",
+            effects.get("OUTLINE", {}).get(
+                "COLOR",
+                [0, 0, 0, 255],
+            ),
+        )
+        outline_width = add_spin_row(
+            outline_group,
+            "Width",
             effects.get("OUTLINE", {}).get("WIDTH", 2),
+            0,
+            20,
         )
+        content.append(outline_group)
 
         scroll = Gtk.ScrolledWindow(
-            min_content_width=520,
-            min_content_height=500,
+            min_content_width=620,
+            min_content_height=560,
             propagate_natural_width=True,
             propagate_natural_height=True,
         )
-        scroll.set_child(box)
+        scroll.set_policy(
+            Gtk.PolicyType.NEVER,
+            Gtk.PolicyType.AUTOMATIC,
+        )
+        scroll.set_child(content)
 
         dialog = Adw.AlertDialog(
             heading="Text effects",
-            body="Configure shadow, glow, and outline.",
+            body=(
+                "Configure shadow, glow, and outline. "
+                "Changes are rendered in the preview after applying."
+            ),
         )
         dialog.set_extra_child(scroll)
         dialog.add_response("cancel", "Cancel")
+        dialog.add_response("reset", "Reset effects")
         dialog.add_response("apply", "Apply")
+        dialog.set_response_appearance(
+            "reset",
+            Adw.ResponseAppearance.DESTRUCTIVE,
+        )
         dialog.set_response_appearance(
             "apply",
             Adw.ResponseAppearance.SUGGESTED,
@@ -1393,57 +1591,61 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         dialog.set_default_response("apply")
         dialog.set_close_response("cancel")
 
-        def parse_color(value):
-            parts = [int(part.strip()) for part in value.split(",")]
-            if len(parts) not in (3, 4):
-                raise ValueError("Use R,G,B or R,G,B,A.")
-            while len(parts) < 4:
-                parts.append(255)
-            if any(part < 0 or part > 255 for part in parts):
-                raise ValueError("Color values must be between 0 and 255.")
-            return parts
-
         def response(_dialog, response_id):
-            if response_id != "apply":
+            if response_id == "cancel":
                 return
-            try:
+
+            self.push_undo()
+
+            if response_id == "reset":
+                node.pop("EFFECTS", None)
+            elif response_id == "apply":
                 updated = {
                     "SHADOW": {
                         "ENABLED": shadow_switch.get_active(),
-                        "COLOR": parse_color(shadow_color.get_text()),
-                        "OFFSET_X": int(shadow_x.get_text()),
-                        "OFFSET_Y": int(shadow_y.get_text()),
-                        "BLUR_RADIUS": max(
-                            0, min(40, float(shadow_blur.get_text()))
+                        "COLOR": self.color_selector_value(
+                            shadow_color,
+                            4,
+                        ),
+                        "OFFSET_X": int(shadow_x.get_value()),
+                        "OFFSET_Y": int(shadow_y.get_value()),
+                        "BLUR_RADIUS": float(
+                            shadow_blur.get_value()
                         ),
                     },
                     "GLOW": {
                         "ENABLED": glow_switch.get_active(),
-                        "COLOR": parse_color(glow_color.get_text()),
-                        "BLUR_RADIUS": max(
-                            0, min(40, float(glow_blur.get_text()))
+                        "COLOR": self.color_selector_value(
+                            glow_color,
+                            4,
                         ),
-                        "INTENSITY": max(
-                            1, min(4, int(glow_intensity.get_text()))
+                        "BLUR_RADIUS": float(
+                            glow_blur.get_value()
+                        ),
+                        "INTENSITY": int(
+                            glow_intensity.get_value()
                         ),
                     },
                     "OUTLINE": {
                         "ENABLED": outline_switch.get_active(),
-                        "COLOR": parse_color(outline_color.get_text()),
-                        "WIDTH": max(
-                            0, min(20, int(outline_width.get_text()))
+                        "COLOR": self.color_selector_value(
+                            outline_color,
+                            4,
                         ),
+                        "WIDTH": int(outline_width.get_value()),
                     },
                 }
-            except (TypeError, ValueError) as exc:
-                self.error_dialog("Invalid text effect", str(exc))
+
+                if any(
+                    section["ENABLED"]
+                    for section in updated.values()
+                ):
+                    node["EFFECTS"] = updated
+                else:
+                    node.pop("EFFECTS", None)
+            else:
                 return
 
-            self.push_undo()
-            if any(section["ENABLED"] for section in updated.values()):
-                node["EFFECTS"] = updated
-            else:
-                node.pop("EFFECTS", None)
             save_yaml_atomic(self.theme_file, self.theme_data)
             self.build_property_rows()
             self.refresh_preview()

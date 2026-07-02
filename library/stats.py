@@ -117,6 +117,7 @@ def display_themed_value(theme_data, value, min_size=0, unit=''):
         background_image=get_theme_file_path(theme_data.get("BACKGROUND_IMAGE", None)),
         align=theme_data.get("ALIGN", "left"),
         anchor=theme_data.get("ANCHOR", "lt"),
+        effects=theme_data.get("EFFECTS", {}),
     )
 
 
@@ -196,7 +197,8 @@ def display_themed_radial_bar(theme_data, value, min_size=0, unit='', custom_tex
         text_offset=theme_data.get("TEXT_OFFSET", (0, 0)),
         bar_background_color=theme_data.get("BAR_BACKGROUND_COLOR", (0, 0, 0)),
         draw_bar_background=theme_data.get("DRAW_BAR_BACKGROUND", False),
-        bar_decoration=theme_data.get("BAR_DECORATION", "")
+        bar_decoration=theme_data.get("BAR_DECORATION", ""),
+        text_effects=theme_data.get("EFFECTS", {}),
     )
 
 

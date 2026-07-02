@@ -31,7 +31,7 @@ from enum import IntEnum
 from typing import Tuple, List, Optional, Dict
 
 import serial
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageColor
 
 from library.log import logger
 from library.lcd.color import Color, parse_color
@@ -114,75 +114,32 @@ class LcdComm(ABC):
 
     @staticmethod
     def _effect_rgba(value, default):
-        values = list(value) if isinstance(value, (list, tuple)) else list(default)
+        if isinstance(value, (list, tuple)):
+            values = list(value)
+        elif isinstance(value, str):
+            raw = value.strip()
+            parts = [part.strip() for part in raw.split(",")]
+            if len(parts) in (3, 4):
+                try:
+                    values = [int(part) for part in parts]
+                except ValueError:
+                    values = list(ImageColor.getcolor(raw, "RGBA"))
+            else:
+                values = list(ImageColor.getcolor(raw, "RGBA"))
+        else:
+            values = list(default)
+
         while len(values) < 4:
             values.append(255)
-        return tuple(max(0, min(255, int(v))) for v in values[:4])
+
+        return tuple(
+            max(0, min(255, int(component)))
+            for component in values[:4]
+        )
 
     @staticmethod
     def _effect_enabled(config):
         return isinstance(config, dict) and bool(config.get("ENABLED", False))
-
-    @staticmethod
-    def _normalize_effect_color(value):
-        if isinstance(value, (list, tuple)):
-            return tuple(int(component) for component in value[:4])
-        return value
-
-    def _resolve_theme_text_effects(
-        self,
-        x,
-        y,
-        font_size,
-        font_color,
-    ):
-        """
-        Resolve EFFECTS for dynamic text callbacks that do not pass the field
-        explicitly. Theme stats such as date and time call DisplayText directly,
-        so the preview/runtime matches the configured node by position and font.
-        """
-        try:
-            from library import config
-            root = config.THEME_DATA
-        except Exception:
-            return {}
-
-        candidates = []
-
-        def visit(value):
-            if isinstance(value, dict):
-                effects = value.get("EFFECTS")
-                if isinstance(effects, dict) and effects:
-                    score = 0
-                    if value.get("X", 0) == x:
-                        score += 4
-                    if value.get("Y", 0) == y:
-                        score += 4
-                    if value.get("FONT_SIZE", 10) == font_size:
-                        score += 2
-                    configured_color = self._normalize_effect_color(
-                        value.get("FONT_COLOR")
-                    )
-                    rendered_color = self._normalize_effect_color(font_color)
-                    if configured_color == rendered_color:
-                        score += 1
-                    candidates.append((score, effects))
-
-                for child in value.values():
-                    visit(child)
-
-            elif isinstance(value, list):
-                for child in value:
-                    visit(child)
-
-        visit(root)
-
-        if not candidates:
-            return {}
-
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        best_score, best_effects = candidates[0]
-        return best_effects if best_score >= 8 else {}
 
     def _draw_text_effects(
         self,
@@ -507,10 +464,7 @@ class LcdComm(ABC):
             else:
                 y = top
 
-        if not effects:
-            effects = self._resolve_theme_text_effects(
-                x, y, font_size, font_color
-            )
+        effects = effects if isinstance(effects, dict) else {}
 
         text_image = self._draw_text_effects(
             text_image,
@@ -750,7 +704,8 @@ class LcdComm(ABC):
                                  text_offset: Tuple[int, int] = (0,0),
                                  bar_background_color: Color = (0, 0, 0),
                                  draw_bar_background: bool = False,
-                                 bar_decoration: str = ""):                                 
+                                 bar_decoration: str = "",
+text_effects: Optional[dict] = None):                                 
         # Generate a radial progress bar and display it
         # Provide the background image path to display progress bar with transparent background
 
@@ -911,8 +866,20 @@ class LcdComm(ABC):
             ttfont = self.open_font(font, font_size)
             left, top, right, bottom = ttfont.getbbox(text)
             w, h = right - left, bottom - top
-            draw.text((radius - w / 2 + text_offset[0], radius - top - h / 2 + text_offset[1]), text,
-                      font=ttfont, fill=font_color)
+            text_position = (
+                radius - w / 2 + text_offset[0],
+                radius - top - h / 2 + text_offset[1],
+            )
+            bar_image = self._draw_text_effects(
+                bar_image,
+                text_position,
+                text,
+                ttfont,
+                font_color,
+                "left",
+                "la",
+                text_effects,
+            )
 
         if custom_bbox[0] != 0 or custom_bbox[1] != 0 or custom_bbox[2] != 0 or custom_bbox[3] != 0:
             bar_image = bar_image.crop(box=custom_bbox)

@@ -176,3 +176,14 @@ The release-readiness layer adds:
 - preserve RGBA transparency over native video;
 - expose effects in the GTK editor;
 - ensure Save As imports shutil reliably.
+
+## Theme editor text-style integration hardening
+
+- forward text effects explicitly for every dynamic sensor text;
+- support effects on text embedded in radial widgets;
+- remove coordinate-based effect guessing;
+- support RGB/RGBA strings, lists, hex values, and named colors;
+- show color selectors for legacy comma-separated theme colors;
+- use color selectors and numeric controls in the text-effects dialog;
+- fix property type conversion and missing editor keys;
+- restore the missing `shutil` import used by Save As.
