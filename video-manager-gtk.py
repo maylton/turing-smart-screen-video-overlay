@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Runtime-safe launcher for the GTK video manager."""
+"""Structured/runtime-safe launcher for the GTK video manager."""
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import threading
@@ -26,7 +27,47 @@ def load_app_module():
     return module
 
 
-def install_runtime_patch(app):
+def install_structured_backend(app):
+    def populate_from_list_output(self, data):
+        self.clear_video_list()
+        files = data.get("files") if isinstance(data, dict) else []
+        if not isinstance(files, list):
+            files = []
+
+        for filename in files:
+            self.video_list.append(app.VideoRow(str(filename)))
+
+        self.count_label.set_label(f"{len(files)} video(s)")
+        self.content_stack.set_visible_child_name("main")
+        if not files:
+            self.selected_title.set_label("No videos found")
+            self.selected_subtitle.set_label(
+                "Upload a compatible MP4 video to start native playback."
+            )
+            self.size_row.set_subtitle("—")
+
+    def update_size(self, data):
+        if isinstance(data, dict):
+            self.size_row.set_subtitle(data.get("human") or "Unknown")
+        else:
+            self.size_row.set_subtitle("Unknown")
+        self.content_stack.set_visible_child_name("main")
+
+    def start_upload(self, path):
+        args = [
+            "upload",
+            str(path),
+            "--remote",
+            self.remote_path(path.name),
+            "--overwrite",
+        ]
+        self.run_backend(
+            args,
+            title=f"Validating and uploading {path.name}",
+            on_success=lambda _data: self.after_upload(path.name),
+            pulse_progress=True,
+        )
+
     def run_backend(
         self,
         arguments,
@@ -45,16 +86,19 @@ def install_runtime_patch(app):
         if not quiet:
             self.busy = True
             self.busy_title.set_label(title)
-            self.busy_status.set_label("Waiting for exclusive display access…")
+            self.busy_status.set_label("Communicating with the display…")
             self.progress.set_visible(pulse_progress)
             if pulse_progress:
                 self.progress.set_fraction(0)
-                self.progress.set_text("Uploading…")
+                self.progress.set_text("Working…")
             self.content_stack.set_visible_child_name("busy")
 
-        # Never bypass the backend's runtime lease. If main.py is running the
-        # operation returns a clear busy error instead of racing for USB.
-        command = [app.backend_python(), str(app.BACKEND), *arguments]
+        command = [
+            app.backend_python(),
+            str(app.BACKEND),
+            "--json",
+            *arguments,
+        ]
 
         def worker():
             try:
@@ -87,12 +131,62 @@ def install_runtime_patch(app):
         if pulse_progress and not quiet:
             app.GLib.timeout_add(120, self.pulse_upload)
 
+    def finish_backend(
+        self,
+        returncode,
+        stdout,
+        stderr,
+        on_success,
+        quiet,
+    ):
+        if not quiet:
+            self.busy = False
+            self.progress.set_visible(False)
+
+        payload = None
+        try:
+            payload = json.loads((stdout or "").strip())
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        if returncode != 0 or not isinstance(payload, dict) or not payload.get("ok"):
+            if isinstance(payload, dict):
+                error = payload.get("error") or {}
+                message = error.get("message") or "Unknown error"
+                probe = error.get("probe")
+                if isinstance(probe, dict) and probe.get("issues"):
+                    message += "\n\nRequired changes:\n• " + "\n• ".join(
+                        str(issue) for issue in probe["issues"]
+                    )
+            else:
+                message = (stderr or stdout or "Unknown error").strip()
+
+            if quiet:
+                self.size_row.set_subtitle("Unavailable")
+                return False
+
+            dialog = app.Adw.AlertDialog(
+                heading="Operation failed",
+                body=message[-2400:],
+            )
+            dialog.add_response("close", "Close")
+            dialog.present(self)
+            self.content_stack.set_visible_child_name("main")
+            return False
+
+        on_success(payload.get("data") or {})
+        return False
+
+    app.VideoManagerWindow.populate_from_list_output = populate_from_list_output
+    app.VideoManagerWindow.update_size = update_size
+    app.VideoManagerWindow.start_upload = start_upload
     app.VideoManagerWindow.run_backend = run_backend
+    app.VideoManagerWindow.finish_backend = finish_backend
 
 
 def main() -> int:
     app = load_app_module()
-    install_runtime_patch(app)
+    install_structured_backend(app)
     return app.VideoManagerApplication().run(sys.argv)
 
 

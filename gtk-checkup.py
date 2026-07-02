@@ -37,7 +37,9 @@ def main() -> int:
         "video_manager_backend.py",
         "screen-control.py",
         "library/runtime.py",
+        "library/video_media.py",
         "tests/test_runtime_lock.py",
+        "tests/test_video_media.py",
         "theme-editor.py",
         "main.py",
         "config.yaml",
@@ -71,6 +73,7 @@ def main() -> int:
         root / "video_manager_backend.py",
         root / "screen-control.py",
         root / "library" / "runtime.py",
+        root / "library" / "video_media.py",
         root / "main.py",
     )
     syntax_ok = True
@@ -89,17 +92,24 @@ def main() -> int:
         "; ".join(syntax_errors),
     ))
 
-    runtime_tests = subprocess.run(
-        [sys.executable, "-m", "unittest", "-q", "tests.test_runtime_lock"],
+    automated_tests = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "unittest",
+            "-q",
+            "tests.test_runtime_lock",
+            "tests.test_video_media",
+        ],
         cwd=str(root),
         text=True,
         capture_output=True,
         check=False,
     )
     checks.append(result(
-        runtime_tests.returncode == 0,
-        "Runtime ownership tests",
-        (runtime_tests.stdout or runtime_tests.stderr).strip()[-1000:],
+        automated_tests.returncode == 0,
+        "Runtime and video safety tests",
+        (automated_tests.stdout or automated_tests.stderr).strip()[-1000:],
     ))
 
     venv_python = root / "venv" / "bin" / "python3"
