@@ -302,3 +302,29 @@ while explicit `preserve_background=False` can override that policy.
 Future phases remain intentionally separate: GTK integration, typography
 presets, effect presets, bars, radial indicators, line graphs, complete layouts,
 automated accessibility presets, and contrast validation.
+
+## Theme Component Presets
+
+Component presets sit one layer above semantic tokens. They describe reusable
+settings for one selected node, such as typography, text effects, bars, radial
+gauges, line graphs, and data palettes. They may reference semantic color roles
+from the theme engine, but they remain pure data operations and do not save YAML,
+open GTK, render previews, or modify sibling elements.
+
+Initial component preset types:
+
+- `typography`;
+- `effects`;
+- `bar`;
+- `radial`;
+- `line_graph`;
+- `data_palette`.
+
+The Phase B foundation applies presets only to properties already present on the
+selected node. Missing properties are not added, geometry and text content are
+preserved unless those exact editable fields already exist in the node, and
+token references are resolved only when a semantic token mapping is supplied.
+
+Still pending for later phases: GTK controls for component presets, richer
+component detection, complete layout presets, automatic contrast checks, and
+preview-assisted application.
