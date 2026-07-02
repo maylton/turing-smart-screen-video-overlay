@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Structured command-line backend for the advanced media preparation editor."""
+"""Structured command-line backend for profile-aware media preparation."""
 
 from __future__ import annotations
 
@@ -15,13 +15,33 @@ from library.media_preparation import (
     cache_directory,
     convert_media,
     create_preview,
+    effective_duration,
     probe_source,
     safe_output_name,
 )
+from library.media_profiles import (
+    estimate_output_size,
+    format_bytes,
+    get_profile,
+    list_profiles,
+)
+
+ROOT = Path(__file__).resolve().parent
+
+
+def profile_from_args(args: argparse.Namespace):
+    return get_profile(getattr(args, "profile", "active-theme"), ROOT)
 
 
 def settings_from_args(args: argparse.Namespace) -> ConversionSettings:
+    profile = profile_from_args(args)
     return ConversionSettings(
+        target_width=profile.width,
+        target_height=profile.height,
+        profile_id=profile.id,
+        encoder=profile.encoder,
+        codec=profile.codec,
+        pixel_format=profile.pixel_format,
         mode=args.mode,
         zoom=args.zoom,
         offset_x=args.x,
@@ -47,6 +67,7 @@ def settings_from_args(args: argparse.Namespace) -> ConversionSettings:
 
 
 def add_settings(parser: argparse.ArgumentParser, *, include_crf: bool) -> None:
+    parser.add_argument("--profile", default="active-theme")
     parser.add_argument(
         "--mode",
         choices=("fit", "fill", "stretch", "original", "custom"),
@@ -84,6 +105,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="Return structured JSON")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    subparsers.add_parser("profiles", help="List active and reusable display profiles")
+
     probe = subparsers.add_parser("probe", help="Analyze a source GIF or video")
     probe.add_argument("source")
 
@@ -92,11 +115,18 @@ def build_parser() -> argparse.ArgumentParser:
     preview.add_argument("--output")
     add_settings(preview, include_crf=False)
 
-    convert = subparsers.add_parser("convert", help="Prepare a display-compatible MP4")
+    convert = subparsers.add_parser("convert", help="Prepare a profile-compatible MP4")
     convert.add_argument("source")
     convert.add_argument("--output")
     convert.add_argument("--name")
     add_settings(convert, include_crf=True)
+
+    estimate = subparsers.add_parser(
+        "estimate",
+        help="Estimate duration and output storage before conversion",
+    )
+    estimate.add_argument("source")
+    add_settings(estimate, include_crf=True)
 
     align = subparsers.add_parser("align", help="Calculate offsets for a canvas edge")
     align.add_argument("source")
@@ -118,14 +148,58 @@ def failure(command: str | None, exc: Exception) -> dict:
     return {"ok": False, "command": command, "error": error}
 
 
+def estimate_payload(args: argparse.Namespace) -> dict:
+    source = probe_source(args.source)
+    profile = profile_from_args(args)
+    settings = settings_from_args(args).validated(
+        duration=effective_duration(source.duration, args.loop_count),
+        source_width=source.width,
+        source_height=source.height,
+    )
+    available = effective_duration(source.duration, settings.loop_count)
+    end = settings.end if settings.end is not None else available
+    selected = max(0.0, end - settings.start)
+    output_duration = selected / settings.speed
+    estimate = estimate_output_size(
+        profile,
+        output_duration,
+        settings.fps,
+        settings.crf,
+    )
+    estimate["low"] = format_bytes(estimate["low_bytes"])
+    estimate["estimated"] = format_bytes(estimate["estimated_bytes"])
+    estimate["high"] = format_bytes(estimate["high_bytes"])
+    estimate["profile"] = profile.to_dict()
+    estimate["source_duration"] = source.duration
+    estimate["available_duration"] = available
+    estimate["selected_input_duration"] = selected
+    return estimate
+
+
 def execute(args: argparse.Namespace) -> dict:
+    if args.command == "profiles":
+        profiles = [profile.to_dict() for profile in list_profiles(ROOT)]
+        return success(
+            "profiles",
+            {
+                "default_profile_id": "active-theme",
+                "profiles": profiles,
+            },
+        )
     if args.command == "probe":
         return success("probe", probe_source(args.source).to_dict())
     settings = settings_from_args(args)
     if args.command == "preview":
         output = Path(args.output) if args.output else cache_directory() / "preview.png"
         result = create_preview(args.source, output, settings)
-        return success("preview", {"output": str(result), "settings": settings.__dict__})
+        return success(
+            "preview",
+            {
+                "output": str(result),
+                "settings": settings.__dict__,
+                "profile": profile_from_args(args).to_dict(),
+            },
+        )
     if args.command == "convert":
         if args.output:
             output = Path(args.output)
@@ -134,7 +208,11 @@ def execute(args: argparse.Namespace) -> dict:
             output = cache_directory() / name
         data = convert_media(args.source, output, settings)
         data["path"] = str(output.resolve())
+        data["profile"] = profile_from_args(args).to_dict()
+        data["estimate"] = estimate_payload(args)
         return success("convert", data)
+    if args.command == "estimate":
+        return success("estimate", estimate_payload(args))
     if args.command == "align":
         source = probe_source(args.source)
         x, y = alignment_offsets(
@@ -144,7 +222,14 @@ def execute(args: argparse.Namespace) -> dict:
             args.horizontal,
             args.vertical,
         )
-        return success("align", {"x": x, "y": y})
+        return success(
+            "align",
+            {
+                "x": x,
+                "y": y,
+                "profile": profile_from_args(args).to_dict(),
+            },
+        )
     raise RuntimeError(f"Unknown command: {args.command}")
 
 

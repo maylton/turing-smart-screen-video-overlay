@@ -33,7 +33,7 @@ Current fork highlights:
 - exclusive process-wide device ownership and safe shutdown;
 - structured native-video CLI and GTK manager;
 - media compatibility checks using `ffprobe`;
-- built-in GIF/video preparation with Fit, Fill, Stretch, trim, preview, and upload;
+- profile-aware GIF/video preparation with advanced framing, storage estimates, preview, and guarded upload;
 - SD/internal video listing, upload, playback, stop, size, and delete.
 
 ---

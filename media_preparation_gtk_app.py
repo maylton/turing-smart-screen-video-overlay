@@ -82,6 +82,9 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         self.preview_timeout = 0
         self.busy = False
         self.drag_origin = (0, 0)
+        self.profiles: list[dict] = []
+        self.profile_index_by_id: dict[str, int] = {}
+        self.exact_output_size = 0
 
         self.toast_overlay = Adw.ToastOverlay()
         self.set_content(self.toast_overlay)
@@ -101,6 +104,7 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         toolbar.set_content(split)
         split.set_start_child(self.build_controls())
         split.set_end_child(self.build_preview())
+        self.load_profiles()
 
     def build_controls(self):
         scrolled = Gtk.ScrolledWindow(vexpand=True)
@@ -127,6 +131,29 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         self.source_row.add_suffix(choose)
         source_group.add(self.source_row)
         box.append(source_group)
+
+        profile_group = Adw.PreferencesGroup(title="Display profile")
+        self.profile_row = Adw.ComboRow(title="Target")
+        self.profile_row.set_model(Gtk.StringList.new(["Loading profiles…"]))
+        self.profile_row.set_sensitive(False)
+        self.profile_row.connect("notify::selected", self.on_profile_changed)
+        profile_group.add(self.profile_row)
+        self.profile_dimensions_row = Adw.ActionRow(
+            title="Target dimensions",
+            subtitle="—",
+        )
+        self.profile_support_row = Adw.ActionRow(
+            title="Firmware status",
+            subtitle="Loading…",
+        )
+        self.estimate_row = Adw.ActionRow(
+            title="Estimated output size",
+            subtitle="Choose media to calculate",
+        )
+        profile_group.add(self.profile_dimensions_row)
+        profile_group.add(self.profile_support_row)
+        profile_group.add(self.estimate_row)
+        box.append(profile_group)
 
         metadata = Adw.PreferencesGroup(title="Source information")
         self.codec_row = Adw.ActionRow(title="Codec", subtitle="—")
@@ -318,12 +345,21 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         title.add_css_class("title-2")
         box.append(title)
 
-        self.preview_frame = Gtk.Frame(hexpand=True, vexpand=True)
+        self.preview_aspect = Gtk.AspectFrame(
+            ratio=1.0,
+            obey_child=False,
+            xalign=0.5,
+            yalign=0.5,
+            hexpand=True,
+            vexpand=True,
+        )
+        self.preview_frame = Gtk.Frame()
         self.preview_frame.set_size_request(480, 480)
         self.preview_picture = Gtk.Picture(can_shrink=True)
         self.preview_picture.set_size_request(480, 480)
         self.preview_frame.set_child(self.preview_picture)
-        box.append(self.preview_frame)
+        self.preview_aspect.set_child(self.preview_frame)
+        box.append(self.preview_aspect)
 
         drag = Gtk.GestureDrag()
         drag.connect("drag-begin", self.on_drag_begin)
@@ -397,6 +433,7 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
             return
         self.source_path = path
         self.converted_path = None
+        self.exact_output_size = 0
         self.preview_button.set_sensitive(False)
         self.upload_button.set_sensitive(False)
         self.source_row.set_subtitle(path.name)
@@ -431,6 +468,122 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         )
         self.schedule_preview()
 
+    def load_profiles(self):
+        self.run_json(
+            MEDIA_BACKEND,
+            ["profiles"],
+            "Loading display profiles…",
+            self.on_profiles_complete,
+        )
+
+    def on_profiles_complete(self, data):
+        profiles = data.get("profiles") or []
+        if not profiles:
+            self.show_error("The media backend returned no display profiles.")
+            return
+        self.profiles = profiles
+        self.profile_index_by_id = {
+            str(profile.get("id")): index
+            for index, profile in enumerate(profiles)
+        }
+        labels = [str(profile.get("label") or profile.get("id")) for profile in profiles]
+        self.profile_row.set_model(Gtk.StringList.new(labels))
+        self.profile_row.set_sensitive(True)
+        default_id = str(data.get("default_profile_id") or "active-theme")
+        self.profile_row.set_selected(self.profile_index_by_id.get(default_id, 0))
+        self.update_profile_ui()
+
+    def selected_profile(self) -> dict:
+        if not self.profiles:
+            return {
+                "id": "active-theme",
+                "label": "Active theme",
+                "width": 480,
+                "height": 480,
+                "estimate_bpp": 0.075,
+                "upload_supported": False,
+                "hardware_validated": False,
+                "firmware_note": "Display profiles are still loading.",
+            }
+        index = min(self.profile_row.get_selected(), len(self.profiles) - 1)
+        return self.profiles[index]
+
+    def on_profile_changed(self, *_args):
+        if not self.profiles:
+            return
+        self.converted_path = None
+        self.exact_output_size = 0
+        self.preview_button.set_sensitive(False)
+        self.upload_button.set_sensitive(False)
+        self.update_profile_ui()
+        self.schedule_preview()
+
+    def update_profile_ui(self):
+        profile = self.selected_profile()
+        width = int(profile.get("width") or 480)
+        height = int(profile.get("height") or 480)
+        self.profile_dimensions_row.set_subtitle(f"{width} × {height}")
+        if profile.get("hardware_validated"):
+            status = "Hardware validated"
+        elif profile.get("upload_supported"):
+            status = "Upload enabled — not hardware validated"
+        else:
+            status = "Preview/conversion only — upload disabled"
+        note = str(profile.get("firmware_note") or "")
+        self.profile_support_row.set_subtitle(
+            status + (f" · {note}" if note else "")
+        )
+        self.update_preview_geometry()
+        self.update_estimate()
+
+    def update_preview_geometry(self):
+        profile = self.selected_profile()
+        width = max(2, int(profile.get("width") or 480))
+        height = max(2, int(profile.get("height") or 480))
+        scale = min(500 / width, 500 / height, 1.0)
+        preview_width = max(120, int(round(width * scale)))
+        preview_height = max(120, int(round(height * scale)))
+        self.preview_aspect.set_ratio(width / height)
+        self.preview_frame.set_size_request(preview_width, preview_height)
+        self.preview_picture.set_size_request(preview_width, preview_height)
+
+    @staticmethod
+    def format_bytes(value):
+        amount = float(value)
+        for unit in ("B", "KiB", "MiB", "GiB"):
+            if abs(amount) < 1024 or unit == "GiB":
+                return f"{amount:.1f} {unit}"
+            amount /= 1024
+        return f"{amount:.1f} GiB"
+
+    def update_estimate(self):
+        if self.exact_output_size:
+            self.estimate_row.set_subtitle(
+                f"Actual converted size: {self.format_bytes(self.exact_output_size)}"
+            )
+            return
+        if not self.source_duration:
+            self.estimate_row.set_subtitle("Choose media to calculate")
+            return
+        profile = self.selected_profile()
+        width = int(profile.get("width") or 480)
+        height = int(profile.get("height") or 480)
+        bpp = float(profile.get("estimate_bpp") or 0.075)
+        available = self.source_duration * (int(self.loop_count.get_value()) + 1)
+        start = min(self.trim_start.get_value(), available)
+        end = min(max(self.trim_end.get_value(), start), available)
+        selected = max(0.0, end - start)
+        duration = selected / max(0.25, self.speed.get_value())
+        fps = self.selected_fps()
+        middle = width * height * fps * duration * bpp / 8
+        middle += max(32768, middle * 0.02)
+        low = max(1, round(middle * 0.60))
+        high = max(low, round(middle * 1.55))
+        self.estimate_row.set_subtitle(
+            f"{self.format_bytes(low)} – {self.format_bytes(high)} "
+            f"for about {duration:.1f} s"
+        )
+
     def selected_mode(self) -> str:
         return ("fit", "fill", "stretch", "original", "custom")[
             self.mode_row.get_selected()
@@ -446,7 +599,14 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         return ("solid", "blur", "image")[self.background_mode_row.get_selected()]
 
     def current_settings(self) -> ConversionSettings:
+        profile = self.selected_profile()
         return ConversionSettings(
+            target_width=int(profile.get("width") or 480),
+            target_height=int(profile.get("height") or 480),
+            profile_id=str(profile.get("id") or "active-theme"),
+            encoder=str(profile.get("encoder") or "libx264"),
+            codec=str(profile.get("codec") or "h264"),
+            pixel_format=str(profile.get("pixel_format") or "yuv420p"),
             mode=self.selected_mode(),
             zoom=self.zoom.get_value(),
             offset_x=int(self.offset_x.get_value()),
@@ -474,6 +634,7 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
     def settings_args(self) -> list[str]:
         settings = self.current_settings()
         args = [
+            "--profile", settings.profile_id,
             "--mode", settings.mode,
             "--zoom", f"{settings.zoom:.3f}",
             "--x", str(settings.offset_x),
@@ -563,6 +724,7 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         self.schedule_preview()
 
     def on_loop_changed(self, *_args):
+        self.exact_output_size = 0
         self.update_trim_ranges()
         self.schedule_preview()
 
@@ -582,10 +744,20 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
     def on_drag_update(self, _gesture, delta_x, delta_y):
         width = max(1, self.preview_picture.get_allocated_width())
         height = max(1, self.preview_picture.get_allocated_height())
-        self.offset_x.set_value(self.drag_origin[0] + delta_x * 480 / width)
-        self.offset_y.set_value(self.drag_origin[1] + delta_y * 480 / height)
+        profile = self.selected_profile()
+        target_width = int(profile.get("width") or 480)
+        target_height = int(profile.get("height") or 480)
+        self.offset_x.set_value(
+            self.drag_origin[0] + delta_x * target_width / width
+        )
+        self.offset_y.set_value(
+            self.drag_origin[1] + delta_y * target_height / height
+        )
 
     def schedule_preview(self):
+        if self.source_path:
+            self.exact_output_size = 0
+        self.update_estimate()
         if not self.source_path:
             return
         if self.preview_timeout:
@@ -644,11 +816,20 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
     def on_conversion_complete(self, data):
         self.converted_path = Path(data["path"])
         self.preview_button.set_sensitive(True)
-        self.upload_button.set_sensitive(True)
+        profile = data.get("profile") or self.selected_profile()
+        self.upload_button.set_sensitive(bool(profile.get("upload_supported")))
         output = data.get("output") or {}
         size = int(output.get("size_bytes") or 0)
+        self.exact_output_size = size
+        self.update_estimate()
+        upload_note = (
+            ""
+            if profile.get("upload_supported")
+            else " — preview only; upload is disabled for this profile"
+        )
         self.status.set_label(
             f"Prepared {self.converted_path.name} — {size / 1024:.1f} KiB"
+            f"{upload_note}"
         )
         self.toast("Conversion completed")
 
@@ -683,6 +864,13 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         window.present()
 
     def upload_output(self, _button):
+        profile = self.selected_profile()
+        if not profile.get("upload_supported"):
+            self.show_error(
+                "Native upload is disabled for this unvalidated display profile. "
+                "Conversion and local preview remain available."
+            )
+            return
         if not self.converted_path or not self.converted_path.is_file():
             self.toast("Convert the media first")
             return

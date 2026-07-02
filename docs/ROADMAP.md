@@ -90,10 +90,28 @@ The advanced editor adds:
 - explicit finite input looping;
 - automated unit and real-FFmpeg integration coverage.
 
-## Next implementation — Multiple display profiles
 
-- target dimensions selected from the active display/theme;
-- reusable conversion profiles;
-- firmware-specific codec constraints;
-- storage estimation before upload;
-- profile-aware preview canvas and validation.
+## Current implementation — Multiple display profiles
+
+Status: **implemented for isolated validation**
+
+The profile-aware editor adds:
+
+- automatic target resolution from the active theme;
+- orientation-aware portrait and landscape dimensions;
+- reusable square, portrait, landscape, and ultrawide presets;
+- profile-specific H.264 and pixel-format constraints;
+- hardware-validation and upload-safety metadata;
+- native upload restricted to the validated Rev. C 2.1-inch profile;
+- profile-aware preview aspect ratio;
+- advisory output-size estimation before conversion;
+- exact output size after conversion;
+- rectangular-output unit and real-FFmpeg integration coverage.
+
+## Next implementation — Release readiness
+
+- screenshots and fork-specific release notes;
+- versioned changelog;
+- repeatable release packaging;
+- broader hardware/profile validation;
+- promotion of additional profiles from preview-only to native-upload support.
