@@ -183,3 +183,6 @@ config.yaml.original-da-branch
 
 # Local media-editor validation
 .media-preparation-test/
+
+# Runtime backup created by automatic display detection
+config.yaml.autodetect-backup

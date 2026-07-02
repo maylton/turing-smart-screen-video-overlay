@@ -236,11 +236,13 @@ PYTHON_ENTRYPOINTS=(
   media-preparation-gtk.py
   media_preparation_gtk_app.py
   media-preparation.py
+  display-detection.py
   gtk-checkup.py
   library/runtime.py
   library/video_media.py
   library/media_preparation.py
   library/media_profiles.py
+  library/display_detection.py
 )
 
 for relative in "${PYTHON_ENTRYPOINTS[@]}"; do

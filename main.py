@@ -325,8 +325,21 @@ def main() -> int:
         return 3
 
     try:
-        # Importing the display constructs the communication object, so it must
-        # happen only after this process owns the device lease.
+        try:
+            from library.display_detection import auto_configure
+
+            report = auto_configure(MAIN_DIRECTORY)
+            logger.info("Display detection: %s", report.message)
+            for warning in report.warnings:
+                logger.warning("Display detection: %s", warning)
+        except Exception as exc:
+            logger.warning(
+                "Automatic display detection failed; preserving configuration: %s",
+                exc,
+            )
+
+        # Import only after detection, because library.display constructs the
+        # driver selected by config.yaml.
         from library.display import display
         _DISPLAY = display
 

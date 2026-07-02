@@ -108,6 +108,18 @@ The profile-aware editor adds:
 - exact output size after conversion;
 - rectangular-output unit and real-FFmpeg integration coverage.
 
+## Current implementation — Automatic display detection
+
+Status: **implemented for isolated and hardware validation**
+
+- passive USB and serial descriptor scanning;
+- safe exact-model mapping and ambiguity handling;
+- automatic revision, AUTO port, and compatible-theme loading;
+- Rev. C size-preservation fallback;
+- startup detection before driver import;
+- GTK detection status and manual rescan;
+- atomic configuration backup and unit coverage.
+
 ## Next implementation — Release readiness
 
 - screenshots and fork-specific release notes;
