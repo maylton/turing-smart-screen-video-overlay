@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import os
+import threading
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +31,13 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from PIL import Image
 import ruamel.yaml
+
+from library.theme_video_background import (
+    display_video_path,
+    find_prepared_local_video,
+    generate_background,
+)
+from video_manager_backend import VideoManager
 from ruamel.yaml.comments import CommentedSeq
 
 APP_ID = "io.github.turing.SmartScreen.ThemeEditor"
@@ -193,6 +201,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.redo_stack = []
         self.selected_path = None
         self.property_widgets = {}
+        self.property_rows = []
         self.drag_start_pointer = None
         self.drag_start_element = None
         self.drag_dirty = False
@@ -243,12 +252,26 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         save_btn.connect("clicked", lambda *_: self.save())
         header.pack_end(save_btn)
 
+        save_as_btn = Gtk.Button(
+            label="Save as…",
+            tooltip_text="Create a new theme from the current theme",
+        )
+        save_as_btn.connect("clicked", lambda *_: self.save_as())
+        header.pack_end(save_as_btn)
+
         refresh_btn = Gtk.Button(
             icon_name="view-refresh-symbolic",
             tooltip_text="Render and refresh the theme preview",
         )
         refresh_btn.connect("clicked", lambda *_: self.refresh_preview())
         header.pack_end(refresh_btn)
+
+        media_btn = Gtk.Button(
+            icon_name="video-x-generic-symbolic",
+            tooltip_text="Choose theme video or generate its preview background",
+        )
+        media_btn.connect("clicked", self.on_video_tools_clicked)
+        header.pack_end(media_btn)
 
         body = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         body.set_position(290)
@@ -516,6 +539,22 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         reset_btn.connect("clicked", lambda *_: self.reset_selected())
         self.properties_box.append(reset_btn)
 
+        video_btn = Gtk.Button(
+            label="Video and background…",
+            tooltip_text=(
+                "Choose a local/display video or generate a preview background"
+            ),
+        )
+        video_btn.connect("clicked", self.on_video_tools_clicked)
+        self.properties_box.append(video_btn)
+
+        effects_btn = Gtk.Button(
+            label="Text effects…",
+            tooltip_text="Configure shadow, glow, and outline",
+        )
+        effects_btn.connect("clicked", self.on_text_effects_clicked)
+        self.properties_box.append(effects_btn)
+
         return scroll
 
     def iter_editable_nodes(self, node=None, path=()):
@@ -711,12 +750,54 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.update_history_buttons()
 
     def clear_property_group(self):
-        child = self.dynamic_group.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            self.dynamic_group.remove(child)
-            child = next_child
+        # Adw.PreferencesGroup owns internal layout children. Removing those
+        # children directly leaves rows added through .add() registered in the
+        # group and causes every rebuild to duplicate PATH/INTERVAL/etc.
+        for row in self.property_rows:
+            self.dynamic_group.remove(row)
+        self.property_rows.clear()
         self.property_widgets.clear()
+
+    def create_color_selector(self, value):
+        rgba = Gdk.RGBA()
+        components = list(value) if isinstance(value, (list, tuple)) else [255, 255, 255]
+        while len(components) < 4:
+            components.append(255)
+
+        rgba.red = max(0, min(255, int(components[0]))) / 255.0
+        rgba.green = max(0, min(255, int(components[1]))) / 255.0
+        rgba.blue = max(0, min(255, int(components[2]))) / 255.0
+        rgba.alpha = max(0, min(255, int(components[3]))) / 255.0
+
+        if hasattr(Gtk, "ColorDialogButton"):
+            dialog = Gtk.ColorDialog()
+            dialog.set_with_alpha(len(value) == 4 if isinstance(value, (list, tuple)) else True)
+            button = Gtk.ColorDialogButton(dialog=dialog)
+        else:
+            button = Gtk.ColorButton()
+            if hasattr(button, "set_use_alpha"):
+                button.set_use_alpha(
+                    len(value) == 4 if isinstance(value, (list, tuple)) else True
+                )
+
+        button.set_rgba(rgba)
+        button._theme_color_widget = True
+        button._theme_color_length = (
+            len(value) if isinstance(value, (list, tuple)) and len(value) in (3, 4) else 4
+        )
+        button.set_tooltip_text("Choose a color")
+        return button
+
+    @staticmethod
+    def color_selector_value(widget):
+        rgba = widget.get_rgba()
+        values = [
+            round(rgba.red * 255),
+            round(rgba.green * 255),
+            round(rgba.blue * 255),
+            round(rgba.alpha * 255),
+        ]
+        return values[:getattr(widget, "_theme_color_length", 4)]
 
     def build_property_rows(self):
         self.clear_property_group()
@@ -733,18 +814,36 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 continue
 
             value = node[key]
+            is_color = (
+                key.endswith("_COLOR")
+                and isinstance(value, (list, tuple))
+                and len(value) in (3, 4)
+            )
+
             if key in BOOLEAN_KEYS:
                 row = Adw.SwitchRow(title=key)
                 row.set_active(bool(value))
                 self.dynamic_group.add(row)
                 self.property_widgets[key] = row
+            elif is_color:
+                row = Adw.ActionRow(
+                    title=key,
+                    subtitle=self.value_to_text(value),
+                )
+                selector = self.create_color_selector(value)
+                selector.set_valign(Gtk.Align.CENTER)
+                row.add_suffix(selector)
+                self.dynamic_group.add(row)
+                self.property_widgets[key] = selector
             else:
                 row = Adw.EntryRow(title=key)
                 row.set_text(self.value_to_text(value))
                 self.dynamic_group.add(row)
                 self.property_widgets[key] = row
 
-    @staticmethod
+            if hasattr(self, "property_rows"):
+                self.property_rows.append(row)
+
     def value_to_text(value):
         if isinstance(value, (list, tuple)):
             return ", ".join(str(item) for item in value)
@@ -880,12 +979,14 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         try:
             for key, widget in self.property_widgets.items():
                 old = node[key]
-                raw = (
-                    widget.get_active()
-                    if key in BOOLEAN_KEYS
-                    else widget.get_text()
-                )
-                new = self.parse_value(key, raw, old)
+
+                if key in BOOLEAN_KEYS:
+                    new = self.parse_value(key, widget.get_active(), old)
+                elif getattr(widget, "_theme_color_widget", False):
+                    new = self.color_selector_value(widget)
+                else:
+                    new = self.parse_value(key, widget.get_text(), old)
+
                 updates[key] = new
                 changed = changed or new != old
         except Exception as exc:
@@ -901,6 +1002,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             node[key] = value
 
         save_yaml_atomic(self.theme_file, self.theme_data)
+        self.build_property_rows()
         self.refresh_preview()
         self.toast("Properties updated")
 
@@ -948,6 +1050,100 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         state = self.redo_stack.pop()
         self.restore_history_state(state)
         self.toast("Redo")
+
+
+    def save_as(self):
+        entry = Gtk.Entry(
+            placeholder_text="new-theme-name",
+            activates_default=True,
+        )
+        current = Gtk.Label(
+            label=f"Source theme: {self.theme_name}",
+            xalign=0,
+        )
+        current.add_css_class("dim-label")
+
+        content = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=10,
+            margin_top=8,
+        )
+        content.append(current)
+        content.append(entry)
+
+        dialog = Adw.AlertDialog(
+            heading="Save theme as",
+            body=(
+                "Create a new editable theme from the current theme, "
+                "including YAML, images, fonts, preview, and local assets."
+            ),
+        )
+        dialog.set_extra_child(content)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Create theme")
+        dialog.set_response_appearance(
+            "save",
+            Adw.ResponseAppearance.SUGGESTED,
+        )
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+
+        def response(_dialog, response_id):
+            if response_id != "save":
+                return
+
+            name = entry.get_text().strip()
+            if not name:
+                self.error_dialog("Invalid theme name", "Enter a theme name.")
+                return
+            allowed = (
+                "abcdefghijklmnopqrstuvwxyz"
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                "0123456789._-"
+            )
+            if name in {".", ".."} or any(ch not in allowed for ch in name):
+                self.error_dialog(
+                    "Invalid theme name",
+                    "Use only letters, numbers, dots, underscores, and hyphens.",
+                )
+                return
+
+            destination = THEMES_DIR / name
+            if destination.exists():
+                self.error_dialog(
+                    "Theme already exists",
+                    f"A theme named '{name}' already exists.",
+                )
+                return
+
+            try:
+                save_yaml_atomic(self.theme_file, self.theme_data)
+                shutil.copytree(self.theme_dir, destination)
+                save_yaml_atomic(
+                    destination / "theme.yaml",
+                    copy.deepcopy(self.theme_data),
+                )
+            except Exception as exc:
+                if destination.exists():
+                    shutil.rmtree(destination, ignore_errors=True)
+                self.error_dialog("Could not create theme", str(exc))
+                return
+
+            self.toast(f"Theme created: {name}")
+            try:
+                subprocess.Popen(
+                    [sys.executable, str(Path(__file__).resolve()), name],
+                    cwd=str(ROOT),
+                    start_new_session=True,
+                )
+            except Exception as exc:
+                self.error_dialog(
+                    "Theme created, but could not open it",
+                    f"The new theme is available at {destination}.\n\n{exc}",
+                )
+
+        dialog.connect("response", response)
+        dialog.present(self)
 
     def save(self):
         save_yaml_atomic(self.theme_file, self.theme_data)
@@ -1047,6 +1243,578 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             self.preview_status.set_label(str(exc))
         return False
 
+    def on_video_tools_clicked(self, *_args):
+        try:
+            self.open_video_tools()
+        except Exception as exc:
+            self.error_dialog("Could not open video and background tools", str(exc))
+
+    def on_text_effects_clicked(self, *_args):
+        try:
+            self.open_text_effects()
+        except Exception as exc:
+            self.error_dialog("Could not open text effects", str(exc))
+
+    def open_text_effects(self):
+        if self.selected_path is None:
+            self.toast("Select a text element first")
+            return
+
+        node = self.node_at_path(self.selected_path)
+
+        # Text elements are not limited to nodes with a literal TEXT field.
+        # Dynamic values such as date, time and sensor labels are rendered
+        # as text too, and usually expose FONT/FONT_SIZE/FONT_COLOR plus
+        # FORMAT instead of TEXT.
+        text_like_keys = {
+            "TEXT",
+            "FORMAT",
+            "FONT",
+            "FONT_SIZE",
+            "FONT_COLOR",
+            "ALIGN",
+            "ANCHOR",
+        }
+        is_text_element = (
+            isinstance(node, dict)
+            and bool(text_like_keys.intersection(node.keys()))
+            and (
+                "FONT" in node
+                or "FONT_SIZE" in node
+                or "FONT_COLOR" in node
+            )
+        )
+
+        if not is_text_element:
+            self.toast("The selected element is not rendered as text")
+            return
+
+        effects = copy.deepcopy(node.get("EFFECTS", {}))
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+            margin_top=8,
+        )
+
+        def add_entry(label, value):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            title = Gtk.Label(label=label, xalign=0, hexpand=True)
+            entry = Gtk.Entry(text=str(value), width_chars=16)
+            row.append(title)
+            row.append(entry)
+            box.append(row)
+            return entry
+
+        shadow_switch = Gtk.Switch(
+            active=bool(effects.get("SHADOW", {}).get("ENABLED", False))
+        )
+        shadow_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        shadow_row.append(Gtk.Label(label="Shadow", xalign=0, hexpand=True))
+        shadow_row.append(shadow_switch)
+        box.append(shadow_row)
+        shadow_color = add_entry(
+            "Shadow RGBA",
+            ",".join(map(str, effects.get("SHADOW", {}).get(
+                "COLOR", [0, 0, 0, 180]
+            ))),
+        )
+        shadow_x = add_entry(
+            "Shadow offset X",
+            effects.get("SHADOW", {}).get("OFFSET_X", 3),
+        )
+        shadow_y = add_entry(
+            "Shadow offset Y",
+            effects.get("SHADOW", {}).get("OFFSET_Y", 3),
+        )
+        shadow_blur = add_entry(
+            "Shadow blur",
+            effects.get("SHADOW", {}).get("BLUR_RADIUS", 4),
+        )
+
+        glow_switch = Gtk.Switch(
+            active=bool(effects.get("GLOW", {}).get("ENABLED", False))
+        )
+        glow_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        glow_row.append(Gtk.Label(label="Glow", xalign=0, hexpand=True))
+        glow_row.append(glow_switch)
+        box.append(glow_row)
+        glow_color = add_entry(
+            "Glow RGBA",
+            ",".join(map(str, effects.get("GLOW", {}).get(
+                "COLOR", [255, 255, 255, 160]
+            ))),
+        )
+        glow_blur = add_entry(
+            "Glow blur",
+            effects.get("GLOW", {}).get("BLUR_RADIUS", 8),
+        )
+        glow_intensity = add_entry(
+            "Glow intensity",
+            effects.get("GLOW", {}).get("INTENSITY", 1),
+        )
+
+        outline_switch = Gtk.Switch(
+            active=bool(effects.get("OUTLINE", {}).get("ENABLED", False))
+        )
+        outline_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        outline_row.append(Gtk.Label(label="Outline", xalign=0, hexpand=True))
+        outline_row.append(outline_switch)
+        box.append(outline_row)
+        outline_color = add_entry(
+            "Outline RGBA",
+            ",".join(map(str, effects.get("OUTLINE", {}).get(
+                "COLOR", [0, 0, 0, 255]
+            ))),
+        )
+        outline_width = add_entry(
+            "Outline width",
+            effects.get("OUTLINE", {}).get("WIDTH", 2),
+        )
+
+        scroll = Gtk.ScrolledWindow(
+            min_content_width=520,
+            min_content_height=500,
+            propagate_natural_width=True,
+            propagate_natural_height=True,
+        )
+        scroll.set_child(box)
+
+        dialog = Adw.AlertDialog(
+            heading="Text effects",
+            body="Configure shadow, glow, and outline.",
+        )
+        dialog.set_extra_child(scroll)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", "Apply")
+        dialog.set_response_appearance(
+            "apply",
+            Adw.ResponseAppearance.SUGGESTED,
+        )
+        dialog.set_default_response("apply")
+        dialog.set_close_response("cancel")
+
+        def parse_color(value):
+            parts = [int(part.strip()) for part in value.split(",")]
+            if len(parts) not in (3, 4):
+                raise ValueError("Use R,G,B or R,G,B,A.")
+            while len(parts) < 4:
+                parts.append(255)
+            if any(part < 0 or part > 255 for part in parts):
+                raise ValueError("Color values must be between 0 and 255.")
+            return parts
+
+        def response(_dialog, response_id):
+            if response_id != "apply":
+                return
+            try:
+                updated = {
+                    "SHADOW": {
+                        "ENABLED": shadow_switch.get_active(),
+                        "COLOR": parse_color(shadow_color.get_text()),
+                        "OFFSET_X": int(shadow_x.get_text()),
+                        "OFFSET_Y": int(shadow_y.get_text()),
+                        "BLUR_RADIUS": max(
+                            0, min(40, float(shadow_blur.get_text()))
+                        ),
+                    },
+                    "GLOW": {
+                        "ENABLED": glow_switch.get_active(),
+                        "COLOR": parse_color(glow_color.get_text()),
+                        "BLUR_RADIUS": max(
+                            0, min(40, float(glow_blur.get_text()))
+                        ),
+                        "INTENSITY": max(
+                            1, min(4, int(glow_intensity.get_text()))
+                        ),
+                    },
+                    "OUTLINE": {
+                        "ENABLED": outline_switch.get_active(),
+                        "COLOR": parse_color(outline_color.get_text()),
+                        "WIDTH": max(
+                            0, min(20, int(outline_width.get_text()))
+                        ),
+                    },
+                }
+            except (TypeError, ValueError) as exc:
+                self.error_dialog("Invalid text effect", str(exc))
+                return
+
+            self.push_undo()
+            if any(section["ENABLED"] for section in updated.values()):
+                node["EFFECTS"] = updated
+            else:
+                node.pop("EFFECTS", None)
+            save_yaml_atomic(self.theme_file, self.theme_data)
+            self.build_property_rows()
+            self.refresh_preview()
+            self.toast("Text effects updated")
+
+        dialog.connect("response", response)
+        dialog.present(self)
+
+    def video_node(self):
+        node = self.theme_data.setdefault("video", {})
+        if not isinstance(node, dict):
+            raise TypeError("The theme video section must be a mapping.")
+        return node
+
+    def current_video_path(self):
+        value = self.video_node().get("PATH", "")
+        return str(value or "")
+
+    def apply_video_path(self, path):
+        path = str(path).strip()
+        if not path:
+            self.toast("Choose a video first")
+            return
+
+        node = self.video_node()
+        old_value = str(node.get("PATH", "") or "")
+        if old_value == path:
+            self.toast("This video is already selected")
+            return
+
+        self.push_undo()
+        node["PATH"] = path
+        node.setdefault("INTERVAL", 0)
+        save_yaml_atomic(self.theme_file, self.theme_data)
+
+        self.populate_elements()
+        self.selected_path = ("video",)
+        GLib.idle_add(self.restore_tree_selection, self.selected_path)
+        self.build_property_rows()
+        self.refresh_preview()
+        self.toast(f"Theme video selected: {Path(path).name}")
+
+    def open_video_tools(self):
+        source_labels = (
+            "Local file",
+            "Display SD card",
+            "Display internal memory",
+        )
+        source_dropdown = Gtk.DropDown.new_from_strings(source_labels)
+        source_dropdown.set_selected(0)
+
+        selected_path = Gtk.Entry(
+            placeholder_text="Choose a local file or load display videos"
+        )
+        selected_path.set_text(self.current_video_path())
+
+        choose_local = Gtk.Button(label="Choose local video…")
+        load_remote = Gtk.Button(label="Load videos from display")
+        remote_dropdown = Gtk.DropDown.new_from_strings(
+            ("No display videos loaded",)
+        )
+        remote_dropdown.set_sensitive(False)
+
+        timestamp = Gtk.SpinButton.new_with_range(0.0, 86400.0, 0.1)
+        timestamp.set_digits(1)
+        timestamp.set_value(0.0)
+
+        output_name = Gtk.Entry()
+        output_name.set_text(
+            str(
+                self.video_node().get(
+                    "PREVIEW_BACKGROUND",
+                    "background.png",
+                )
+            )
+        )
+
+        set_preview = Gtk.Switch()
+        set_preview.set_active(True)
+
+        grid = Gtk.Grid(
+            row_spacing=10,
+            column_spacing=10,
+            margin_top=8,
+        )
+
+        def add_row(row, label, widget):
+            title = Gtk.Label(label=label, xalign=0)
+            title.add_css_class("dim-label")
+            grid.attach(title, 0, row, 1, 1)
+            grid.attach(widget, 1, row, 1, 1)
+
+        add_row(0, "Source", source_dropdown)
+        add_row(1, "Selected video", selected_path)
+        add_row(2, "", choose_local)
+        add_row(3, "", load_remote)
+        add_row(4, "Display videos", remote_dropdown)
+        add_row(5, "Frame time (seconds)", timestamp)
+        add_row(6, "Background filename", output_name)
+        add_row(7, "Set as preview background", set_preview)
+
+        help_label = Gtk.Label(
+            label=(
+                "Videos stored on the display can be selected, played, and "
+                "used by the theme. The editor automatically searches the "
+                "media-preparation cache for the converted local copy. If it "
+                "is unavailable, choose the original file manually."
+            ),
+            xalign=0,
+            wrap=True,
+        )
+        help_label.add_css_class("dim-label")
+        grid.attach(help_label, 0, 8, 2, 1)
+
+        state = {
+            "remote_paths": [],
+            "local_path": None,
+            "loading": False,
+        }
+
+        dialog = Adw.AlertDialog(
+            heading="Video and background",
+            body=(
+                "Choose the video used by this theme, preview a display "
+                "video, or extract a local frame as the theme background."
+            ),
+        )
+        dialog.set_extra_child(grid)
+        dialog.add_response("close", "Close")
+        dialog.add_response("stop", "Stop display video")
+        dialog.add_response("play", "Play on display")
+        dialog.add_response("use", "Use in theme")
+        dialog.add_response("generate", "Generate background")
+        dialog.set_response_appearance(
+            "generate",
+            Adw.ResponseAppearance.SUGGESTED,
+        )
+        dialog.set_default_response("generate")
+        dialog.set_close_response("close")
+
+        def choose_local_video(*_args):
+            chooser = Gtk.FileDialog(
+                title="Choose a GIF or video",
+                modal=True,
+            )
+            media_filter = Gtk.FileFilter()
+            media_filter.set_name("GIF and video files")
+            for mime in (
+                "image/gif",
+                "video/mp4",
+                "video/webm",
+                "video/x-matroska",
+                "video/quicktime",
+            ):
+                media_filter.add_mime_type(mime)
+            filters = Gio.ListStore.new(Gtk.FileFilter)
+            filters.append(media_filter)
+            chooser.set_filters(filters)
+
+            def selected(chooser, result):
+                try:
+                    file = chooser.open_finish(result)
+                except GLib.Error:
+                    return
+                path = Path(file.get_path())
+                if not path.is_file():
+                    self.toast("Selected video is not available")
+                    return
+                state["local_path"] = path
+                source_dropdown.set_selected(0)
+                selected_path.set_text(str(path))
+
+            chooser.open(self, None, selected)
+
+        choose_local.connect("clicked", choose_local_video)
+
+        def selected_remote_path():
+            index = remote_dropdown.get_selected()
+            paths = state["remote_paths"]
+            if index < 0 or index >= len(paths):
+                return None
+            return paths[index]
+
+        def remote_changed(_dropdown, _param):
+            path = selected_remote_path()
+            if not path:
+                return
+            selected_path.set_text(path)
+            local_copy = find_prepared_local_video(path)
+            state["local_path"] = local_copy
+            if local_copy is not None:
+                self.toast(
+                    f"Local prepared copy found: {local_copy.name}"
+                )
+
+        remote_dropdown.connect("notify::selected", remote_changed)
+
+        def finish_remote_load(paths, error):
+            state["loading"] = False
+            load_remote.set_sensitive(True)
+            if error:
+                self.error_dialog("Could not list display videos", error)
+                return False
+            state["remote_paths"] = list(paths)
+            names = tuple(Path(path).name for path in paths)
+            model = Gtk.StringList.new(
+                names or ("No videos found in this storage",)
+            )
+            remote_dropdown.set_model(model)
+            remote_dropdown.set_sensitive(bool(paths))
+            if paths:
+                remote_dropdown.set_selected(0)
+                selected_path.set_text(paths[0])
+            return False
+
+        def load_display_videos(*_args):
+            if state["loading"]:
+                return
+            source_index = source_dropdown.get_selected()
+            if source_index == 0:
+                self.toast("Choose SD card or internal memory first")
+                return
+
+            internal = source_index == 2
+            state["local_path"] = None
+            state["loading"] = True
+            load_remote.set_sensitive(False)
+            load_remote.set_label("Loading…")
+
+            def worker():
+                manager = None
+                try:
+                    manager = VideoManager()
+                    _directories, files = manager.list_videos(
+                        internal=internal
+                    )
+                    paths = [
+                        display_video_path(name, internal=internal)
+                        for name in files
+                    ]
+                    error = None
+                except Exception as exc:
+                    paths = []
+                    error = str(exc)
+                finally:
+                    if manager is not None:
+                        manager.close()
+
+                def finish():
+                    load_remote.set_label("Load videos from display")
+                    return finish_remote_load(paths, error)
+
+                GLib.idle_add(finish)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        load_remote.connect("clicked", load_display_videos)
+
+        def run_remote_action(action, path):
+            def worker():
+                manager = None
+                try:
+                    manager = VideoManager()
+                    if action == "play":
+                        manager.play(path)
+                        message = f"Playing {Path(path).name}"
+                    else:
+                        manager.stop()
+                        message = "Display video stopped"
+                    error = None
+                except Exception as exc:
+                    message = ""
+                    error = str(exc)
+                finally:
+                    if manager is not None:
+                        manager.close()
+
+                def finish():
+                    if error:
+                        self.error_dialog("Display video", error)
+                    else:
+                        self.toast(message)
+                    return False
+
+                GLib.idle_add(finish)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def generate_selected_background():
+            source = state["local_path"]
+            if source is None:
+                raw_path = selected_path.get_text().strip()
+                candidate = Path(raw_path).expanduser()
+                if candidate.is_file():
+                    source = candidate
+
+            if source is None or not Path(source).is_file():
+                self.error_dialog(
+                    "Local video required",
+                    (
+                        "No matching prepared copy was found in the local "
+                        "media cache. Choose the original local file before "
+                        "generating a background."
+                    ),
+                )
+                return
+
+            name = Path(output_name.get_text().strip()).name
+            if not name:
+                name = "background.png"
+            if Path(name).suffix.lower() != ".png":
+                name = f"{Path(name).stem}.png"
+            destination = self.theme_dir / name
+            frame_time = timestamp.get_value()
+            dialog.set_response_enabled("generate", False)
+
+            def worker():
+                try:
+                    generate_background(
+                        Path(source),
+                        destination,
+                        timestamp=frame_time,
+                        width=480,
+                        height=480,
+                    )
+                    error = None
+                except Exception as exc:
+                    error = str(exc)
+
+                def finish():
+                    dialog.set_response_enabled("generate", True)
+                    if error:
+                        self.error_dialog(
+                            "Could not generate background",
+                            error,
+                        )
+                        return False
+
+                    if set_preview.get_active():
+                        self.push_undo()
+                        self.video_node()["PREVIEW_BACKGROUND"] = name
+                        save_yaml_atomic(self.theme_file, self.theme_data)
+                    self.refresh_preview()
+                    self.toast(f"Background generated: {name}")
+                    return False
+
+                GLib.idle_add(finish)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def response(_dialog, response_id):
+            if response_id == "use":
+                self.apply_video_path(selected_path.get_text())
+                dialog.present(self)
+            elif response_id == "generate":
+                generate_selected_background()
+                dialog.present(self)
+            elif response_id == "play":
+                path = selected_path.get_text().strip()
+                if not path.startswith(("/mnt/SDCARD/video/", "/root/video/")):
+                    self.toast("Choose a video stored on the display")
+                    dialog.present(self)
+                    return
+                run_remote_action("play", path)
+                dialog.present(self)
+            elif response_id == "stop":
+                run_remote_action("stop", "")
+                dialog.present(self)
+
+        dialog.connect("response", response)
+        dialog.present(self)
 
     def shared_background_name(self):
         return self.theme_data.get("video", {}).get(
@@ -1621,6 +2389,9 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
 
     def toast(self, text):
         self.toast_overlay.add_toast(Adw.Toast(title=text, timeout=3))
+
+
+
 
 
 class ThemeEditorApplication(Adw.Application):

@@ -31,7 +31,7 @@ from enum import IntEnum
 from typing import Tuple, List, Optional, Dict
 
 import serial
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 from library.log import logger
 from library.lcd.color import Color, parse_color
@@ -88,6 +88,210 @@ class LcdComm(ABC):
             return self.display_height
         else:
             return self.display_width
+
+    def _video_overlay_is_active(self) -> bool:
+        return bool(getattr(self, "video_overlay_enabled", False))
+
+    def _make_widget_canvas(
+        self,
+        size: tuple[int, int],
+        background_color: Color,
+        background_image: Optional[str] = None,
+        crop_box: Optional[tuple[int, int, int, int]] = None,
+    ) -> Image.Image:
+        if self._video_overlay_is_active():
+            return Image.new("RGBA", size, (0, 0, 0, 0))
+
+        if background_image is None:
+            return Image.new("RGB", size, background_color)
+
+        image = self.open_image(background_image)
+        if crop_box is not None:
+            image = image.crop(box=crop_box)
+        if image.size != size:
+            image = image.resize(size)
+        return image
+
+    @staticmethod
+    def _effect_rgba(value, default):
+        values = list(value) if isinstance(value, (list, tuple)) else list(default)
+        while len(values) < 4:
+            values.append(255)
+        return tuple(max(0, min(255, int(v))) for v in values[:4])
+
+    @staticmethod
+    def _effect_enabled(config):
+        return isinstance(config, dict) and bool(config.get("ENABLED", False))
+
+    @staticmethod
+    def _normalize_effect_color(value):
+        if isinstance(value, (list, tuple)):
+            return tuple(int(component) for component in value[:4])
+        return value
+
+    def _resolve_theme_text_effects(
+        self,
+        x,
+        y,
+        font_size,
+        font_color,
+    ):
+        """
+        Resolve EFFECTS for dynamic text callbacks that do not pass the field
+        explicitly. Theme stats such as date and time call DisplayText directly,
+        so the preview/runtime matches the configured node by position and font.
+        """
+        try:
+            from library import config
+            root = config.THEME_DATA
+        except Exception:
+            return {}
+
+        candidates = []
+
+        def visit(value):
+            if isinstance(value, dict):
+                effects = value.get("EFFECTS")
+                if isinstance(effects, dict) and effects:
+                    score = 0
+                    if value.get("X", 0) == x:
+                        score += 4
+                    if value.get("Y", 0) == y:
+                        score += 4
+                    if value.get("FONT_SIZE", 10) == font_size:
+                        score += 2
+                    configured_color = self._normalize_effect_color(
+                        value.get("FONT_COLOR")
+                    )
+                    rendered_color = self._normalize_effect_color(font_color)
+                    if configured_color == rendered_color:
+                        score += 1
+                    candidates.append((score, effects))
+
+                for child in value.values():
+                    visit(child)
+
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+
+        visit(root)
+
+        if not candidates:
+            return {}
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        best_score, best_effects = candidates[0]
+        return best_effects if best_score >= 8 else {}
+
+    def _draw_text_effects(
+        self,
+        image,
+        position,
+        text,
+        font,
+        font_color,
+        align,
+        anchor,
+        effects,
+    ):
+        effects = effects if isinstance(effects, dict) else {}
+        canvas = image.convert("RGBA")
+        width, height = canvas.size
+
+        shadow = effects.get("SHADOW", {})
+        if self._effect_enabled(shadow):
+            dx = int(shadow.get("OFFSET_X", 3))
+            dy = int(shadow.get("OFFSET_Y", 3))
+            blur = max(0.0, float(shadow.get("BLUR_RADIUS", 4)))
+            mask = Image.new("L", (width, height), 0)
+            ImageDraw.Draw(mask).text(
+                (position[0] + dx, position[1] + dy),
+                text,
+                font=font,
+                fill=255,
+                align=align,
+                anchor=anchor,
+            )
+            if blur:
+                mask = mask.filter(ImageFilter.GaussianBlur(blur))
+            color = self._effect_rgba(shadow.get("COLOR"), (0, 0, 0, 180))
+            layer = Image.new("RGBA", (width, height), color)
+            layer.putalpha(mask.point(lambda v: v * color[3] // 255))
+            canvas = Image.alpha_composite(canvas, layer)
+
+        glow = effects.get("GLOW", {})
+        if self._effect_enabled(glow):
+            blur = max(0.0, float(glow.get("BLUR_RADIUS", 8)))
+            intensity = max(1, min(4, int(glow.get("INTENSITY", 1))))
+            mask = Image.new("L", (width, height), 0)
+            ImageDraw.Draw(mask).text(
+                position,
+                text,
+                font=font,
+                fill=255,
+                align=align,
+                anchor=anchor,
+            )
+            if blur:
+                mask = mask.filter(ImageFilter.GaussianBlur(blur))
+            color = self._effect_rgba(glow.get("COLOR"), (255, 255, 255, 160))
+            for _ in range(intensity):
+                layer = Image.new("RGBA", (width, height), color)
+                layer.putalpha(mask.point(lambda v: v * color[3] // 255))
+                canvas = Image.alpha_composite(canvas, layer)
+
+        outline = effects.get("OUTLINE", {})
+        stroke_width = 0
+        stroke_fill = None
+        if self._effect_enabled(outline):
+            stroke_width = max(0, min(20, int(outline.get("WIDTH", 2))))
+            stroke_fill = self._effect_rgba(
+                outline.get("COLOR"),
+                (0, 0, 0, 255),
+            )
+
+        ImageDraw.Draw(canvas).text(
+            position,
+            text,
+            font=font,
+            fill=self._effect_rgba(font_color, (255, 255, 255, 255)),
+            align=align,
+            anchor=anchor,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill,
+        )
+        return canvas
+
+    @staticmethod
+    def _text_effect_padding(effects):
+        effects = effects if isinstance(effects, dict) else {}
+        padding = 0
+
+        shadow = effects.get("SHADOW", {})
+        if isinstance(shadow, dict) and shadow.get("ENABLED", False):
+            padding = max(
+                padding,
+                abs(int(shadow.get("OFFSET_X", 3))) +
+                abs(int(shadow.get("OFFSET_Y", 3))) +
+                int(float(shadow.get("BLUR_RADIUS", 4))) * 2,
+            )
+
+        glow = effects.get("GLOW", {})
+        if isinstance(glow, dict) and glow.get("ENABLED", False):
+            padding = max(
+                padding,
+                int(float(glow.get("BLUR_RADIUS", 8))) * 2,
+            )
+
+        outline = effects.get("OUTLINE", {})
+        if isinstance(outline, dict) and outline.get("ENABLED", False):
+            padding = max(
+                padding,
+                int(outline.get("WIDTH", 2)) + 2,
+            )
+
+        return max(0, min(80, padding))
 
     def openSerial(self):
         if self.com_port == 'AUTO':
@@ -250,6 +454,7 @@ class LcdComm(ABC):
             background_image: Optional[str] = None,
             align: str = 'left',
             anchor: str = 'la',
+            effects: Optional[dict] = None,
     ):
         # Convert text to bitmap using PIL and display it
         # Provide the background image path to display text with transparent background
@@ -268,16 +473,11 @@ class LcdComm(ABC):
         if width > 0 and height == 0:
             height = font_size
 
-        if background_image is None:
-            # A text bitmap is created with max width/height by default : text with solid background
-            text_image = Image.new(
-                'RGB',
-                (self.get_width(), self.get_height()),
-                background_color
-            )
-        else:
-            # The text bitmap is created from provided background image : text with transparent background
-            text_image = self.open_image(background_image)
+        text_image = self._make_widget_canvas(
+            (self.get_width(), self.get_height()),
+            background_color,
+            background_image,
+        )
 
         # Get text bounding box
         ttfont = self.open_font(font, font_size)
@@ -307,8 +507,27 @@ class LcdComm(ABC):
             else:
                 y = top
 
-        # Draw text onto the background image with specified color & font
-        d.text((x, y), text, font=ttfont, fill=font_color, align=align, anchor=anchor)
+        if not effects:
+            effects = self._resolve_theme_text_effects(
+                x, y, font_size, font_color
+            )
+
+        text_image = self._draw_text_effects(
+            text_image,
+            (x, y),
+            text,
+            ttfont,
+            font_color,
+            align,
+            anchor,
+            effects,
+        )
+
+        effect_padding = self._text_effect_padding(effects)
+        left -= effect_padding
+        top -= effect_padding
+        right += effect_padding
+        bottom += effect_padding
 
         # Restrict the dimensions if they overflow the display size
         left = max(left, 0)
@@ -347,15 +566,12 @@ class LcdComm(ABC):
 
         assert min_value <= value <= max_value, 'Progress bar value shall be between min and max'
 
-        if background_image is None:
-            # A bitmap is created with solid background
-            bar_image = Image.new('RGB', (width, height), background_color)
-        else:
-            # A bitmap is created from provided background image
-            bar_image = self.open_image(background_image)
-
-            # Crop bitmap to keep only the progress bar background
-            bar_image = bar_image.crop(box=(x, y, x + width, y + height))
+        bar_image = self._make_widget_canvas(
+            (width, height),
+            background_color,
+            background_image,
+            crop_box=(x, y, x + width, y + height),
+        )
 
         # Draw progress bar. Fill has to be computed from the offset
         # into [min_value, max_value], not the raw value; otherwise a
@@ -422,15 +638,12 @@ class LcdComm(ABC):
         assert x + width <= self.get_width(), 'Progress bar width exceeds display width'
         assert y + height <= self.get_height(), 'Progress bar height exceeds display height'
 
-        if background_image is None:
-            # A bitmap is created with solid background
-            graph_image = Image.new('RGB', (width, height), background_color)
-        else:
-            # A bitmap is created from provided background image
-            graph_image = self.open_image(background_image)
-
-            # Crop bitmap to keep only the plot graph background
-            graph_image = graph_image.crop(box=(x, y, x + width, y + height))
+        graph_image = self._make_widget_canvas(
+            (width, height),
+            background_color,
+            background_image,
+            crop_box=(x, y, x + width, y + height),
+        )
 
         # if autoscale is enabled, define new min/max value to "zoom" the graph
         if autoscale:
@@ -572,15 +785,12 @@ class LcdComm(ABC):
         diameter = 2 * radius
         bbox = (xc - radius, yc - radius, xc + radius, yc + radius)
         #
-        if background_image is None:
-            # A bitmap is created with solid background
-            bar_image = Image.new('RGB', (diameter, diameter), background_color)
-        else:
-            # A bitmap is created from provided background image
-            bar_image = self.open_image(background_image)
-
-            # Crop bitmap to keep only the progress bar background
-            bar_image = bar_image.crop(box=bbox)
+        bar_image = self._make_widget_canvas(
+            (diameter, diameter),
+            background_color,
+            background_image,
+            crop_box=bbox,
+        )
 
         # Draw progress bar
         pct = (value - min_value) / (max_value - min_value)

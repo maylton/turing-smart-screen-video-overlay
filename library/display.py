@@ -205,6 +205,7 @@ class Display:
                                                                                                None)),
                     align=config.THEME_DATA['static_text'][text].get("ALIGN", "left"),
                     anchor=config.THEME_DATA['static_text'][text].get("ANCHOR", "lt"),
+                    effects=config.THEME_DATA['static_text'][text].get("EFFECTS", {}),
                 )
 
 

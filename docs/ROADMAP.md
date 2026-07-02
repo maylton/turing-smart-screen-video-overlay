@@ -141,3 +141,38 @@ The release-readiness layer adds:
 - repeatable shell, Python, metadata, unit, whitespace, and FFmpeg checks;
 - contract tests for required release files and fields;
 - documented limitations without publishing a tag or GitHub Release.
+
+## Release-candidate polish — Theme editor media integration
+
+- fix repeated GTK property rows after Apply, Reset, Undo, or Redo;
+- choose a local video or a video already stored on the display;
+- browse SD-card and internal-memory videos through the existing backend;
+- play or stop a selected remote video for physical preview;
+- write the selected display path into the theme video section;
+- extract an exact-size PNG background from a local video frame;
+- update `video.PREVIEW_BACKGROUND` and refresh the GTK preview safely;
+- retain the classic editor as a fallback while the migration is completed.
+
+## Theme cloning and prepared-media reuse
+
+- automatically reuse converted videos retained in the media-preparation cache;
+- allow a display-side video to generate a background without reselecting the
+  source when its local converted copy is still available;
+- keep manual local selection as a fallback;
+- add Save As to clone the complete current theme into a new editable theme;
+- reject unsafe or conflicting theme names and open the new theme after cloning.
+
+## True transparent native-video overlays
+
+- render text, linear bars, line graphs, and radial widgets on RGBA canvases;
+- ignore captured-frame `BACKGROUND_IMAGE` values while native video is active;
+- transmit only visible widget pixels through the Rev. C D0 visibility map;
+- preserve solid/image backgrounds for non-video themes;
+- prevent moving video from appearing frozen inside widget rectangles.
+
+## Text effects and reliable theme cloning
+
+- add shadow, glow, and outline to text rendering;
+- preserve RGBA transparency over native video;
+- expose effects in the GTK editor;
+- ensure Save As imports shutil reliably.

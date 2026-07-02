@@ -140,6 +140,11 @@ class LcdSimulated(LcdComm):
         assert image_width > 0, 'Image width must be > 0'
 
         with self.update_queue_mutex:
-            self.screen_image.paste(image, (x, y))
+            if image.mode == "RGBA":
+                base = self.screen_image.convert("RGBA")
+                base.alpha_composite(image, (x, y))
+                self.screen_image = base.convert("RGB")
+            else:
+                self.screen_image.paste(image, (x, y))
             self.screen_image.save("tmp", "PNG")
             shutil.copyfile("tmp", SCREENSHOT_FILE)
