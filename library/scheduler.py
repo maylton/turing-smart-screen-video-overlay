@@ -41,7 +41,13 @@ def async_job(threadname=None):
         @wraps(func)
         def async_func(*args, **kwargs):
             """ create an asynchronous function to wrap around our thread """
-            func_hl = threading.Thread(target=func, name=threadname, args=args, kwargs=kwargs)
+            func_hl = threading.Thread(
+                target=func,
+                name=threadname,
+                args=args,
+                kwargs=kwargs,
+                daemon=True,
+            )
             func_hl.start()
             return func_hl
 
@@ -153,7 +159,7 @@ def NetStats():
 @async_job("Date_Stats")
 @schedule(timedelta(seconds=config.THEME_DATA['STATS'].get('DATE', {}).get("INTERVAL", 0)).total_seconds())
 def DateStats():
-    # logger.debug("Refresh date stats")
+    # logger.debug("Refresh Date data")
     stats.Date.stats()
 
 

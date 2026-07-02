@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import compileall
 import subprocess
 import sys
 from pathlib import Path
@@ -19,21 +18,26 @@ def main() -> int:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path.cwd()
     checks: list[tuple[bool, str]] = []
 
-    # GTK / Libadwaita
     try:
         import gi
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import Gtk, Adw
+        from gi.repository import Adw, Gtk
         checks.append(result(True, "GTK4 and Libadwaita imports"))
     except Exception as exc:
         checks.append(result(False, "GTK4 and Libadwaita imports", str(exc)))
 
     required_files = (
         "configure-gtk.py",
+        "configure_gtk_app.py",
         "theme-editor-gtk.py",
         "video-manager-gtk.py",
+        "video_manager_gtk_app.py",
         "video_manager.py",
+        "video_manager_backend.py",
+        "screen-control.py",
+        "library/runtime.py",
+        "tests/test_runtime_lock.py",
         "theme-editor.py",
         "main.py",
         "config.yaml",
@@ -44,8 +48,7 @@ def main() -> int:
         path = root / relative
         checks.append(result(path.is_file(), relative))
 
-    # System commands
-    for command in ("ffmpeg", "xdg-open"):
+    for command in ("ffmpeg", "ffprobe", "xdg-open"):
         completed = subprocess.run(
             ["sh", "-lc", f"command -v {command}"],
             text=True,
@@ -58,12 +61,17 @@ def main() -> int:
             completed.stdout.strip() if completed.returncode == 0 else "not found",
         ))
 
-    # Python syntax
     scripts = (
         root / "configure-gtk.py",
+        root / "configure_gtk_app.py",
         root / "theme-editor-gtk.py",
         root / "video-manager-gtk.py",
+        root / "video_manager_gtk_app.py",
         root / "video_manager.py",
+        root / "video_manager_backend.py",
+        root / "screen-control.py",
+        root / "library" / "runtime.py",
+        root / "main.py",
     )
     syntax_ok = True
     syntax_errors = []
@@ -81,7 +89,19 @@ def main() -> int:
         "; ".join(syntax_errors),
     ))
 
-    # Project venv imports and YAML validation
+    runtime_tests = subprocess.run(
+        [sys.executable, "-m", "unittest", "-q", "tests.test_runtime_lock"],
+        cwd=str(root),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    checks.append(result(
+        runtime_tests.returncode == 0,
+        "Runtime ownership tests",
+        (runtime_tests.stdout or runtime_tests.stderr).strip()[-1000:],
+    ))
+
     venv_python = root / "venv" / "bin" / "python3"
     if venv_python.is_file():
         probe = subprocess.run(
@@ -124,14 +144,17 @@ def main() -> int:
             (yaml_probe.stdout or yaml_probe.stderr).strip()[-1000:],
         ))
     else:
-        checks.append(result(False, "Project virtual environment", "venv/bin/python3 not found"))
+        checks.append(result(
+            False,
+            "Project virtual environment",
+            "venv/bin/python3 not found",
+        ))
 
-    # Stale temp files
     temp_files = list((root / "res" / "themes").glob("*/theme.yaml.tmp"))
     checks.append(result(
         not temp_files,
         "No stale theme.yaml.tmp files",
-        ", ".join(str(p.relative_to(root)) for p in temp_files),
+        ", ".join(str(path.relative_to(root)) for path in temp_files),
     ))
 
     print("\n".join(line for _ok, line in checks))
