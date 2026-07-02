@@ -1,17 +1,9 @@
-# Media preparation editor MVP
+# Media preparation editor
 
-The media preparation editor converts common GIF/video inputs into the
-native-video profile validated for the Turing Rev. C 2.1-inch display.
+The media preparation editor converts GIFs and common video files into native
+Rev. C display media without requiring manual FFmpeg commands.
 
-## Open the editor
-
-Open **Video Manager** and select **Import and prepare media…**, or run:
-
-```bash
-media-preparation-gtk.py
-```
-
-## Supported inputs
+## Compatible input
 
 - GIF
 - MP4
@@ -20,59 +12,71 @@ media-preparation-gtk.py
 - MOV
 - AVI
 
-## Current target profile
+## Output contract
+
+Prepared files use:
 
 - MP4 container;
 - H.264 video;
-- 480×480;
+- 480 × 480 resolution;
 - `yuv420p`;
 - 24 or 30 FPS;
-- no audio.
+- no audio stream.
 
-## Workflow
+## Basic framing
 
-1. Choose a source file.
-2. Review codec, size, duration, FPS, and audio metadata.
-3. Select Fit, Fill/Cover, or Stretch.
-4. Adjust zoom and X/Y position, or drag directly on the preview.
-5. Set trim start/end and output FPS.
-6. Convert to the cache directory.
-7. Preview the converted loop.
-8. Upload to SD or internal storage through the hardened video backend.
+- **Fit** preserves the complete source and adds background space when needed.
+- **Fill / Cover** fills the square and clips overflow.
+- **Stretch** forces the source into the square.
+- Zoom and drag positioning remain available for all modes.
 
-The original source is never modified. Generated files are stored under:
+## Advanced framing
+
+- **Original size** keeps the cropped/rotated source dimensions before zoom.
+- **Custom size** gives explicit foreground width and height.
+- Numeric crop margins remove pixels from each source edge.
+- Rotation supports 0°, 90°, 180°, and 270°.
+- Nine-point alignment places the foreground on any canvas edge or corner.
+- Dragging the preview still applies fine positioning.
+
+## Backgrounds
+
+- Solid RGB color.
+- Blurred copy of the source.
+- Custom PNG, JPEG, WebP, or BMP image.
+
+The custom background image is scaled and center-cropped to the 480 × 480
+canvas.
+
+## Timing
+
+- Trim start and end.
+- Playback speed from 0.25× to 4×.
+- Up to 20 extra input loops.
+- 24 or 30 FPS output.
+
+For GIFs, the embedded infinite-loop instruction is ignored so conversion
+remains finite. Extra loops are controlled explicitly by the editor.
+
+## Cache and privacy
+
+Temporary previews and converted files are written to:
 
 ```text
-$XDG_CACHE_HOME/turing-smart-screen/media-preparation
+${XDG_CACHE_HOME:-~/.cache}/turing-smart-screen/media-preparation
 ```
 
-or `~/.cache/turing-smart-screen/media-preparation` when
-`XDG_CACHE_HOME` is unset.
+The editor does not upload anything until **Upload** is selected.
 
-## CLI
+## Validation
 
-Analyze:
+Run:
 
 ```bash
-./venv/bin/python3 media-preparation.py --json probe source.gif
+python -m unittest -v tests.test_media_preparation
+python scripts/test-media-preparation-advanced.py
 ```
 
-Render a preview frame:
-
-```bash
-./venv/bin/python3 media-preparation.py --json preview source.mp4 \
-  --mode fill --zoom 1.15 --x 12 --y -4 --output /tmp/preview.png
-```
-
-Convert:
-
-```bash
-./venv/bin/python3 media-preparation.py --json convert source.webm \
-  --mode fit --fps 30 --output /tmp/prepared.mp4
-```
-
-## Scope after the MVP
-
-Later phases will add crop handles, rotation, custom/background images,
-blurred backgrounds, playback speed, richer GIF loop controls, and
-reusable profiles for other display dimensions.
+The integration test creates temporary synthetic media, tests blurred and
+custom-image backgrounds, rotation, crop, speed, loops, preview generation,
+and validates the resulting H.264 480 × 480 files.

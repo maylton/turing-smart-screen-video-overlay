@@ -74,3 +74,26 @@ The MVP branch provides a GTK workflow that:
 - versioned changelog;
 - repeatable release packaging;
 - broader hardware/profile validation.
+
+## Current implementation — Advanced media preparation
+
+Status: **implemented for isolated and hardware validation**
+
+The advanced editor adds:
+
+- original-size and fully custom foreground modes;
+- numeric crop margins;
+- 0°/90°/180°/270° rotation;
+- nine-point canvas alignment;
+- solid, blurred-source, and custom-image backgrounds;
+- playback-speed control;
+- explicit finite input looping;
+- automated unit and real-FFmpeg integration coverage.
+
+## Next implementation — Multiple display profiles
+
+- target dimensions selected from the active display/theme;
+- reusable conversion profiles;
+- firmware-specific codec constraints;
+- storage estimation before upload;
+- profile-aware preview canvas and validation.
