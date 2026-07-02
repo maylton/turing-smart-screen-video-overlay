@@ -1,0 +1,83 @@
+schema_version: 1
+release:
+  version: 0.1.0-rc1
+  status: release-candidate
+  published: false
+  tag_created: false
+runtime:
+  python_minimum: '3.9'
+  python_locally_validated: '3.14'
+platforms:
+  validated:
+  - Linux desktop
+  targeted:
+  - Linux desktop
+  - Raspberry Pi
+  inherited_unverified:
+  - Windows
+  - macOS
+external_tools:
+  required:
+  - name: Python
+    purpose: application runtime
+  - name: bash
+    purpose: installer and release verification
+  media_required:
+  - name: ffmpeg
+    purpose: media conversion and preview
+  - name: ffprobe
+    purpose: media inspection and validation
+  optional:
+  - name: GTK4
+    purpose: desktop interface
+  - name: Libadwaita
+    purpose: desktop interface
+hardware:
+  native_media_validated:
+    revision: C
+    display_size: 2.1"
+    resolution:
+    - 480
+    - 480
+    rom: 88
+    codec: h264
+    pixel_format: yuv420p
+  preview_only_profiles:
+  - square-480-preview
+  - portrait-320x480-preview
+  - landscape-480x320-preview
+  - portrait-480x800-preview
+  - landscape-800x480-preview
+  - ultrawide-1920x480-preview
+protocols:
+  inherited_system_monitor:
+  - Rev. A
+  - Rev. B
+  - Rev. C
+  - Rev. D
+  - Turing USB
+  - WeAct
+  fork_native_media_validated:
+  - Rev. C 2.1-inch ROM 88
+entrypoints:
+- main.py
+- configure_gtk_app.py
+- video_manager_gtk_app.py
+- media-preparation.py
+- media_preparation_gtk_app.py
+- display-detection.py
+- install.sh
+documentation:
+- README.md
+- CHANGELOG.md
+- docs/INSTALLATION.md
+- docs/MEDIA_PREPARATION.md
+- docs/DISPLAY_DETECTION.md
+- docs/ROADMAP.md
+- docs/releases/0.1.0-rc1.md
+known_limitations:
+- Native media commands are validated only on Rev. C 2.1-inch ROM 88.
+- Preview-only profiles cannot upload until hardware validation is completed.
+- Automatic detection intentionally refuses ambiguous matches.
+- Output-size estimates are advisory.
+- Fork-specific packaging and GTK workflows are Linux-focused.
