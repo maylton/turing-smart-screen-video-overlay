@@ -38,6 +38,13 @@ from library.theme_video_background import (
     generate_background,
 )
 from library.theme_property_presets import property_preset_options
+from library.theme_text_style_presets import (
+    is_text_style_node,
+    text_effect_preset,
+    text_effect_preset_names,
+    text_style_preset_names,
+    text_style_updates,
+)
 from video_manager_backend import VideoManager
 from ruamel.yaml.comments import CommentedSeq
 
@@ -900,6 +907,50 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         target_length = length or getattr(widget, "_theme_color_length", 3)
         return values[:target_length]
 
+    def set_color_selector_value(self, widget, value):
+        components = self.parse_theme_color(value)
+        rgba = Gdk.RGBA()
+        rgba.red = components[0] / 255.0
+        rgba.green = components[1] / 255.0
+        rgba.blue = components[2] / 255.0
+        rgba.alpha = components[3] / 255.0
+        widget.set_rgba(rgba)
+
+    @staticmethod
+    def same_property_value(left, right):
+        if isinstance(left, bool) or isinstance(right, bool):
+            return left is right
+        if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            return float(left) == float(right)
+        return left == right
+
+    def sync_property_preset_dropdown(self, widget, value):
+        dropdown = getattr(widget, "_theme_preset_dropdown", None)
+        if dropdown is None:
+            return
+
+        values = getattr(dropdown, "_theme_preset_values", ())
+        for index, preset_value in enumerate(values):
+            if self.same_property_value(preset_value, value):
+                dropdown.set_selected(index)
+                return
+        dropdown.set_selected(Gtk.INVALID_LIST_POSITION)
+
+    def set_property_widget_value(self, key, value):
+        widget = self.property_widgets.get(key)
+        if widget is None:
+            return
+
+        if isinstance(widget, Adw.EntryRow):
+            widget.set_text(self.value_to_text(value))
+            self.sync_property_preset_dropdown(widget, value)
+        elif isinstance(widget, Adw.SwitchRow):
+            widget.set_active(bool(value))
+        elif getattr(widget, "_theme_color_widget", False):
+            self.set_color_selector_value(widget, value)
+        elif hasattr(widget, "set_text"):
+            widget.set_text(self.value_to_text(value))
+
     def property_preset_options(self, key, current_value):
         return property_preset_options(
             key,
@@ -961,6 +1012,44 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         dropdown.connect("notify::selected", preset_changed)
         return dropdown
 
+    def create_text_style_preset_row(self, node):
+        preset_names = text_style_preset_names(node, self.selected_path)
+        if not preset_names:
+            return None
+
+        labels = ["Choose a preset…"] + preset_names
+        dropdown = Gtk.DropDown.new_from_strings(labels)
+        dropdown.set_size_request(190, -1)
+        dropdown.set_valign(Gtk.Align.CENTER)
+        dropdown.set_tooltip_text("Fill available text fields")
+        dropdown._theme_resetting_text_style = False
+
+        row = Adw.ActionRow(
+            title="Text style preset",
+            subtitle="Fill the available text fields without saving them.",
+        )
+        row.add_suffix(dropdown)
+
+        def preset_changed(widget, _param):
+            if getattr(widget, "_theme_resetting_text_style", False):
+                return
+            index = widget.get_selected()
+            if index in (0, Gtk.INVALID_LIST_POSITION):
+                return
+            if index - 1 >= len(preset_names):
+                return
+
+            updates = text_style_updates(preset_names[index - 1], node)
+            for key, value in updates.items():
+                self.set_property_widget_value(key, value)
+
+            widget._theme_resetting_text_style = True
+            widget.set_selected(0)
+            widget._theme_resetting_text_style = False
+
+        dropdown.connect("notify::selected", preset_changed)
+        return row
+
     def build_property_rows(self):
         self.clear_property_group()
 
@@ -986,6 +1075,11 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 and any(isinstance(item, (dict, list)) for item in value)
             )
         )
+
+        if is_text_style_node(node):
+            preset_row = self.create_text_style_preset_row(node)
+            if preset_row is not None:
+                self.dynamic_group.add(preset_row)
 
         for key in ordered_keys:
             value = node[key]
@@ -1021,6 +1115,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 )
                 if preset_dropdown is not None:
                     row.add_suffix(preset_dropdown)
+                    row._theme_preset_dropdown = preset_dropdown
                 widget = row
 
             self.dynamic_group.add(row)
@@ -1474,25 +1569,8 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             return
 
         node = self.node_at_path(self.selected_path)
-        text_like_keys = {
-            "TEXT",
-            "FORMAT",
-            "FONT",
-            "FONT_SIZE",
-            "FONT_COLOR",
-            "ALIGN",
-            "ANCHOR",
-        }
-        is_text_element = (
-            isinstance(node, dict)
-            and bool(text_like_keys.intersection(node.keys()))
-            and any(
-                key in node
-                for key in ("FONT", "FONT_SIZE", "FONT_COLOR")
-            )
-        )
 
-        if not is_text_element:
+        if not is_text_style_node(node):
             self.toast("The selected element is not rendered as text")
             return
 
@@ -1534,6 +1612,21 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             row.add_suffix(spin)
             group.add(row)
             return spin
+
+        effect_labels = ["Choose a preset…"] + text_effect_preset_names()
+        effect_dropdown = Gtk.DropDown.new_from_strings(effect_labels)
+        effect_dropdown.set_size_request(220, -1)
+        effect_dropdown.set_valign(Gtk.Align.CENTER)
+        effect_dropdown.set_tooltip_text("Fill effect controls")
+        effect_dropdown._theme_resetting_effect_preset = False
+        effect_group = Adw.PreferencesGroup(
+            title="Effect preset",
+            description="Fill effect controls without applying them.",
+        )
+        effect_row = Adw.ActionRow(title="Preset")
+        effect_row.add_suffix(effect_dropdown)
+        effect_group.add(effect_row)
+        content.append(effect_group)
 
         shadow_group = Adw.PreferencesGroup(
             title="Shadow",
@@ -1637,6 +1730,60 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             20,
         )
         content.append(outline_group)
+
+        def set_spin_value(spin, value):
+            spin.set_value(float(value))
+
+        def set_switch_value(switch, value):
+            switch.set_active(bool(value))
+
+        effect_controls = {
+            "SHADOW": {
+                "ENABLED": shadow_switch,
+                "COLOR": shadow_color,
+                "OFFSET_X": shadow_x,
+                "OFFSET_Y": shadow_y,
+                "BLUR_RADIUS": shadow_blur,
+            },
+            "GLOW": {
+                "ENABLED": glow_switch,
+                "COLOR": glow_color,
+                "BLUR_RADIUS": glow_blur,
+                "INTENSITY": glow_intensity,
+            },
+            "OUTLINE": {
+                "ENABLED": outline_switch,
+                "COLOR": outline_color,
+                "WIDTH": outline_width,
+            },
+        }
+
+        def load_effect_controls(preset):
+            for section, values in preset.items():
+                controls = effect_controls[section]
+                set_switch_value(controls["ENABLED"], values["ENABLED"])
+                self.set_color_selector_value(controls["COLOR"], values["COLOR"])
+                for key, control in controls.items():
+                    if key in ("ENABLED", "COLOR"):
+                        continue
+                    set_spin_value(control, values[key])
+
+        def effect_preset_changed(widget, _param):
+            if getattr(widget, "_theme_resetting_effect_preset", False):
+                return
+            index = widget.get_selected()
+            if index in (0, Gtk.INVALID_LIST_POSITION):
+                return
+            names = text_effect_preset_names()
+            if index - 1 >= len(names):
+                return
+
+            load_effect_controls(text_effect_preset(names[index - 1]))
+            widget._theme_resetting_effect_preset = True
+            widget.set_selected(0)
+            widget._theme_resetting_effect_preset = False
+
+        effect_dropdown.connect("notify::selected", effect_preset_changed)
 
         scroll = Gtk.ScrolledWindow(
             min_content_width=620,

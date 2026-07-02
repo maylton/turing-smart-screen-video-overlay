@@ -27,11 +27,14 @@ static_text:
     TEXT: "TEMP. CPU"
     X: 140
     Y: 270
-    WIDTH: 125
-    HEIGHT: 30
+    WIDTH: 240
+    HEIGHT: 24
     FONT: roboto/Roboto-Black.ttf
-    FONT_SIZE: 25
-    FONT_COLOR: 255, 255, 255
+    FONT_SIZE: 14
+    FONT_COLOR:
+      - 255
+      - 255
+      - 255
     BACKGROUND_IMAGE: transparent.png
     ALIGN: left
     ANCHOR: lt
