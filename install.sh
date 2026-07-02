@@ -240,6 +240,7 @@ PYTHON_ENTRYPOINTS=(
   library/runtime.py
   library/video_media.py
   library/media_preparation.py
+  library/media_profiles.py
 )
 
 for relative in "${PYTHON_ENTRYPOINTS[@]}"; do

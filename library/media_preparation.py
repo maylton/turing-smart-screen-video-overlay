@@ -77,6 +77,12 @@ class ConversionSettings:
     zoom: float = 1.0
     offset_x: int = 0
     offset_y: int = 0
+    target_width: int = TARGET_WIDTH
+    target_height: int = TARGET_HEIGHT
+    profile_id: str = "active-theme"
+    encoder: str = "libx264"
+    codec: str = "h264"
+    pixel_format: str = "yuv420p"
     custom_width: int = TARGET_WIDTH
     custom_height: int = TARGET_HEIGHT
     crop_left: int = 0
@@ -125,10 +131,19 @@ class ConversionSettings:
         if duration is not None and self.start >= duration:
             raise InvalidSettingsError("Trim start must be before the source ends.")
 
+        target_width = int(self.target_width)
+        target_height = int(self.target_height)
+        if not 2 <= target_width <= 4096 or not 2 <= target_height <= 4096:
+            raise InvalidSettingsError("Target width and height must be between 2 and 4096.")
+        if self.encoder != "libx264" or self.codec != "h264":
+            raise InvalidSettingsError("Only H.264/libx264 output is currently supported.")
+        if self.pixel_format != "yuv420p":
+            raise InvalidSettingsError("Only yuv420p output is currently supported.")
+
         custom_width = int(self.custom_width)
         custom_height = int(self.custom_height)
-        if not 2 <= custom_width <= 1920 or not 2 <= custom_height <= 1920:
-            raise InvalidSettingsError("Custom width and height must be between 2 and 1920.")
+        if not 2 <= custom_width <= 4096 or not 2 <= custom_height <= 4096:
+            raise InvalidSettingsError("Custom width and height must be between 2 and 4096.")
 
         crop_values = (
             int(self.crop_left),
@@ -173,6 +188,12 @@ class ConversionSettings:
             zoom=float(self.zoom),
             offset_x=int(self.offset_x),
             offset_y=int(self.offset_y),
+            target_width=target_width,
+            target_height=target_height,
+            profile_id=str(self.profile_id or "active-theme"),
+            encoder=self.encoder,
+            codec=self.codec,
+            pixel_format=self.pixel_format,
             custom_width=custom_width,
             custom_height=custom_height,
             crop_left=crop_values[0],
@@ -345,16 +366,16 @@ def _crop_filter(settings: ConversionSettings) -> list[str]:
 def _base_scale_filter(settings: ConversionSettings) -> str:
     if settings.mode == "fit":
         return (
-            f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:"
+            f"scale={settings.target_width}:{settings.target_height}:"
             "force_original_aspect_ratio=decrease"
         )
     if settings.mode == "fill":
         return (
-            f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:"
+            f"scale={settings.target_width}:{settings.target_height}:"
             "force_original_aspect_ratio=increase"
         )
     if settings.mode == "stretch":
-        return f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}"
+        return f"scale={settings.target_width}:{settings.target_height}"
     if settings.mode == "custom":
         return f"scale={settings.custom_width}:{settings.custom_height}"
     return "scale=iw:ih"
@@ -374,13 +395,13 @@ def foreground_size(
     if settings.rotation in {90, 270}:
         width, height = height, width
     if settings.mode == "fit":
-        ratio = min(TARGET_WIDTH / width, TARGET_HEIGHT / height)
+        ratio = min(settings.target_width / width, settings.target_height / height)
         width, height = round(width * ratio), round(height * ratio)
     elif settings.mode == "fill":
-        ratio = max(TARGET_WIDTH / width, TARGET_HEIGHT / height)
+        ratio = max(settings.target_width / width, settings.target_height / height)
         width, height = round(width * ratio), round(height * ratio)
     elif settings.mode == "stretch":
-        width, height = TARGET_WIDTH, TARGET_HEIGHT
+        width, height = settings.target_width, settings.target_height
     elif settings.mode == "custom":
         width, height = settings.custom_width, settings.custom_height
     width = max(2, round(width * settings.zoom))
@@ -401,15 +422,15 @@ def alignment_offsets(
         raise InvalidSettingsError("Unknown alignment.")
     width, height = foreground_size(source_width, source_height, settings)
     if horizontal == "left":
-        x = round((width - TARGET_WIDTH) / 2)
+        x = round((width - settings.target_width) / 2)
     elif horizontal == "right":
-        x = round((TARGET_WIDTH - width) / 2)
+        x = round((settings.target_width - width) / 2)
     else:
         x = 0
     if vertical == "top":
-        y = round((height - TARGET_HEIGHT) / 2)
+        y = round((height - settings.target_height) / 2)
     elif vertical == "bottom":
-        y = round((TARGET_HEIGHT - height) / 2)
+        y = round((settings.target_height - height) / 2)
     else:
         y = 0
     return x, y
@@ -437,23 +458,23 @@ def build_filter(settings: ConversionSettings, *, preview: bool = False) -> str:
         graph = (
             f"[0:v]setpts=(PTS-STARTPTS)/{settings.speed:.6f},split=2[fgsrc][bgsrc];"
             f"[fgsrc]{','.join(source_chain[1:])}[fg];"
-            f"[bgsrc]scale={TARGET_WIDTH}:{TARGET_HEIGHT}:"
+            f"[bgsrc]scale={settings.target_width}:{settings.target_height}:"
             "force_original_aspect_ratio=increase,"
-            f"crop={TARGET_WIDTH}:{TARGET_HEIGHT},"
+            f"crop={settings.target_width}:{settings.target_height},"
             f"gblur=sigma={settings.blur_strength:.3f},setsar=1[bg];"
         )
     else:
         graph = f"[0:v]{','.join(source_chain)}[fg];"
         if settings.background_mode == "image":
             graph += (
-                f"[1:v]scale={TARGET_WIDTH}:{TARGET_HEIGHT}:"
+                f"[1:v]scale={settings.target_width}:{settings.target_height}:"
                 "force_original_aspect_ratio=increase,"
-                f"crop={TARGET_WIDTH}:{TARGET_HEIGHT},setsar=1[bg];"
+                f"crop={settings.target_width}:{settings.target_height},setsar=1[bg];"
             )
         else:
             graph += (
                 f"color=c=0x{settings.background}:"
-                f"s={TARGET_WIDTH}x{TARGET_HEIGHT}:r={settings.fps}[bg];"
+                f"s={settings.target_width}x{settings.target_height}:r={settings.fps}[bg];"
             )
 
     graph += (
@@ -528,13 +549,13 @@ def build_conversion_command(
         "[out]",
         "-an",
         "-c:v",
-        "libx264",
+        settings.encoder,
         "-preset",
         "medium",
         "-crf",
         str(settings.crf),
         "-pix_fmt",
-        "yuv420p",
+        settings.pixel_format,
         "-fps_mode",
         "cfr",
         "-movflags",
@@ -585,16 +606,21 @@ def convert_media(
     _run(build_conversion_command(source, output, settings))
     prepared = probe_source(output)
     issues: list[str] = []
-    if prepared.codec != "h264":
-        issues.append(f"codec is {prepared.codec}, expected h264")
-    if (prepared.width, prepared.height) != (TARGET_WIDTH, TARGET_HEIGHT):
+    if prepared.codec != settings.codec:
+        issues.append(
+            f"codec is {prepared.codec}, expected {settings.codec}"
+        )
+    if (prepared.width, prepared.height) != (
+        settings.target_width,
+        settings.target_height,
+    ):
         issues.append(
             f"resolution is {prepared.width}x{prepared.height}, "
-            f"expected {TARGET_WIDTH}x{TARGET_HEIGHT}"
+            f"expected {settings.target_width}x{settings.target_height}"
         )
-    if prepared.pixel_format not in {"yuv420p", "yuvj420p"}:
+    if prepared.pixel_format not in {settings.pixel_format, "yuvj420p"}:
         issues.append(
-            f"pixel format is {prepared.pixel_format}, expected yuv420p"
+            f"pixel format is {prepared.pixel_format}, expected {settings.pixel_format}"
         )
     if prepared.has_audio:
         issues.append("audio stream was not removed")
