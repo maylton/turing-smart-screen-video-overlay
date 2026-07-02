@@ -37,6 +37,7 @@ from library.theme_video_background import (
     find_prepared_local_video,
     generate_background,
 )
+from library.theme_property_presets import property_preset_options
 from video_manager_backend import VideoManager
 from ruamel.yaml.comments import CommentedSeq
 
@@ -49,6 +50,7 @@ EXAMPLE_TEMPLATE_FILE = EDITOR_TEMPLATE_DIR / "theme_example.yaml"
 
 EDITABLE_KEYS = (
     "X", "Y", "WIDTH", "HEIGHT", "RADIUS",
+    "DISPLAY_SIZE", "DISPLAY_ORIENTATION",
     "FONT", "FONT_SIZE", "FONT_COLOR",
     "BACKGROUND_IMAGE", "BACKGROUND_COLOR",
     "BAR_COLOR", "BAR_BACKGROUND_COLOR", "LINE_COLOR",
@@ -544,6 +546,17 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.path_label.add_css_class("dim-label")
         self.properties_box.append(self.path_label)
 
+        preset_hint = Gtk.Label(
+            label=(
+                "Use the preset menus for common values, "
+                "or type a custom value."
+            ),
+            xalign=0,
+            wrap=True,
+        )
+        preset_hint.add_css_class("dim-label")
+        self.properties_box.append(preset_hint)
+
         self.dynamic_group = Adw.PreferencesGroup()
         self.properties_box.append(self.dynamic_group)
 
@@ -887,6 +900,67 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         target_length = length or getattr(widget, "_theme_color_length", 3)
         return values[:target_length]
 
+    def property_preset_options(self, key, current_value):
+        return property_preset_options(
+            key,
+            current_value,
+            fonts_dir=ROOT / "res" / "fonts",
+            theme_dir=self.theme_dir,
+        )
+
+    def create_property_preset_dropdown(
+        self,
+        key,
+        current_value,
+        target_entry,
+    ):
+        options = self.property_preset_options(key, current_value)
+        if len(options) < 2:
+            return None
+
+        labels = tuple(label for label, _value in options)
+        values = tuple(value for _label, value in options)
+        dropdown = Gtk.DropDown.new_from_strings(labels)
+        dropdown.set_size_request(190, -1)
+        dropdown.set_valign(Gtk.Align.CENTER)
+        dropdown.set_tooltip_text(
+            "Choose a common value, or type a custom value in the field."
+        )
+        if hasattr(dropdown, "set_enable_search"):
+            dropdown.set_enable_search(len(options) > 12)
+
+        selected = 0
+        for index, value in enumerate(values):
+            if value == current_value:
+                selected = index
+                break
+            if (
+                isinstance(value, (int, float))
+                and isinstance(current_value, (int, float))
+                and not isinstance(value, bool)
+                and not isinstance(current_value, bool)
+                and float(value) == float(current_value)
+            ):
+                selected = index
+                break
+
+        dropdown.set_selected(selected)
+        dropdown._theme_preset_values = values
+
+        def preset_changed(widget, _param):
+            index = widget.get_selected()
+            if index == Gtk.INVALID_LIST_POSITION:
+                return
+            preset_values = widget._theme_preset_values
+            if index < 0 or index >= len(preset_values):
+                return
+            target_entry.set_text(
+                self.value_to_text(preset_values[index])
+            )
+
+        dropdown.connect("notify::selected", preset_changed)
+        return dropdown
+
     def build_property_rows(self):
         self.clear_property_group()
 
@@ -940,6 +1014,13 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             else:
                 row = Adw.EntryRow(title=key)
                 row.set_text(self.value_to_text(value))
+                preset_dropdown = self.create_property_preset_dropdown(
+                    key,
+                    value,
+                    row,
+                )
+                if preset_dropdown is not None:
+                    row.add_suffix(preset_dropdown)
                 widget = row
 
             self.dynamic_group.add(row)

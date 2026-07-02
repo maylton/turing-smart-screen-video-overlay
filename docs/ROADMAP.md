@@ -187,3 +187,36 @@ The release-readiness layer adds:
 - use color selectors and numeric controls in the text-effects dialog;
 - fix property type conversion and missing editor keys;
 - restore the missing `shutil` import used by Save As.
+
+## Theme property presets
+
+- keep the existing visual editor workflow;
+- add reusable preset dropdowns beside editable property fields;
+- preserve free-form custom values;
+- provide common choices for layout, typography, timing, graph, and radial parameters;
+- discover fonts and theme background images dynamically;
+- expose display size and orientation in the GTK property panel.
+
+The preset menus are helpers for common values only. They fill the existing
+manual property field and the user can still type any valid custom value before
+clicking `Apply property changes`.
+
+Initial preset coverage:
+
+- display metadata: `DISPLAY_SIZE`, `DISPLAY_ORIENTATION`;
+- layout: `X`, `Y`, `WIDTH`, `HEIGHT`, `RADIUS`, `ALIGN`, `ANCHOR`;
+- text: `FORMAT`, `FONT_SIZE`, `AXIS_FONT_SIZE`, `FONT`, `AXIS_FONT`;
+- timing: `INTERVAL`, `REFRESH_INTERVAL`;
+- graphs and gauges: `MIN_VALUE`, `MAX_VALUE`, `MIN_SIZE`, `LINE_WIDTH`,
+  `HISTORY_SIZE`, `ANGLE_START`, `ANGLE_END`, `ANGLE_STEPS`, `ANGLE_SEP`;
+- media and decoration: `BAR_DECORATION`, `BACKGROUND_IMAGE`,
+  `PREVIEW_BACKGROUND`.
+
+Fonts are discovered recursively below `res/fonts` with `.ttf`, `.otf`, and
+`.ttc` files stored as paths relative to that directory. Theme images are
+discovered inside the selected theme directory with `.png`, `.jpg`, `.jpeg`,
+`.webp`, `.bmp`, and `.gif` files stored as paths relative to the theme.
+
+Still pending for later roadmap stages: context-aware preset filtering, compound
+quick presets, property validation, live preview/debounce behavior, and broader
+theme editor module extraction.
