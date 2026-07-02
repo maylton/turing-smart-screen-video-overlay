@@ -33,6 +33,7 @@ Current fork highlights:
 - exclusive process-wide device ownership and safe shutdown;
 - structured native-video CLI and GTK manager;
 - media compatibility checks using `ffprobe`;
+- built-in GIF/video preparation with Fit, Fill, Stretch, trim, preview, and upload;
 - SD/internal video listing, upload, playback, stop, size, and delete.
 
 ---
@@ -167,3 +168,9 @@ If you have trouble running the program as described in the wiki, please check [
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=mathoudebine/turing-smart-screen-python&type=Date)](https://star-history.com/#mathoudebine/turing-smart-screen-python&Date)
+
+## Prepare GIFs and videos
+
+Open **Video Manager → Import and prepare media…** to analyze, frame, trim,
+convert, preview, and upload GIF/video files without writing FFmpeg commands.
+See [Media preparation editor MVP](docs/MEDIA_PREPARATION.md).
