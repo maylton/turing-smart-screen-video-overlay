@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GTK4/Libadwaita media preparation workflow for native display video."""
+"""GTK4/Libadwaita advanced media preparation workflow."""
 
 from __future__ import annotations
 
@@ -15,9 +15,14 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
-from library.media_preparation import cache_directory, safe_output_name
+from library.media_preparation import (
+    ConversionSettings,
+    alignment_offsets,
+    cache_directory,
+    safe_output_name,
+)
 
 APP_ID = "io.github.turing.SmartScreen.MediaPreparation"
 ROOT = Path(__file__).resolve().parent
@@ -35,14 +40,21 @@ def backend_python() -> str:
     return sys.executable
 
 
-def spin_row(title: str, lower: float, upper: float, step: float, digits: int = 0):
+def spin_row(
+    title: str,
+    lower: float,
+    upper: float,
+    step: float,
+    digits: int = 0,
+    value: float = 0,
+):
     row = Adw.ActionRow(title=title)
     adjustment = Gtk.Adjustment(
-        value=0,
+        value=value,
         lower=lower,
         upper=upper,
         step_increment=step,
-        page_increment=step * 10,
+        page_increment=max(step, step * 10),
     )
     spin = Gtk.SpinButton(adjustment=adjustment, digits=digits, numeric=True)
     spin.set_valign(Gtk.Align.CENTER)
@@ -56,13 +68,16 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         super().__init__(
             application=app,
             title="Prepare media",
-            default_width=1180,
-            default_height=760,
+            default_width=1240,
+            default_height=820,
         )
-        self.set_size_request(900, 620)
+        self.set_size_request(940, 660)
         self.source_path: Path | None = None
         self.source_duration = 0.0
+        self.source_width = 0
+        self.source_height = 0
         self.converted_path: Path | None = None
+        self.background_image: Path | None = None
         self.preview_generation = 0
         self.preview_timeout = 0
         self.busy = False
@@ -75,21 +90,21 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(
             Adw.WindowTitle(
-                title="Media preparation",
-                subtitle="GIF and video → H.264 480×480 MP4",
+                title="Advanced media preparation",
+                subtitle="Crop, rotate, align, style, convert, and upload",
             )
         )
         toolbar.add_top_bar(header)
 
         split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        split.set_position(500)
+        split.set_position(570)
         toolbar.set_content(split)
         split.set_start_child(self.build_controls())
         split.set_end_child(self.build_preview())
 
     def build_controls(self):
         scrolled = Gtk.ScrolledWindow(vexpand=True)
-        clamp = Adw.Clamp(maximum_size=560)
+        clamp = Adw.Clamp(maximum_size=620)
         scrolled.set_child(clamp)
         box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -129,37 +144,148 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
             metadata.add(row)
         box.append(metadata)
 
-        framing = Adw.PreferencesGroup(title="Framing")
+        framing = Adw.PreferencesGroup(title="Framing and size")
         self.mode_row = Adw.ComboRow(title="Mode")
-        self.mode_row.set_model(Gtk.StringList.new(["Fit", "Fill / Cover", "Stretch"]))
-        self.mode_row.set_selected(0)
-        self.mode_row.connect("notify::selected", lambda *_: self.schedule_preview())
+        self.mode_row.set_model(
+            Gtk.StringList.new(
+                ["Fit", "Fill / Cover", "Stretch", "Original size", "Custom size"]
+            )
+        )
+        self.mode_row.connect("notify::selected", self.on_mode_changed)
         framing.add(self.mode_row)
 
-        zoom_row, self.zoom = spin_row("Zoom", 0.25, 4.0, 0.05, 2)
-        self.zoom.set_value(1.0)
+        zoom_row, self.zoom = spin_row("Zoom", 0.25, 4.0, 0.05, 2, 1.0)
         self.zoom.connect("value-changed", lambda *_: self.schedule_preview())
         framing.add(zoom_row)
 
-        x_row, self.offset_x = spin_row("Horizontal position", -960, 960, 1)
-        y_row, self.offset_y = spin_row("Vertical position", -960, 960, 1)
+        self.custom_width_row, self.custom_width = spin_row(
+            "Custom width", 2, 1920, 2, value=480
+        )
+        self.custom_height_row, self.custom_height = spin_row(
+            "Custom height", 2, 1920, 2, value=480
+        )
+        self.custom_width.connect("value-changed", lambda *_: self.schedule_preview())
+        self.custom_height.connect("value-changed", lambda *_: self.schedule_preview())
+        self.custom_width_row.set_sensitive(False)
+        self.custom_height_row.set_sensitive(False)
+        framing.add(self.custom_width_row)
+        framing.add(self.custom_height_row)
+
+        self.rotation_row = Adw.ComboRow(title="Rotation")
+        self.rotation_row.set_model(Gtk.StringList.new(["0°", "90°", "180°", "270°"]))
+        self.rotation_row.connect("notify::selected", lambda *_: self.schedule_preview())
+        framing.add(self.rotation_row)
+
+        x_row, self.offset_x = spin_row("Horizontal position", -1920, 1920, 1)
+        y_row, self.offset_y = spin_row("Vertical position", -1920, 1920, 1)
         self.offset_x.connect("value-changed", lambda *_: self.schedule_preview())
         self.offset_y.connect("value-changed", lambda *_: self.schedule_preview())
         framing.add(x_row)
         framing.add(y_row)
 
-        center = Gtk.Button(label="Center media", icon_name="object-select-symbolic")
-        center.connect("clicked", self.center_media)
-        framing.add(center)
+        alignment_grid = Gtk.Grid(
+            column_spacing=6,
+            row_spacing=6,
+            column_homogeneous=True,
+            row_homogeneous=True,
+        )
+        labels = (
+            ("↖", "left", "top"),
+            ("↑", "center", "top"),
+            ("↗", "right", "top"),
+            ("←", "left", "center"),
+            ("●", "center", "center"),
+            ("→", "right", "center"),
+            ("↙", "left", "bottom"),
+            ("↓", "center", "bottom"),
+            ("↘", "right", "bottom"),
+        )
+        for index, (label, horizontal, vertical) in enumerate(labels):
+            button = Gtk.Button(label=label, tooltip_text=f"{horizontal} / {vertical}")
+            button.connect(
+                "clicked",
+                lambda _button, h=horizontal, v=vertical: self.align_media(h, v),
+            )
+            alignment_grid.attach(button, index % 3, index // 3, 1, 1)
+        framing.add(alignment_grid)
         box.append(framing)
 
+        crop = Adw.PreferencesGroup(title="Crop source")
+        left_row, self.crop_left = spin_row("Left", 0, 4096, 1)
+        right_row, self.crop_right = spin_row("Right", 0, 4096, 1)
+        top_row, self.crop_top = spin_row("Top", 0, 4096, 1)
+        bottom_row, self.crop_bottom = spin_row("Bottom", 0, 4096, 1)
+        for row, control in (
+            (left_row, self.crop_left),
+            (right_row, self.crop_right),
+            (top_row, self.crop_top),
+            (bottom_row, self.crop_bottom),
+        ):
+            control.connect("value-changed", lambda *_: self.schedule_preview())
+            crop.add(row)
+        reset_crop = Gtk.Button(label="Reset crop", icon_name="edit-clear-symbolic")
+        reset_crop.connect("clicked", self.reset_crop)
+        crop.add(reset_crop)
+        box.append(crop)
+
+        background = Adw.PreferencesGroup(title="Background")
+        self.background_mode_row = Adw.ComboRow(title="Mode")
+        self.background_mode_row.set_model(
+            Gtk.StringList.new(["Solid color", "Blurred source", "Custom image"])
+        )
+        self.background_mode_row.connect(
+            "notify::selected", self.on_background_mode_changed
+        )
+        background.add(self.background_mode_row)
+
+        self.color_row = Adw.ActionRow(title="Solid RGB color")
+        self.background_color = Gtk.Entry(
+            text="000000",
+            max_length=7,
+            width_chars=10,
+            valign=Gtk.Align.CENTER,
+        )
+        self.background_color.connect("changed", lambda *_: self.schedule_preview())
+        self.color_row.add_suffix(self.background_color)
+        background.add(self.color_row)
+
+        self.blur_row, self.blur_strength = spin_row(
+            "Blur strength", 1, 100, 1, 1, 24
+        )
+        self.blur_strength.connect("value-changed", lambda *_: self.schedule_preview())
+        self.blur_row.set_sensitive(False)
+        background.add(self.blur_row)
+
+        self.background_image_row = Adw.ActionRow(
+            title="Background image",
+            subtitle="No image selected",
+        )
+        choose_background = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
+        choose_background.connect("clicked", self.choose_background_image)
+        self.background_image_row.add_suffix(choose_background)
+        self.background_image_row.set_sensitive(False)
+        background.add(self.background_image_row)
+        box.append(background)
+
         timing = Adw.PreferencesGroup(title="Timing and output")
-        start_row, self.trim_start = spin_row("Trim start (seconds)", 0, 86400, 0.1, 2)
-        end_row, self.trim_end = spin_row("Trim end (seconds)", 0, 86400, 0.1, 2)
+        start_row, self.trim_start = spin_row(
+            "Trim start (seconds)", 0, 86400, 0.1, 2
+        )
+        end_row, self.trim_end = spin_row(
+            "Trim end (seconds)", 0, 86400, 0.1, 2
+        )
         self.trim_start.connect("value-changed", lambda *_: self.schedule_preview())
         self.trim_end.connect("value-changed", lambda *_: self.schedule_preview())
         timing.add(start_row)
         timing.add(end_row)
+
+        speed_row, self.speed = spin_row("Playback speed", 0.25, 4.0, 0.05, 2, 1.0)
+        self.speed.connect("value-changed", lambda *_: self.schedule_preview())
+        timing.add(speed_row)
+
+        loop_row, self.loop_count = spin_row("Extra input loops", 0, 20, 1)
+        self.loop_count.connect("value-changed", self.on_loop_changed)
+        timing.add(loop_row)
 
         self.fps_row = Adw.ComboRow(title="Output frame rate")
         self.fps_row.set_model(Gtk.StringList.new(["24 FPS", "30 FPS"]))
@@ -175,7 +301,6 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
 
         self.storage_row = Adw.ComboRow(title="Upload destination")
         self.storage_row.set_model(Gtk.StringList.new(["SD card", "Internal storage"]))
-        self.storage_row.set_selected(0)
         timing.add(self.storage_row)
         box.append(timing)
         return scrolled
@@ -189,7 +314,7 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
             margin_start=22,
             margin_end=22,
         )
-        title = Gtk.Label(label="Framing preview", xalign=0)
+        title = Gtk.Label(label="Advanced framing preview", xalign=0)
         title.add_css_class("title-2")
         box.append(title)
 
@@ -285,47 +410,168 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
 
     def on_probe_complete(self, data):
         self.source_duration = float(data.get("duration") or 0)
+        self.source_width = int(data.get("width") or 0)
+        self.source_height = int(data.get("height") or 0)
         self.codec_row.set_subtitle(str(data.get("codec") or "Unknown"))
         self.dimensions_row.set_subtitle(
-            f"{data.get('width', 0)} × {data.get('height', 0)}"
+            f"{self.source_width} × {self.source_height}"
         )
         self.duration_row.set_subtitle(f"{self.source_duration:.2f} seconds")
         fps = data.get("fps")
         self.framerate_row.set_subtitle(f"{fps:.2f} FPS" if fps else "Unknown")
         self.audio_row.set_subtitle("Present" if data.get("has_audio") else "None")
-        self.trim_start.set_range(0, max(0.0, self.source_duration - 0.01))
-        self.trim_end.set_range(0.01, max(0.01, self.source_duration))
-        self.trim_start.set_value(0)
-        self.trim_end.set_value(self.source_duration)
+        self.crop_left.set_range(0, max(0, self.source_width - 2))
+        self.crop_right.set_range(0, max(0, self.source_width - 2))
+        self.crop_top.set_range(0, max(0, self.source_height - 2))
+        self.crop_bottom.set_range(0, max(0, self.source_height - 2))
+        self.update_trim_ranges()
         self.convert_button.set_sensitive(True)
-        self.status.set_label("Adjust framing or drag the preview to reposition media.")
+        self.status.set_label(
+            "Adjust crop, rotation, alignment, background, speed, or loops."
+        )
         self.schedule_preview()
 
     def selected_mode(self) -> str:
-        return ("fit", "fill", "stretch")[self.mode_row.get_selected()]
+        return ("fit", "fill", "stretch", "original", "custom")[
+            self.mode_row.get_selected()
+        ]
+
+    def selected_rotation(self) -> int:
+        return (0, 90, 180, 270)[self.rotation_row.get_selected()]
 
     def selected_fps(self) -> int:
         return (24, 30)[self.fps_row.get_selected()]
 
+    def selected_background_mode(self) -> str:
+        return ("solid", "blur", "image")[self.background_mode_row.get_selected()]
+
+    def current_settings(self) -> ConversionSettings:
+        return ConversionSettings(
+            mode=self.selected_mode(),
+            zoom=self.zoom.get_value(),
+            offset_x=int(self.offset_x.get_value()),
+            offset_y=int(self.offset_y.get_value()),
+            custom_width=int(self.custom_width.get_value()),
+            custom_height=int(self.custom_height.get_value()),
+            crop_left=int(self.crop_left.get_value()),
+            crop_right=int(self.crop_right.get_value()),
+            crop_top=int(self.crop_top.get_value()),
+            crop_bottom=int(self.crop_bottom.get_value()),
+            rotation=self.selected_rotation(),
+            start=self.trim_start.get_value(),
+            end=self.trim_end.get_value(),
+            fps=self.selected_fps(),
+            speed=self.speed.get_value(),
+            loop_count=int(self.loop_count.get_value()),
+            background_mode=self.selected_background_mode(),
+            background=self.background_color.get_text().removeprefix("#"),
+            background_image=(
+                str(self.background_image) if self.background_image else None
+            ),
+            blur_strength=self.blur_strength.get_value(),
+        )
+
     def settings_args(self) -> list[str]:
+        settings = self.current_settings()
         args = [
-            "--mode", self.selected_mode(),
-            "--zoom", f"{self.zoom.get_value():.3f}",
-            "--x", str(int(self.offset_x.get_value())),
-            "--y", str(int(self.offset_y.get_value())),
-            "--start", f"{self.trim_start.get_value():.3f}",
-            "--fps", str(self.selected_fps()),
-            "--background", "000000",
+            "--mode", settings.mode,
+            "--zoom", f"{settings.zoom:.3f}",
+            "--x", str(settings.offset_x),
+            "--y", str(settings.offset_y),
+            "--width", str(settings.custom_width),
+            "--height", str(settings.custom_height),
+            "--crop-left", str(settings.crop_left),
+            "--crop-right", str(settings.crop_right),
+            "--crop-top", str(settings.crop_top),
+            "--crop-bottom", str(settings.crop_bottom),
+            "--rotation", str(settings.rotation),
+            "--start", f"{settings.start:.3f}",
+            "--fps", str(settings.fps),
+            "--speed", f"{settings.speed:.3f}",
+            "--loop-count", str(settings.loop_count),
+            "--background-mode", settings.background_mode,
+            "--background", settings.background,
+            "--blur", f"{settings.blur_strength:.3f}",
         ]
-        end = self.trim_end.get_value()
-        if end > self.trim_start.get_value():
-            args.extend(["--end", f"{end:.3f}"])
+        if settings.background_image:
+            args.extend(["--background-image", settings.background_image])
+        if settings.end is not None and settings.end > settings.start:
+            args.extend(["--end", f"{settings.end:.3f}"])
         return args
 
-    def center_media(self, _button):
-        self.offset_x.set_value(0)
-        self.offset_y.set_value(0)
+    def on_mode_changed(self, *_args):
+        custom = self.selected_mode() == "custom"
+        self.custom_width_row.set_sensitive(custom)
+        self.custom_height_row.set_sensitive(custom)
         self.schedule_preview()
+
+    def on_background_mode_changed(self, *_args):
+        mode = self.selected_background_mode()
+        self.color_row.set_sensitive(mode == "solid")
+        self.blur_row.set_sensitive(mode == "blur")
+        self.background_image_row.set_sensitive(mode == "image")
+        self.schedule_preview()
+
+    def choose_background_image(self, _button):
+        dialog = Gtk.FileDialog(title="Choose a background image", modal=True)
+        image_filter = Gtk.FileFilter()
+        image_filter.set_name("Image files")
+        for pattern in ("*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp"):
+            image_filter.add_pattern(pattern)
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(image_filter)
+        dialog.set_filters(filters)
+        dialog.open(self, None, self.on_background_image_chosen)
+
+    def on_background_image_chosen(self, dialog, result):
+        try:
+            file = dialog.open_finish(result)
+        except GLib.Error:
+            return
+        path = Path(file.get_path())
+        if path.is_file():
+            self.background_image = path
+            self.background_image_row.set_subtitle(path.name)
+            self.schedule_preview()
+
+    def reset_crop(self, _button):
+        for control in (
+            self.crop_left,
+            self.crop_right,
+            self.crop_top,
+            self.crop_bottom,
+        ):
+            control.set_value(0)
+        self.schedule_preview()
+
+    def align_media(self, horizontal, vertical):
+        if not self.source_width or not self.source_height:
+            return
+        try:
+            x, y = alignment_offsets(
+                self.source_width,
+                self.source_height,
+                self.current_settings(),
+                horizontal,
+                vertical,
+            )
+        except Exception as exc:
+            self.show_error(exc)
+            return
+        self.offset_x.set_value(x)
+        self.offset_y.set_value(y)
+        self.schedule_preview()
+
+    def on_loop_changed(self, *_args):
+        self.update_trim_ranges()
+        self.schedule_preview()
+
+    def update_trim_ranges(self):
+        duration = self.source_duration * (int(self.loop_count.get_value()) + 1)
+        self.trim_start.set_range(0, max(0.0, duration - 0.01))
+        self.trim_end.set_range(0.01, max(0.01, duration))
+        self.trim_start.set_value(0)
+        self.trim_end.set_value(duration)
 
     def on_drag_begin(self, _gesture, _x, _y):
         self.drag_origin = (
@@ -336,17 +582,15 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
     def on_drag_update(self, _gesture, delta_x, delta_y):
         width = max(1, self.preview_picture.get_allocated_width())
         height = max(1, self.preview_picture.get_allocated_height())
-        scale_x = 480 / width
-        scale_y = 480 / height
-        self.offset_x.set_value(self.drag_origin[0] + delta_x * scale_x)
-        self.offset_y.set_value(self.drag_origin[1] + delta_y * scale_y)
+        self.offset_x.set_value(self.drag_origin[0] + delta_x * 480 / width)
+        self.offset_y.set_value(self.drag_origin[1] + delta_y * 480 / height)
 
     def schedule_preview(self):
         if not self.source_path:
             return
         if self.preview_timeout:
             GLib.source_remove(self.preview_timeout)
-        self.preview_timeout = GLib.timeout_add(320, self.start_preview)
+        self.preview_timeout = GLib.timeout_add(360, self.start_preview)
 
     def start_preview(self):
         self.preview_timeout = 0
@@ -392,7 +636,7 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
                 str(output),
                 *self.settings_args(),
             ],
-            "Converting media…",
+            "Converting advanced media…",
             self.on_conversion_complete,
             pulse=True,
         )
@@ -442,7 +686,11 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         if not self.converted_path or not self.converted_path.is_file():
             self.toast("Convert the media first")
             return
-        root = "/root/video/" if self.storage_row.get_selected() == 1 else "/mnt/SDCARD/video/"
+        root = (
+            "/root/video/"
+            if self.storage_row.get_selected() == 1
+            else "/mnt/SDCARD/video/"
+        )
         remote = root + safe_output_name(self.converted_path.name)
         self.run_json(
             VIDEO_BACKEND,
@@ -540,7 +788,10 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         return False
 
     def show_error(self, message):
-        dialog = Adw.AlertDialog(heading="Operation failed", body=str(message)[-2400:])
+        dialog = Adw.AlertDialog(
+            heading="Operation failed",
+            body=str(message)[-2400:],
+        )
         dialog.add_response("close", "Close")
         dialog.present(self)
 
@@ -550,7 +801,10 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
 
 class MediaPreparationApplication(Adw.Application):
     def __init__(self):
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        super().__init__(
+            application_id=APP_ID,
+            flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
+        )
 
     def do_activate(self):
         window = self.props.active_window

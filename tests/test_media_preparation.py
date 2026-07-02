@@ -9,9 +9,12 @@ from unittest import mock
 from library.media_preparation import (
     ConversionSettings,
     InvalidSettingsError,
+    alignment_offsets,
     build_conversion_command,
     build_filter,
     cache_directory,
+    effective_duration,
+    foreground_size,
     safe_output_name,
 )
 
@@ -23,28 +26,107 @@ class MediaPreparationTests(unittest.TestCase):
         self.assertIn("overlay=", value)
         self.assertIn("format=yuv420p", value)
 
-    def test_fill_filter_crops_by_canvas_clipping(self):
+    def test_custom_mode_uses_numeric_size(self):
         value = build_filter(
-            ConversionSettings(mode="fill", zoom=1.25, offset_x=12, offset_y=-8)
+            ConversionSettings(mode="custom", custom_width=320, custom_height=240)
         )
-        self.assertIn("force_original_aspect_ratio=increase", value)
-        self.assertIn("(W-w)/2+12", value)
-        self.assertIn("(H-h)/2-8", value)
+        self.assertIn("scale=320:240", value)
 
-    def test_stretch_filter_targets_480_square(self):
-        value = build_filter(ConversionSettings(mode="stretch"))
-        self.assertIn("scale=480:480", value)
+    def test_original_mode_keeps_source_dimensions_before_zoom(self):
+        value = build_filter(ConversionSettings(mode="original"))
+        self.assertIn("scale=iw:ih", value)
 
-    def test_preview_uses_rgba_not_output_pixel_format(self):
-        value = build_filter(ConversionSettings(), preview=True)
-        self.assertIn("format=rgba", value)
-        self.assertNotIn("format=yuv420p", value)
+    def test_crop_and_rotation_filters_are_applied(self):
+        value = build_filter(
+            ConversionSettings(
+                crop_left=10,
+                crop_right=20,
+                crop_top=5,
+                crop_bottom=15,
+                rotation=90,
+            )
+        )
+        self.assertIn("crop=iw-30:ih-20:10:5", value)
+        self.assertIn("transpose=1", value)
 
-    def test_trim_validation(self):
+    def test_blurred_background_uses_split_and_gblur(self):
+        value = build_filter(
+            ConversionSettings(background_mode="blur", blur_strength=31)
+        )
+        self.assertIn("split=2", value)
+        self.assertIn("gblur=sigma=31.000", value)
+
+    def test_image_background_uses_second_input(self):
+        with tempfile.TemporaryDirectory() as temp:
+            image = Path(temp) / "background.png"
+            image.write_bytes(b"placeholder")
+            settings = ConversionSettings(
+                background_mode="image",
+                background_image=str(image),
+            )
+            value = build_filter(settings)
+            self.assertIn("[1:v]scale=480:480", value)
+
+    def test_speed_and_loop_are_added_to_command(self):
+        with mock.patch(
+            "library.media_preparation._require_command",
+            return_value="ffmpeg",
+        ):
+            command = build_conversion_command(
+                Path("source.mp4"),
+                Path("output.mp4"),
+                ConversionSettings(speed=1.5, loop_count=2),
+            )
+        self.assertIn("-stream_loop", command)
+        self.assertIn("2", command)
+        self.assertIn("setpts=(PTS-STARTPTS)/1.500000", " ".join(command))
+
+    def test_alignment_offsets_cover_nine_point_grid(self):
+        settings = ConversionSettings(mode="custom", custom_width=200, custom_height=100)
+        self.assertEqual(
+            alignment_offsets(640, 360, settings, "left", "top"),
+            (-140, -190),
+        )
+        self.assertEqual(
+            alignment_offsets(640, 360, settings, "center", "center"),
+            (0, 0),
+        )
+        self.assertEqual(
+            alignment_offsets(640, 360, settings, "right", "bottom"),
+            (140, 190),
+        )
+
+    def test_foreground_size_accounts_for_rotation_and_crop(self):
+        settings = ConversionSettings(
+            mode="original",
+            crop_left=10,
+            crop_right=20,
+            crop_top=5,
+            crop_bottom=15,
+            rotation=90,
+            zoom=2,
+        )
+        self.assertEqual(foreground_size(640, 360, settings), (680, 1220))
+
+    def test_invalid_crop_is_rejected_with_source_dimensions(self):
         with self.assertRaises(InvalidSettingsError):
-            ConversionSettings(start=2, end=1).validated(duration=5)
+            ConversionSettings(crop_left=400, crop_right=300).validated(
+                source_width=640,
+                source_height=360,
+            )
+
+    def test_image_background_requires_existing_file(self):
         with self.assertRaises(InvalidSettingsError):
-            ConversionSettings(start=0, end=6).validated(duration=5)
+            ConversionSettings(
+                background_mode="image",
+                background_image="/definitely/missing.png",
+            ).validated()
+
+    def test_trim_validation_uses_looped_duration(self):
+        self.assertEqual(effective_duration(3, 2), 9)
+        ConversionSettings(start=4, end=8, loop_count=2).validated(duration=9)
+        with self.assertRaises(InvalidSettingsError):
+            ConversionSettings(start=4, end=10, loop_count=2).validated(duration=9)
 
     def test_safe_output_name_is_ascii_mp4(self):
         self.assertEqual(safe_output_name("Vídeo legal!.webm"), "Video-legal.mp4")
@@ -54,10 +136,16 @@ class MediaPreparationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": temp}):
                 path = cache_directory()
-            self.assertEqual(path, Path(temp) / "turing-smart-screen" / "media-preparation")
+            self.assertEqual(
+                path,
+                Path(temp) / "turing-smart-screen" / "media-preparation",
+            )
 
     def test_conversion_command_removes_audio_and_uses_h264(self):
-        with mock.patch("library.media_preparation._require_command", return_value="ffmpeg"):
+        with mock.patch(
+            "library.media_preparation._require_command",
+            return_value="ffmpeg",
+        ):
             command = build_conversion_command(
                 Path("source.mp4"),
                 Path("output.mp4"),

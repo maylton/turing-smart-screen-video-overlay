@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Structured command-line backend for the media preparation editor."""
+"""Structured command-line backend for the advanced media preparation editor."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 from library.media_preparation import (
     ConversionSettings,
     MediaCommandError,
+    alignment_offsets,
     cache_directory,
     convert_media,
     create_preview,
@@ -25,23 +26,55 @@ def settings_from_args(args: argparse.Namespace) -> ConversionSettings:
         zoom=args.zoom,
         offset_x=args.x,
         offset_y=args.y,
+        custom_width=args.width,
+        custom_height=args.height,
+        crop_left=args.crop_left,
+        crop_right=args.crop_right,
+        crop_top=args.crop_top,
+        crop_bottom=args.crop_bottom,
+        rotation=args.rotation,
         start=args.start,
         end=args.end,
         fps=args.fps,
+        speed=args.speed,
+        loop_count=args.loop_count,
+        background_mode=args.background_mode,
         background=args.background,
+        background_image=args.background_image,
+        blur_strength=args.blur,
         crf=getattr(args, "crf", 20),
     )
 
 
 def add_settings(parser: argparse.ArgumentParser, *, include_crf: bool) -> None:
-    parser.add_argument("--mode", choices=("fit", "fill", "stretch"), default="fit")
+    parser.add_argument(
+        "--mode",
+        choices=("fit", "fill", "stretch", "original", "custom"),
+        default="fit",
+    )
     parser.add_argument("--zoom", type=float, default=1.0)
     parser.add_argument("--x", type=int, default=0)
     parser.add_argument("--y", type=int, default=0)
+    parser.add_argument("--width", type=int, default=480)
+    parser.add_argument("--height", type=int, default=480)
+    parser.add_argument("--crop-left", type=int, default=0)
+    parser.add_argument("--crop-right", type=int, default=0)
+    parser.add_argument("--crop-top", type=int, default=0)
+    parser.add_argument("--crop-bottom", type=int, default=0)
+    parser.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=0)
     parser.add_argument("--start", type=float, default=0.0)
     parser.add_argument("--end", type=float)
     parser.add_argument("--fps", type=int, choices=(24, 30), default=30)
+    parser.add_argument("--speed", type=float, default=1.0)
+    parser.add_argument("--loop-count", type=int, default=0)
+    parser.add_argument(
+        "--background-mode",
+        choices=("solid", "blur", "image"),
+        default="solid",
+    )
     parser.add_argument("--background", default="000000")
+    parser.add_argument("--background-image")
+    parser.add_argument("--blur", type=float, default=24.0)
     if include_crf:
         parser.add_argument("--crf", type=int, default=20)
 
@@ -64,6 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
     convert.add_argument("--output")
     convert.add_argument("--name")
     add_settings(convert, include_crf=True)
+
+    align = subparsers.add_parser("align", help="Calculate offsets for a canvas edge")
+    align.add_argument("source")
+    align.add_argument("--horizontal", choices=("left", "center", "right"), required=True)
+    align.add_argument("--vertical", choices=("top", "center", "bottom"), required=True)
+    add_settings(align, include_crf=False)
     return parser
 
 
@@ -96,6 +135,16 @@ def execute(args: argparse.Namespace) -> dict:
         data = convert_media(args.source, output, settings)
         data["path"] = str(output.resolve())
         return success("convert", data)
+    if args.command == "align":
+        source = probe_source(args.source)
+        x, y = alignment_offsets(
+            source.width,
+            source.height,
+            settings,
+            args.horizontal,
+            args.vertical,
+        )
+        return success("align", {"x": x, "y": y})
     raise RuntimeError(f"Unknown command: {args.command}")
 
 
