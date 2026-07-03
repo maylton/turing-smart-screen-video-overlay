@@ -256,6 +256,21 @@ def available_themes() -> list[str]:
     return sorted(themes, key=str.casefold)
 
 
+def validate_theme_name(name: str) -> str:
+    """Return a stripped valid theme directory name or raise ValueError."""
+    name = str(name or "").strip()
+    if not name:
+        raise ValueError("Enter a theme name.")
+    allowed = (
+        "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "0123456789._-"
+    )
+    if name in {".", ".."} or any(ch not in allowed for ch in name):
+        raise ValueError("Use only letters, numbers, dots, underscores, and hyphens.")
+    return name
+
+
 def write_current_theme(theme_name: str) -> None:
     if not CONFIG_FILE.is_file():
         raise FileNotFoundError(CONFIG_FILE)
@@ -394,6 +409,13 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         save_as_btn.connect("clicked", lambda *_: self.save_as())
         header.pack_end(save_as_btn)
+
+        rename_btn = Gtk.Button(
+            label="Rename…",
+            tooltip_text="Rename the current theme directory",
+        )
+        rename_btn.connect("clicked", lambda *_: self.rename_theme())
+        header.pack_end(rename_btn)
 
         refresh_btn = Gtk.Button(
             icon_name="view-refresh-symbolic",
@@ -2041,19 +2063,12 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             if response_id != "save":
                 return
 
-            name = entry.get_text().strip()
-            if not name:
-                self.error_dialog("Invalid theme name", "Enter a theme name.")
-                return
-            allowed = (
-                "abcdefghijklmnopqrstuvwxyz"
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                "0123456789._-"
-            )
-            if name in {".", ".."} or any(ch not in allowed for ch in name):
+            try:
+                name = validate_theme_name(entry.get_text())
+            except ValueError as exc:
                 self.error_dialog(
                     "Invalid theme name",
-                    "Use only letters, numbers, dots, underscores, and hyphens.",
+                    str(exc),
                 )
                 return
 
@@ -2079,6 +2094,102 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 return
 
             self.switch_theme(name)
+
+        dialog.connect("response", response)
+        dialog.present(self)
+
+    def rename_theme(self):
+        entry = Gtk.Entry(
+            text=self.theme_name,
+            activates_default=True,
+        )
+        current = Gtk.Label(
+            label=f"Current theme: {self.theme_name}",
+            xalign=0,
+        )
+        current.add_css_class("dim-label")
+
+        content = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=10,
+            margin_top=8,
+        )
+        content.append(current)
+        content.append(entry)
+
+        dialog = Adw.AlertDialog(
+            heading="Rename theme",
+            body=(
+                "Rename the current theme folder and keep all local YAML, "
+                "preview, generated media, and assets in place."
+            ),
+        )
+        dialog.set_extra_child(content)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("rename", "Rename theme")
+        dialog.set_response_appearance(
+            "rename",
+            Adw.ResponseAppearance.SUGGESTED,
+        )
+        dialog.set_default_response("rename")
+        dialog.set_close_response("cancel")
+
+        def response(_dialog, response_id):
+            if response_id != "rename":
+                return
+
+            try:
+                name = validate_theme_name(entry.get_text())
+            except ValueError as exc:
+                self.error_dialog("Invalid theme name", str(exc))
+                return
+
+            if name == self.theme_name:
+                self.toast(f"{name} is already the current theme name")
+                return
+
+            destination = THEMES_DIR / name
+            if destination.exists():
+                self.error_dialog(
+                    "Theme already exists",
+                    f"A theme named '{name}' already exists.",
+                )
+                return
+
+            old_name = self.theme_name
+            old_dir = self.theme_dir
+            old_file_name = self.theme_file.name
+            try:
+                save_yaml_atomic(self.theme_file, self.theme_data)
+                old_dir.rename(destination)
+                write_current_theme(name)
+            except Exception as exc:
+                if destination.exists() and not old_dir.exists():
+                    try:
+                        destination.rename(old_dir)
+                    except Exception:
+                        pass
+                try:
+                    write_current_theme(old_name)
+                except Exception:
+                    pass
+                self.error_dialog("Could not rename theme", str(exc))
+                return
+
+            self.theme_name = name
+            self.theme_dir = destination
+            self.theme_file = destination / old_file_name
+            self.preview_file = destination / "preview.png"
+            app = self.get_application()
+            if app is not None:
+                app.theme_name = name
+
+            self.set_title(f"Theme Editor — {name}")
+            self.window_title.set_title(name)
+            self.populate_elements()
+            self.update_catalog_status()
+            self.refresh_preview()
+            self.toast(f"Theme renamed to {name}")
 
         dialog.connect("response", response)
         dialog.present(self)
