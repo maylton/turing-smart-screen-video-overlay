@@ -1,0 +1,255 @@
+diff --git a/library/theme_video_inspector.py b/library/theme_video_inspector.py
+index fa2c04e..0000000 100644
+--- a/library/theme_video_inspector.py
++++ b/library/theme_video_inspector.py
+@@ -83,12 +83,22 @@ def live_preview_settings(
+     if not math.isfinite(max_duration) or max_duration <= 0:
+         raise ThemeVideoInspectorError("Maximum preview duration must be positive.")
+ 
+-    preview_end = min(duration, max_duration)
++    source_start = max(0.0, float(settings.start))
++    source_end = duration
++    if settings.end is not None:
++        source_end = min(duration, float(settings.end))
++    if source_start >= source_end:
++        raise ThemeVideoInspectorError(
++            "Preview trim start must be before the available source end."
++        )
++
++    preview_end = min(source_end, source_start + max_duration)
+     return replace(
+         settings,
+-        start=0.0,
++        start=source_start,
+         end=preview_end,
+         fps=24,
+         crf=max(28, int(settings.crf)),
+         loop_count=0,
+     ).validated(duration=duration)
+diff --git a/tests/test_theme_video_inspector.py b/tests/test_theme_video_inspector.py
+index c90ab3d..0000000 100644
+--- a/tests/test_theme_video_inspector.py
++++ b/tests/test_theme_video_inspector.py
+@@ -116,6 +116,15 @@ class LivePreviewSettingsTests(unittest.TestCase):
+         with self.assertRaises(ThemeVideoInspectorError):
+             live_preview_settings(ConversionSettings(), 0)
+ 
++    def test_live_preview_respects_trim_start_and_speed(self):
++        preview = live_preview_settings(
++            ConversionSettings(start=5.0, end=20.0, speed=1.5),
++            30.0,
++        )
++        self.assertEqual(preview.start, 5.0)
++        self.assertEqual(preview.end, 13.0)
++        self.assertEqual(preview.speed, 1.5)
++
+ 
+ class AtomicMediaTests(unittest.TestCase):
+     def test_conversion_replaces_destination_only_after_success(self):
+diff --git a/theme-editor-gtk.py b/theme-editor-gtk.py
+index 0000000..0000000 100755
+--- a/theme-editor-gtk.py
++++ b/theme-editor-gtk.py
+@@ -3104,12 +3104,20 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+             title="Framing",
+             description=f"Prepared output: {target_width}×{target_height} H.264/yuv420p.",
+         )
+         crop_group = Adw.PreferencesGroup(title="Crop and rotation")
++        timing_group = Adw.PreferencesGroup(
++            title="Timing",
++            description="Trim the source, change speed, or repeat the source before conversion.",
++        )
++        background_group = Adw.PreferencesGroup(
++            title="Background",
++            description="Choose the canvas behind fit, original, and custom layouts.",
++        )
+         output_group = Adw.PreferencesGroup(title="Output and theme")
+         page.add(source_group)
+         page.add(preview_group)
+         page.add(framing_group)
+         page.add(crop_group)
++        page.add(timing_group)
++        page.add(background_group)
+         page.add(output_group)
+@@ -3230,6 +3238,53 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+         crop_right_spin = add_spin(crop_group, "Crop right", 0, 0, 4096)
+         crop_top_spin = add_spin(crop_group, "Crop top", 0, 0, 4096)
+         crop_bottom_spin = add_spin(crop_group, "Crop bottom", 0, 0, 4096)
++
++        trim_start_spin = add_spin(
++            timing_group,
++            "Trim start (seconds)",
++            0.0,
++            0.0,
++            86400.0,
++            0.1,
++            1,
++        )
++        trim_end_spin = add_spin(
++            timing_group,
++            "Trim end (0 = full source)",
++            0.0,
++            0.0,
++            86400.0,
++            0.1,
++            1,
++        )
++        speed_spin = add_spin(timing_group, "Playback speed", 1.0, 0.25, 4.0, 0.05, 2)
++        loop_count_spin = add_spin(timing_group, "Loop count", 0, 0, 20)
++
++        background_mode_ids = ("solid", "blur", "image")
++        background_mode_row = Adw.ComboRow(
++            title="Background mode",
++            model=Gtk.StringList.new(("Solid color", "Blurred source", "Image")),
++        )
++        background_mode_row.set_selected(0)
++        background_group.add(background_mode_row)
++
++        background_color_row = Adw.EntryRow(title="Solid background RGB")
++        background_color_row.set_text("000000")
++        background_group.add(background_color_row)
++
++        blur_strength_spin = add_spin(
++            background_group,
++            "Blur strength",
++            24.0,
++            1.0,
++            100.0,
++            1.0,
++            0,
++        )
++
++        background_image_row = Adw.EntryRow(title="Background image")
++        background_group.add(background_image_row)
++        choose_background = Gtk.Button(
++            label="Choose image…",
++            icon_name="document-open-symbolic",
++            valign=Gtk.Align.CENTER,
++        )
++        background_image_action = Adw.ActionRow(title="Image file")
++        background_image_action.add_suffix(choose_background)
++        background_group.add(background_image_action)
+ 
+         fps_ids = (24, 30)
+         fps_row = Adw.ComboRow(
+@@ -3285,6 +3340,42 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+             "busy": False,
+         }
++
++        def choose_background_image(*_args):
++            chooser = Gtk.FileDialog(title="Choose a background image", modal=True)
++            image_filter = Gtk.FileFilter()
++            image_filter.set_name("Image files")
++            for pattern in ("*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp"):
++                image_filter.add_pattern(pattern)
++            filters = Gio.ListStore.new(Gtk.FileFilter)
++            filters.append(image_filter)
++            chooser.set_filters(filters)
++
++            def selected(chooser, result):
++                try:
++                    file = chooser.open_finish(result)
++                except GLib.Error:
++                    return
++                path = file.get_path()
++                if path:
++                    background_image_row.set_text(path)
++
++            chooser.open(self, None, selected)
++
++        choose_background.connect("clicked", choose_background_image)
+ 
+         def set_busy(busy):
+             state["busy"] = bool(busy)
+             choose_source.set_sensitive(not busy)
+             preview_button.set_sensitive(not busy and state["source_media"] is not None)
+             apply_button.set_sensitive(not busy and state["source_media"] is not None)
+@@ -3298,7 +3389,22 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+ 
+         mode_row.connect("notify::selected", update_custom_sensitivity)
+         update_custom_sensitivity()
++
++        def update_background_sensitivity(*_args):
++            index = background_mode_row.get_selected()
++            mode = background_mode_ids[index] if index < len(background_mode_ids) else "solid"
++            background_color_row.set_sensitive(mode == "solid")
++            blur_strength_spin.set_sensitive(mode == "blur")
++            background_image_row.set_sensitive(mode == "image")
++            choose_background.set_sensitive(mode == "image")
++            background_image_action.set_sensitive(mode == "image")
++
++        background_mode_row.connect("notify::selected", update_background_sensitivity)
++        update_background_sensitivity()
+ 
+         def selected_settings():
+             media = state["source_media"]
+             if media is None:
+                 raise ValueError("Choose and analyze a local source first.")
+@@ -3306,6 +3412,15 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+             mode_index = mode_row.get_selected()
+             rotation_index = rotation_row.get_selected()
+             fps_index = fps_row.get_selected()
++            background_index = background_mode_row.get_selected()
++            background_mode = (
++                background_mode_ids[background_index]
++                if background_index < len(background_mode_ids)
++                else "solid"
++            )
++            trim_end_value = float(trim_end_spin.get_value())
++            background_image_value = background_image_row.get_text().strip() or None
+             values = {
+                 "mode": mode_ids[mode_index] if mode_index < len(mode_ids) else "fit",
+                 "zoom": zoom_spin.get_value(),
+@@ -3320,8 +3435,16 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+                 "flip_vertical": mirror_v_row.get_active(),
+                 "fps": fps_ids[fps_index] if fps_index < len(fps_ids) else 30,
+                 "crf": int(crf_spin.get_value()),
++                "start": float(trim_start_spin.get_value()),
++                "end": trim_end_value if trim_end_value > 0 else None,
++                "speed": float(speed_spin.get_value()),
++                "loop_count": int(loop_count_spin.get_value()),
++                "background_mode": background_mode,
++                "background": background_color_row.get_text().strip() or "000000",
++                "background_image": background_image_value,
++                "blur_strength": float(blur_strength_spin.get_value()),
+             }
+             base = ConversionSettings(**values)
+             horizontal_index = align_x_row.get_selected()
+             vertical_index = align_y_row.get_selected()
+@@ -3360,6 +3483,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+             crop_right_spin.set_range(0, max(0, media.width - 1))
+             crop_top_spin.set_range(0, max(0, media.height - 1))
+             crop_bottom_spin.set_range(0, max(0, media.height - 1))
++            trim_start_spin.set_range(0.0, max(0.0, media.duration - 0.1))
++            trim_end_spin.set_range(0.0, media.duration)
+             if not output_name_row.get_text().strip():
+                 output_name_row.set_text(
+                     prepared_output_path(cache_directory(), media.filename).name
+@@ -3507,6 +3632,10 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+             crop_bottom_spin,
++            trim_start_spin,
++            trim_end_spin,
++            speed_spin,
++            loop_count_spin,
+             crf_spin,
++            blur_strength_spin,
+         ):
+             spin.connect("value-changed", schedule_preview)
+         for combo in (
+@@ -3516,6 +3645,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+             align_y_row,
+             rotation_row,
+             fps_row,
++            background_mode_row,
+         ):
+             combo.connect("notify::selected", schedule_preview)
+ 
+@@ -3524,6 +3654,9 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+         for switch in (mirror_h_row, mirror_v_row):
+             switch.connect("notify::active", schedule_preview)
++
++        for entry in (background_color_row, background_image_row):
++            entry.connect("changed", schedule_preview)
+ 
+         state["timeline_timer_id"] = GLib.timeout_add(
+             200,
