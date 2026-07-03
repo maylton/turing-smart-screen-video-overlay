@@ -1,0 +1,44 @@
+diff --git a/theme-editor-gtk.py b/theme-editor-gtk.py
+index 825b397..0000000 100755
+--- a/theme-editor-gtk.py
++++ b/theme-editor-gtk.py
+@@ -3215,6 +3215,20 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+         )
+         rotation_row.set_selected(0)
+         crop_group.add(rotation_row)
++
++        mirror_h_row = Adw.SwitchRow(
++            title="Mirror horizontally",
++            subtitle="Flip the foreground video left-to-right before scaling.",
++        )
++        mirror_h_row.set_active(False)
++        crop_group.add(mirror_h_row)
++
++        mirror_v_row = Adw.SwitchRow(
++            title="Mirror vertically",
++            subtitle="Flip the foreground video top-to-bottom before scaling.",
++        )
++        mirror_v_row.set_active(False)
++        crop_group.add(mirror_v_row)
+ 
+         crop_left_spin = add_spin(crop_group, "Crop left", 0, 0, 4096)
+         crop_right_spin = add_spin(crop_group, "Crop right", 0, 0, 4096)
+@@ -3313,6 +3327,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+                 "rotation": rotation_ids[rotation_index]
+                 if rotation_index < len(rotation_ids)
+                 else 0,
++                "flip_horizontal": mirror_h_row.get_active(),
++                "flip_vertical": mirror_v_row.get_active(),
+                 "fps": fps_ids[fps_index] if fps_index < len(fps_ids) else 30,
+                 "crf": int(crf_spin.get_value()),
+             }
+@@ -3517,6 +3533,9 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+         ):
+             combo.connect("notify::selected", schedule_preview)
+ 
++        for switch in (mirror_h_row, mirror_v_row):
++            switch.connect("notify::active", schedule_preview)
++
+         state["timeline_timer_id"] = GLib.timeout_add(
+             200,
+             update_playback_controls,
