@@ -37,19 +37,31 @@ class ThemeMediaTransformError(ValueError):
 
 @dataclass(frozen=True)
 class ImageTransformSettings:
-    """Validated transform controls."""
+    """Validated transform/crop controls."""
 
     rotation: int = ROTATION_0
     flip_horizontal: bool = False
     flip_vertical: bool = False
+    crop_box: tuple[int, int, int, int] | None = None
 
     def __post_init__(self) -> None:
         rotation = int(self.rotation)
         if rotation not in ROTATIONS:
             raise ThemeMediaTransformError(f"Unsupported rotation: {self.rotation}")
+        crop_box = self.crop_box
+        if crop_box is not None:
+            if len(crop_box) != 4:
+                raise ThemeMediaTransformError("Crop box must have 4 values")
+            x, y, width, height = (int(value) for value in crop_box)
+            if x < 0 or y < 0:
+                raise ThemeMediaTransformError("Crop origin cannot be negative")
+            if width <= 0 or height <= 0:
+                raise ThemeMediaTransformError("Crop dimensions must be positive")
+            crop_box = (x, y, width, height)
         object.__setattr__(self, "rotation", rotation)
         object.__setattr__(self, "flip_horizontal", bool(self.flip_horizontal))
         object.__setattr__(self, "flip_vertical", bool(self.flip_vertical))
+        object.__setattr__(self, "crop_box", crop_box)
 
 
 @dataclass(frozen=True)
@@ -79,19 +91,21 @@ def is_identity_transform(settings: ImageTransformSettings) -> bool:
         settings.rotation,
         settings.flip_horizontal,
         settings.flip_vertical,
+        settings.crop_box,
     )
     return (
         settings.rotation == ROTATION_0
         and not settings.flip_horizontal
         and not settings.flip_vertical
+        and settings.crop_box is None
     )
 
 
-def transformed_dimensions(
+def uncropped_transformed_dimensions(
     source_size: tuple[int, int],
     settings: ImageTransformSettings,
 ) -> tuple[int, int]:
-    """Return dimensions after rotation/mirror."""
+    """Return dimensions after rotation/mirror, before crop."""
     width, height = int(source_size[0]), int(source_size[1])
     if width <= 0 or height <= 0:
         raise ThemeMediaTransformError("Image dimensions must be positive")
@@ -100,15 +114,45 @@ def transformed_dimensions(
     return width, height
 
 
+def validate_crop_box(
+    image_size: tuple[int, int],
+    crop_box: tuple[int, int, int, int] | None,
+) -> tuple[int, int, int, int] | None:
+    """Validate a crop box in already-transformed image coordinates."""
+    if crop_box is None:
+        return None
+    settings = ImageTransformSettings(crop_box=crop_box)
+    x, y, width, height = settings.crop_box or (0, 0, 0, 0)
+    image_width, image_height = int(image_size[0]), int(image_size[1])
+    if image_width <= 0 or image_height <= 0:
+        raise ThemeMediaTransformError("Image dimensions must be positive")
+    if x + width > image_width or y + height > image_height:
+        raise ThemeMediaTransformError("Crop box exceeds transformed image bounds")
+    return (x, y, width, height)
+
+
+def transformed_dimensions(
+    source_size: tuple[int, int],
+    settings: ImageTransformSettings,
+) -> tuple[int, int]:
+    """Return dimensions after rotation/mirror/crop."""
+    size = uncropped_transformed_dimensions(source_size, settings)
+    crop_box = validate_crop_box(size, settings.crop_box)
+    if crop_box is None:
+        return size
+    return crop_box[2], crop_box[3]
+
+
 def transform_pillow_image(
     image: Image.Image,
     settings: ImageTransformSettings,
 ) -> Image.Image:
-    """Apply EXIF normalization, clockwise rotation, then mirrors."""
+    """Apply EXIF normalization, clockwise rotation, mirrors, then crop."""
     settings = ImageTransformSettings(
         settings.rotation,
         settings.flip_horizontal,
         settings.flip_vertical,
+        settings.crop_box,
     )
     if image.width <= 0 or image.height <= 0:
         raise ThemeMediaTransformError("Image dimensions must be positive")
@@ -125,6 +169,10 @@ def transform_pillow_image(
         result = result.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
     if settings.flip_vertical:
         result = result.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+    crop_box = validate_crop_box(result.size, settings.crop_box)
+    if crop_box is not None:
+        x, y, width, height = crop_box
+        result = result.crop((x, y, x + width, y + height))
     return result
 
 
@@ -142,7 +190,11 @@ def _safe_stem(value: str) -> str:
 
 
 def _settings_token(settings: ImageTransformSettings) -> str:
-    return f"r{settings.rotation}-h{int(settings.flip_horizontal)}-v{int(settings.flip_vertical)}"
+    token = f"r{settings.rotation}-h{int(settings.flip_horizontal)}-v{int(settings.flip_vertical)}"
+    if settings.crop_box is not None:
+        x, y, width, height = settings.crop_box
+        token += f"-c{x}-{y}-{width}-{height}"
+    return token
 
 
 def derived_asset_name(source_path: str | Path, settings: ImageTransformSettings) -> str:
@@ -154,6 +206,7 @@ def derived_asset_name(source_path: str | Path, settings: ImageTransformSettings
         settings.rotation,
         settings.flip_horizontal,
         settings.flip_vertical,
+        settings.crop_box,
     )
     source_hash = _sha256_file(source)
     config_hash = hashlib.sha256(
@@ -163,6 +216,7 @@ def derived_asset_name(source_path: str | Path, settings: ImageTransformSettings
                 "rotation": settings.rotation,
                 "flip_horizontal": settings.flip_horizontal,
                 "flip_vertical": settings.flip_vertical,
+                "crop_box": settings.crop_box,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -240,6 +294,7 @@ def load_transform_manifest(theme_dir: str | Path) -> dict[str, Any]:
         _validate_output_reference(theme_dir, reference)
         if not isinstance(entry, dict):
             raise ThemeMediaTransformError("Transform manifest entry must be a mapping")
+        _settings_from_entry(entry)
         source_reference = Path(str(entry.get("source_reference") or ""))
         if not source_reference.is_absolute() and any(
             part == ".." for part in source_reference.parts
@@ -300,23 +355,43 @@ def register_transform_asset(
         settings.rotation,
         settings.flip_horizontal,
         settings.flip_vertical,
+        settings.crop_box,
     )
-    manifest = load_transform_manifest(theme_dir)
-    manifest["assets"][output_reference] = {
+    entry = {
         "source_reference": source_reference,
         "source_sha256": source_sha256,
         "rotation": settings.rotation,
         "flip_horizontal": settings.flip_horizontal,
         "flip_vertical": settings.flip_vertical,
     }
+    if settings.crop_box is not None:
+        x, y, width, height = settings.crop_box
+        entry["crop"] = {
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+        }
+    manifest = load_transform_manifest(theme_dir)
+    manifest["assets"][output_reference] = entry
     save_transform_manifest_atomic(theme_dir, manifest)
 
 
 def _settings_from_entry(entry: Mapping[str, Any]) -> ImageTransformSettings:
+    crop = entry.get("crop")
+    crop_box = None
+    if isinstance(crop, Mapping):
+        crop_box = (
+            int(crop.get("x", 0)),
+            int(crop.get("y", 0)),
+            int(crop.get("width", 0)),
+            int(crop.get("height", 0)),
+        )
     return ImageTransformSettings(
         rotation=int(entry.get("rotation", 0)),
         flip_horizontal=bool(entry.get("flip_horizontal", False)),
         flip_vertical=bool(entry.get("flip_vertical", False)),
+        crop_box=crop_box,
     )
 
 
@@ -421,6 +496,7 @@ def prepare_transform_asset(
         settings.rotation,
         settings.flip_horizontal,
         settings.flip_vertical,
+        settings.crop_box,
     )
     source = resolve_transform_source(theme_dir, current_reference)
     source_size = _image_size(source.source_path)

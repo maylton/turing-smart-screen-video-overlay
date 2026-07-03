@@ -194,16 +194,25 @@ Delivered:
 - Undo/Redo for `PATH`, `X`, `Y`, `WIDTH`, and `HEIGHT`.
 
 ### 2.3. Images — Crop
-**Status:** Planned
+**Status:** Implemented; pending visual validation
 
-Target:
-- visual crop region;
-- crop handles;
-- presets;
-- crop-aware preview;
-- derived assets;
-- manifest support;
-- Undo/Redo.
+Delivered:
+- crop enable/reset;
+- numeric crop region;
+- crop presets:
+  - Free;
+  - Square;
+  - Canvas ratio;
+  - Source ratio;
+- crop-aware transform/layout preview;
+- derived assets from original source;
+- backward-compatible manifest support;
+- crop recovery when reopening managed assets;
+- Undo/Redo through the existing `PATH + geometry` apply flow.
+
+Still possible later:
+- direct drag crop region;
+- resize handles on the preview.
 
 ### 2.4. Generated media management
 **Status:** Planned

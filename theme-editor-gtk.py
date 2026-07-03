@@ -95,6 +95,7 @@ from library.theme_media_transform import (
     render_transform_preview_asset,
     resolve_transform_source,
     transformed_dimensions,
+    uncropped_transformed_dimensions,
 )
 from library.theme_property_presets import property_preset_options
 from library.theme_text_style_presets import (
@@ -1666,6 +1667,9 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             parts.append("mirrored horizontally")
         if settings.flip_vertical:
             parts.append("mirrored vertically")
+        if settings.crop_box is not None:
+            x, y, width, height = settings.crop_box
+            parts.append(f"crop {width}×{height} at {x},{y}")
         return " · ".join(parts)
 
     def build_property_rows(self):
@@ -3464,6 +3468,10 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             )
             source_size = image_dimensions(transform_source.source_path)
             current_transform = transform_source.current_settings
+            current_uncropped_size = uncropped_transformed_dimensions(
+                source_size,
+                current_transform,
+            )
             current_transformed_size = transformed_dimensions(
                 source_size,
                 current_transform,
@@ -3510,6 +3518,8 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             "180°",
             "270° clockwise",
         ]
+        crop_preset_ids = ["free", "square", "canvas", "source"]
+        crop_preset_labels = ["Free", "Square", "Canvas ratio", "Source ratio"]
 
         dialog = Adw.Window(
             title="Image layout",
@@ -3597,6 +3607,61 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         transform_group.add(reset_transform_row)
         controls.append(transform_group)
 
+        current_crop = current_transform.crop_box
+        crop_group = Adw.PreferencesGroup(title="Crop")
+        crop_enabled_row = Adw.SwitchRow(title="Enable crop")
+        crop_enabled_row.set_active(current_crop is not None)
+        crop_group.add(crop_enabled_row)
+
+        crop_preset_model = Gtk.StringList.new(crop_preset_labels)
+        crop_preset_row = Adw.ComboRow(title="Preset", model=crop_preset_model)
+        crop_preset_row.set_selected(0)
+        crop_group.add(crop_preset_row)
+
+        crop_x_row = Adw.ActionRow(title="Crop X")
+        crop_x_spin = Gtk.SpinButton.new_with_range(0, 4096, 1)
+        crop_x_spin.set_valign(Gtk.Align.CENTER)
+        crop_x_spin.set_size_request(110, -1)
+        crop_x_row.add_suffix(crop_x_spin)
+        crop_group.add(crop_x_row)
+
+        crop_y_row = Adw.ActionRow(title="Crop Y")
+        crop_y_spin = Gtk.SpinButton.new_with_range(0, 4096, 1)
+        crop_y_spin.set_valign(Gtk.Align.CENTER)
+        crop_y_spin.set_size_request(110, -1)
+        crop_y_row.add_suffix(crop_y_spin)
+        crop_group.add(crop_y_row)
+
+        crop_width_row = Adw.ActionRow(title="Crop width")
+        crop_width_spin = Gtk.SpinButton.new_with_range(1, 4096, 1)
+        crop_width_spin.set_valign(Gtk.Align.CENTER)
+        crop_width_spin.set_size_request(110, -1)
+        crop_width_row.add_suffix(crop_width_spin)
+        crop_group.add(crop_width_row)
+
+        crop_height_row = Adw.ActionRow(title="Crop height")
+        crop_height_spin = Gtk.SpinButton.new_with_range(1, 4096, 1)
+        crop_height_spin.set_valign(Gtk.Align.CENTER)
+        crop_height_spin.set_size_request(110, -1)
+        crop_height_row.add_suffix(crop_height_spin)
+        crop_group.add(crop_height_row)
+
+        crop_size_row = Adw.ActionRow(
+            title="Crop source",
+            subtitle=f"{current_uncropped_size[0]}×{current_uncropped_size[1]}",
+        )
+        crop_group.add(crop_size_row)
+
+        reset_crop_row = Adw.ActionRow(title="Reset crop")
+        reset_crop_btn = Gtk.Button(
+            label="Use full image",
+            tooltip_text="Disable crop without changing YAML until Apply",
+            valign=Gtk.Align.CENTER,
+        )
+        reset_crop_row.add_suffix(reset_crop_btn)
+        crop_group.add(reset_crop_row)
+        controls.append(crop_group)
+
         layout_group = Adw.PreferencesGroup(title="Layout")
         mode_model = Gtk.StringList.new(mode_labels)
         mode_row = Adw.ComboRow(title="Mode", model=mode_model)
@@ -3678,6 +3743,89 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         preview_state = {"generation": 0, "source": 0, "closed": False}
         cache_dir = Path(tempfile.gettempdir()) / "turing-theme-editor-layout-preview"
 
+        def base_transform_settings():
+            rotation_index = rotation_row.get_selected()
+            if rotation_index < 0 or rotation_index >= len(rotation_ids):
+                rotation_index = 0
+            return ImageTransformSettings(
+                rotation=rotation_ids[rotation_index],
+                flip_horizontal=flip_h_row.get_active(),
+                flip_vertical=flip_v_row.get_active(),
+            )
+
+        def crop_source_size():
+            return uncropped_transformed_dimensions(
+                source_size,
+                base_transform_settings(),
+            )
+
+        def set_crop_ranges(width, height):
+            crop_x_spin.set_range(0, max(0, width - 1))
+            crop_y_spin.set_range(0, max(0, height - 1))
+            crop_width_spin.set_range(1, max(1, width))
+            crop_height_spin.set_range(1, max(1, height))
+
+        def set_crop_box(crop_box, *, enable=True):
+            width, height = crop_source_size()
+            set_crop_ranges(width, height)
+            if crop_box is None:
+                x, y, crop_width, crop_height = 0, 0, width, height
+                enable = False
+            else:
+                x, y, crop_width, crop_height = crop_box
+                x = max(0, min(int(x), max(0, width - 1)))
+                y = max(0, min(int(y), max(0, height - 1)))
+                crop_width = max(1, min(int(crop_width), width - x))
+                crop_height = max(1, min(int(crop_height), height - y))
+            crop_enabled_row.set_active(enable)
+            crop_x_spin.set_value(float(x))
+            crop_y_spin.set_value(float(y))
+            crop_width_spin.set_value(float(crop_width))
+            crop_height_spin.set_value(float(crop_height))
+            crop_size_row.set_subtitle(f"{width}×{height}")
+
+        def selected_crop_box():
+            if not crop_enabled_row.get_active():
+                return None
+            width, height = crop_source_size()
+            x = int(crop_x_spin.get_value())
+            y = int(crop_y_spin.get_value())
+            crop_width = int(crop_width_spin.get_value())
+            crop_height = int(crop_height_spin.get_value())
+            x = max(0, min(x, max(0, width - 1)))
+            y = max(0, min(y, max(0, height - 1)))
+            crop_width = max(1, min(crop_width, width - x))
+            crop_height = max(1, min(crop_height, height - y))
+            return (x, y, crop_width, crop_height)
+
+        def apply_crop_preset(*_args):
+            width, height = crop_source_size()
+            preset_index = crop_preset_row.get_selected()
+            if preset_index < 0 or preset_index >= len(crop_preset_ids):
+                preset_index = 0
+            preset = crop_preset_ids[preset_index]
+            if preset == "free":
+                return
+            if preset == "square":
+                crop_width = crop_height = min(width, height)
+            else:
+                if preset == "canvas":
+                    ratio_width, ratio_height = canvas_size
+                else:
+                    ratio_width, ratio_height = source_size
+                ratio = ratio_width / ratio_height
+                crop_width = width
+                crop_height = int(round(crop_width / ratio))
+                if crop_height > height:
+                    crop_height = height
+                    crop_width = int(round(crop_height * ratio))
+                crop_width = max(1, min(width, crop_width))
+                crop_height = max(1, min(height, crop_height))
+            x = max(0, (width - crop_width) // 2)
+            y = max(0, (height - crop_height) // 2)
+            set_crop_box((x, y, crop_width, crop_height), enable=True)
+            queue_preview()
+
         def selected_layout_settings():
             mode_index = mode_row.get_selected()
             if mode_index < 0 or mode_index >= len(mode_ids):
@@ -3692,13 +3840,12 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             )
 
         def selected_transform_settings():
-            rotation_index = rotation_row.get_selected()
-            if rotation_index < 0 or rotation_index >= len(rotation_ids):
-                rotation_index = 0
+            base = base_transform_settings()
             return ImageTransformSettings(
-                rotation=rotation_ids[rotation_index],
-                flip_horizontal=flip_h_row.get_active(),
-                flip_vertical=flip_v_row.get_active(),
+                rotation=base.rotation,
+                flip_horizontal=base.flip_horizontal,
+                flip_vertical=base.flip_vertical,
+                crop_box=selected_crop_box(),
             )
 
         def calculated_layout():
@@ -3739,6 +3886,17 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             )
             custom_width_spin.set_sensitive(is_custom)
             custom_height_spin.set_sensitive(is_custom)
+
+        def update_crop_sensitivity():
+            active = crop_enabled_row.get_active()
+            crop_preset_row.set_sensitive(active)
+            crop_x_spin.set_sensitive(active)
+            crop_y_spin.set_sensitive(active)
+            crop_width_spin.set_sensitive(active)
+            crop_height_spin.set_sensitive(active)
+
+        def clamp_crop_to_source():
+            set_crop_box(selected_crop_box(), enable=crop_enabled_row.get_active())
 
         def render_preview(transform_settings, layout, generation):
             transformed_path = cache_dir / (
@@ -3825,12 +3983,22 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             queue_preview()
 
         def transform_changed(*_args):
+            clamp_crop_to_source()
+            queue_preview()
+
+        def crop_changed(*_args):
+            update_crop_sensitivity()
             queue_preview()
 
         def reset_transform(*_args):
             rotation_row.set_selected(0)
             flip_h_row.set_active(False)
             flip_v_row.set_active(False)
+            queue_preview()
+
+        def reset_crop(*_args):
+            set_crop_box(None)
+            update_crop_sensitivity()
             queue_preview()
 
         def on_close(*_args):
@@ -3847,6 +4015,13 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         flip_h_row.connect("notify::active", transform_changed)
         flip_v_row.connect("notify::active", transform_changed)
         reset_transform_btn.connect("clicked", reset_transform)
+        crop_enabled_row.connect("notify::active", crop_changed)
+        crop_preset_row.connect("notify::selected", apply_crop_preset)
+        crop_x_spin.connect("value-changed", queue_preview)
+        crop_y_spin.connect("value-changed", queue_preview)
+        crop_width_spin.connect("value-changed", queue_preview)
+        crop_height_spin.connect("value-changed", queue_preview)
+        reset_crop_btn.connect("clicked", reset_crop)
 
         def apply_layout(*_args):
             selected_now = self.selected_static_image()
@@ -3919,8 +4094,10 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             dialog.close()
 
         apply_btn.connect("clicked", apply_layout)
+        set_crop_box(current_crop, enable=current_crop is not None)
         set_alignment("center", "center")
         update_custom_sensitivity()
+        update_crop_sensitivity()
         queue_preview()
         dialog.present()
 

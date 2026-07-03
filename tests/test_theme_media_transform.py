@@ -32,6 +32,8 @@ from library.theme_media_transform import (
     theme_path_reference,
     transform_pillow_image,
     transformed_dimensions,
+    uncropped_transformed_dimensions,
+    validate_crop_box,
 )
 
 
@@ -68,11 +70,27 @@ class ThemeMediaTransformTests(unittest.TestCase):
         with self.assertRaises(ThemeMediaTransformError):
             ImageTransformSettings(rotation=45)
 
+    def test_invalid_crop_box(self):
+        with self.assertRaises(ThemeMediaTransformError):
+            ImageTransformSettings(crop_box=(0, 0, 0, 10))
+        with self.assertRaises(ThemeMediaTransformError):
+            ImageTransformSettings(crop_box=(-1, 0, 10, 10))
+
+    def test_crop_bounds_validation(self):
+        self.assertEqual(validate_crop_box((10, 20), (2, 3, 4, 5)), (2, 3, 4, 5))
+        with self.assertRaises(ThemeMediaTransformError):
+            validate_crop_box((10, 20), (8, 0, 4, 5))
+
     def test_dimensions_0(self):
         self.assertEqual(transformed_dimensions((10, 20), ImageTransformSettings()), (10, 20))
 
     def test_dimensions_90(self):
         self.assertEqual(transformed_dimensions((10, 20), ImageTransformSettings(90)), (20, 10))
+
+    def test_uncropped_dimensions_ignore_crop(self):
+        settings = ImageTransformSettings(90, crop_box=(2, 1, 8, 6))
+        self.assertEqual(uncropped_transformed_dimensions((10, 20), settings), (20, 10))
+        self.assertEqual(transformed_dimensions((10, 20), settings), (8, 6))
 
     def test_dimensions_180(self):
         self.assertEqual(transformed_dimensions((10, 20), ImageTransformSettings(180)), (10, 20))
@@ -154,6 +172,20 @@ class ThemeMediaTransformTests(unittest.TestCase):
                 result = transform_pillow_image(image, ImageTransformSettings(90))
             self.assertEqual(result.getpixel((0, 0))[3], 128)
 
+    def test_crop_pixels_after_rotation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = save_pixels(Path(directory) / "source.png")
+            with Image.open(source) as image:
+                result = transform_pillow_image(
+                    image,
+                    ImageTransformSettings(90, crop_box=(1, 0, 2, 2)),
+                )
+            self.assertEqual(result.size, (2, 2))
+            self.assertEqual(result.getpixel((0, 0)), (0, 0, 255, 255))
+            self.assertEqual(result.getpixel((1, 0)), (255, 0, 0, 255))
+            self.assertEqual(result.getpixel((0, 1)), (255, 255, 0, 255))
+            self.assertEqual(result.getpixel((1, 1)), (0, 255, 0, 255))
+
     def test_original_pillow_object_is_not_modified(self):
         image = Image.new("RGBA", (2, 1), (1, 2, 3, 4))
         before = image.copy()
@@ -172,6 +204,14 @@ class ThemeMediaTransformTests(unittest.TestCase):
             self.assertNotEqual(
                 derived_asset_name(source, ImageTransformSettings(90)),
                 derived_asset_name(source, ImageTransformSettings(180)),
+            )
+
+    def test_different_crop_changes_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = save_pixels(Path(directory) / "logo.png")
+            self.assertNotEqual(
+                derived_asset_name(source, ImageTransformSettings(crop_box=(0, 0, 1, 1))),
+                derived_asset_name(source, ImageTransformSettings(crop_box=(1, 0, 1, 1))),
             )
 
     def test_different_content_changes_name(self):
@@ -216,6 +256,20 @@ class ThemeMediaTransformTests(unittest.TestCase):
             manifest = {
                 "version": TRANSFORM_MANIFEST_VERSION,
                 "assets": {"generated-media/a.png": {"source_reference": "a.png"}},
+            }
+            save_transform_manifest_atomic(directory, manifest)
+            self.assertEqual(load_transform_manifest(directory), manifest)
+
+    def test_manifest_with_crop_round_trips(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = {
+                "version": TRANSFORM_MANIFEST_VERSION,
+                "assets": {
+                    "generated-media/a.png": {
+                        "source_reference": "a.png",
+                        "crop": {"x": 1, "y": 2, "width": 3, "height": 4},
+                    },
+                },
             }
             save_transform_manifest_atomic(directory, manifest)
             self.assertEqual(load_transform_manifest(directory), manifest)
@@ -309,6 +363,17 @@ class ThemeMediaTransformTests(unittest.TestCase):
             self.assertEqual(resolved.current_settings, ImageTransformSettings(90, True, False))
             self.assertTrue(resolved.is_managed_asset)
 
+    def test_managed_crop_resolves_origin_and_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = save_pixels(root / "logo.png")
+            settings = ImageTransformSettings(90, True, False, (0, 0, 2, 2))
+            prepared = prepare_transform_asset(root, "logo.png", settings)
+            resolved = resolve_transform_source(root, prepared.output_reference)
+            self.assertEqual(resolved.source_path, source.resolve())
+            self.assertEqual(resolved.current_settings, settings)
+            self.assertTrue(resolved.is_managed_asset)
+
     def test_unregistered_generated_asset_errors(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -343,6 +408,19 @@ class ThemeMediaTransformTests(unittest.TestCase):
             self.assertEqual(prepared.output_reference, "logo.png")
             self.assertFalse(prepared.created)
             self.assertFalse((root / GENERATED_MEDIA_DIR).exists())
+
+    def test_crop_only_creates_generated_png(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            save_pixels(root / "logo.png")
+            prepared = prepare_transform_asset(
+                root,
+                "logo.png",
+                ImageTransformSettings(crop_box=(0, 1, 2, 2)),
+            )
+            self.assertTrue(prepared.output_path.is_file())
+            self.assertEqual(prepared.output_size, (2, 2))
+            self.assertTrue(prepared.output_reference.startswith("generated-media/"))
 
     def test_rotation_creates_generated_png(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -398,6 +476,27 @@ class ThemeMediaTransformTests(unittest.TestCase):
             first = prepare_transform_asset(root, "logo.png", ImageTransformSettings(90))
             second = prepare_transform_asset(root, first.output_reference, ImageTransformSettings(180))
             direct = prepare_transform_asset(root, "logo.png", ImageTransformSettings(180))
+            self.assertEqual(second.output_reference, direct.output_reference)
+
+    def test_consecutive_crop_starts_from_origin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            save_pixels(root / "logo.png")
+            first = prepare_transform_asset(
+                root,
+                "logo.png",
+                ImageTransformSettings(crop_box=(0, 0, 1, 2)),
+            )
+            second = prepare_transform_asset(
+                root,
+                first.output_reference,
+                ImageTransformSettings(crop_box=(1, 0, 1, 2)),
+            )
+            direct = prepare_transform_asset(
+                root,
+                "logo.png",
+                ImageTransformSettings(crop_box=(1, 0, 1, 2)),
+            )
             self.assertEqual(second.output_reference, direct.output_reference)
 
     def test_original_file_is_not_modified(self):
