@@ -1,0 +1,31 @@
+{
+  "assets": {
+    "generated-media/Anime_04--r0-h0-v0-c200-200-3640-2200--c59dd310309e.png": {
+      "crop": {
+        "height": 2200,
+        "width": 3640,
+        "x": 200,
+        "y": 200
+      },
+      "flip_horizontal": false,
+      "flip_vertical": false,
+      "rotation": 0,
+      "source_reference": "Anime_04.jpeg",
+      "source_sha256": "48541a3d5151fd5213f25dc75db17e3e22753722223aa8c6592c17d696edd4cb"
+    },
+    "generated-media/Anime_04--r0-h0-v0-c720-0-2400-2400--b92a5f1db578.png": {
+      "crop": {
+        "height": 2400,
+        "width": 2400,
+        "x": 720,
+        "y": 0
+      },
+      "flip_horizontal": false,
+      "flip_vertical": false,
+      "rotation": 0,
+      "source_reference": "Anime_04.jpeg",
+      "source_sha256": "48541a3d5151fd5213f25dc75db17e3e22753722223aa8c6592c17d696edd4cb"
+    }
+  },
+  "version": 1
+}
