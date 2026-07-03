@@ -767,8 +767,8 @@ static_text:
 static_images:
   custom_image:
     SHOW: true
-    PATH: Anime_04.jpeg
-    X: -144
+    PATH: generated-media/Anime_04--r0-h0-v0-c200-200-3640-2200--c59dd310309e.png
+    X: -157
     Y: 0
-    WIDTH: 768
+    WIDTH: 794
     HEIGHT: 480
