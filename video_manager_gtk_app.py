@@ -50,10 +50,10 @@ class VideoManagerWindow(Adw.ApplicationWindow):
         super().__init__(
             application=app,
             title="Turing Video Manager",
-            default_width=980,
-            default_height=660,
+            default_width=1120,
+            default_height=720,
         )
-        self.set_size_request(760, 520)
+        self.set_size_request(900, 600)
 
         self.selected_file: str | None = None
         self.storage_internal = False
@@ -102,7 +102,9 @@ class VideoManagerWindow(Adw.ApplicationWindow):
 
     def build_main_page(self):
         split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        split.set_position(430)
+        split.set_position(500)
+        split.set_shrink_start_child(False)
+        split.set_shrink_end_child(False)
 
         left_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -112,6 +114,7 @@ class VideoManagerWindow(Adw.ApplicationWindow):
             margin_start=18,
             margin_end=18,
         )
+        left_box.set_size_request(460, -1)
 
         storage_row = Adw.ComboRow(title="Storage")
         storage_row.set_model(
@@ -163,7 +166,7 @@ class VideoManagerWindow(Adw.ApplicationWindow):
 
         split.set_start_child(left_box)
 
-        right_clamp = Adw.Clamp(maximum_size=520)
+        right_clamp = Adw.Clamp(maximum_size=640)
         right_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=18,

@@ -301,10 +301,10 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         super().__init__(
             application=app,
             title="Turing Smart Screen",
-            default_width=1120,
-            default_height=720,
+            default_width=1280,
+            default_height=780,
         )
-        self.set_size_request(820, 560)
+        self.set_size_request(1020, 640)
         self.connect("close-request", self.on_close_request)
 
         self.current_theme = read_current_theme()
@@ -339,7 +339,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         header.pack_end(menu_button)
 
         split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        split.set_position(230)
+        split.set_position(280)
         split.set_shrink_start_child(False)
         split.set_shrink_end_child(False)
         toolbar_view.set_content(split)
@@ -480,7 +480,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         wrap.append(spacer)
 
         version_label = Gtk.Label(
-            label="GTK4 + Libadwaita preview",
+            label="Configuration app",
             xalign=0,
             margin_top=12,
             margin_bottom=16,
@@ -637,7 +637,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         for title, subtitle_text, icon, action in (
             (
                 "Theme editor",
-                "Open the advanced visual editor.",
+                "Edit the active theme layout and components.",
                 "document-edit-symbolic",
                 "win.open-editor",
             ),
@@ -682,7 +682,9 @@ class SmartScreenWindow(Adw.ApplicationWindow):
 
     def build_themes_page(self) -> Gtk.Widget:
         split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        split.set_position(360)
+        split.set_position(430)
+        split.set_shrink_start_child(False)
+        split.set_shrink_end_child(False)
 
         left_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -692,6 +694,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
             margin_start=18,
             margin_end=18,
         )
+        left_box.set_size_request(390, -1)
 
         list_header = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
@@ -750,7 +753,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
 
         split.set_start_child(left_box)
 
-        right_clamp = Adw.Clamp(maximum_size=620)
+        right_clamp = Adw.Clamp(maximum_size=720)
         right_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=18,
@@ -767,7 +770,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
 
         self.theme_page_picture = Gtk.Picture()
         self.theme_page_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-        self.theme_page_picture.set_size_request(420, 420)
+        self.theme_page_picture.set_size_request(460, 460)
         self.theme_page_picture.add_css_class("display-preview")
         right_box.append(self.theme_page_picture)
 
@@ -797,7 +800,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         return split
 
     def build_tools_page(self) -> Gtk.Widget:
-        clamp = Adw.Clamp(maximum_size=760)
+        clamp = Adw.Clamp(maximum_size=860)
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_child(clamp)
 
@@ -816,13 +819,12 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         box.append(title)
 
         group = Adw.PreferencesGroup(
-            title="Current tools",
-            description="These buttons open the existing working interfaces during migration.",
+            title="Available tools",
         )
 
         for title_text, subtitle, icon, action in (
             (
-                "Advanced theme editor",
+                "Theme editor",
                 "Edit components, backgrounds, positions, and sensor templates.",
                 "document-edit-symbolic",
                 "win.open-editor",
@@ -854,7 +856,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         return scrolled
 
     def build_settings_page(self) -> Gtk.Widget:
-        clamp = Adw.Clamp(maximum_size=760)
+        clamp = Adw.Clamp(maximum_size=860)
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_child(clamp)
 

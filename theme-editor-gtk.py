@@ -214,10 +214,10 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         super().__init__(
             application=app,
             title=f"Theme Editor — {theme_name}",
-            default_width=1380,
-            default_height=820,
+            default_width=1540,
+            default_height=900,
         )
-        self.set_size_request(980, 640)
+        self.set_size_request(1180, 720)
 
         self.theme_name = theme_name
         self.theme_dir = THEMES_DIR / theme_name
@@ -250,7 +250,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         header.set_title_widget(
             Adw.WindowTitle(
                 title=theme_name,
-                subtitle="GTK4 visual theme editor",
+                subtitle="Theme editor",
             )
         )
         toolbar.add_top_bar(header)
@@ -271,7 +271,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
 
         classic_btn = Gtk.Button(
             icon_name="applications-system-symbolic",
-            tooltip_text="Open the classic editor with advanced tools",
+            tooltip_text="Open the classic editor",
         )
         classic_btn.connect("clicked", lambda *_: self.open_classic_editor())
         header.pack_end(classic_btn)
@@ -306,14 +306,18 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         header.pack_end(media_btn)
 
         body = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        body.set_position(290)
+        body.set_position(340)
+        body.set_shrink_start_child(False)
+        body.set_shrink_end_child(False)
         toolbar.set_content(body)
 
         left = self.build_elements_panel()
         body.set_start_child(left)
 
         center_right = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        center_right.set_position(650)
+        center_right.set_position(740)
+        center_right.set_shrink_start_child(False)
+        center_right.set_shrink_end_child(False)
         body.set_end_child(center_right)
 
         center_right.set_start_child(self.build_preview_panel())
@@ -332,6 +336,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             margin_start=16,
             margin_end=16,
         )
+        box.set_size_request(320, -1)
 
         title = Gtk.Label(label="Theme elements", xalign=0)
         title.add_css_class("heading")
@@ -484,6 +489,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             margin_start=16,
             margin_end=16,
         )
+        box.set_size_request(560, -1)
 
         title = Gtk.Label(label="Live preview", xalign=0)
         title.add_css_class("heading")
@@ -530,6 +536,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
     def build_properties_panel(self):
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_size_request(420, -1)
 
         self.properties_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -552,17 +559,6 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         self.path_label.add_css_class("dim-label")
         self.properties_box.append(self.path_label)
-
-        preset_hint = Gtk.Label(
-            label=(
-                "Use the preset menus for common values, "
-                "or type a custom value."
-            ),
-            xalign=0,
-            wrap=True,
-        )
-        preset_hint.add_css_class("dim-label")
-        self.properties_box.append(preset_hint)
 
         self.dynamic_group = Adw.PreferencesGroup()
         self.properties_box.append(self.dynamic_group)
@@ -972,7 +968,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         labels = tuple(label for label, _value in options)
         values = tuple(value for _label, value in options)
         dropdown = Gtk.DropDown.new_from_strings(labels)
-        dropdown.set_size_request(190, -1)
+        dropdown.set_size_request(220, -1)
         dropdown.set_valign(Gtk.Align.CENTER)
         dropdown.set_tooltip_text(
             "Choose a common value, or type a custom value in the field."
@@ -1019,14 +1015,14 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
 
         labels = ["Choose a preset…"] + preset_names
         dropdown = Gtk.DropDown.new_from_strings(labels)
-        dropdown.set_size_request(190, -1)
+        dropdown.set_size_request(220, -1)
         dropdown.set_valign(Gtk.Align.CENTER)
         dropdown.set_tooltip_text("Fill available text fields")
         dropdown._theme_resetting_text_style = False
 
         row = Adw.ActionRow(
             title="Text style preset",
-            subtitle="Fill the available text fields without saving them.",
+            subtitle="Apply values to the current text fields.",
         )
         row.add_suffix(dropdown)
 
@@ -1615,7 +1611,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
 
         effect_labels = ["Choose a preset…"] + text_effect_preset_names()
         effect_dropdown = Gtk.DropDown.new_from_strings(effect_labels)
-        effect_dropdown.set_size_request(220, -1)
+        effect_dropdown.set_size_request(250, -1)
         effect_dropdown.set_valign(Gtk.Align.CENTER)
         effect_dropdown.set_tooltip_text("Fill effect controls")
         effect_dropdown._theme_resetting_effect_preset = False
@@ -1786,8 +1782,8 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         effect_dropdown.connect("notify::selected", effect_preset_changed)
 
         scroll = Gtk.ScrolledWindow(
-            min_content_width=620,
-            min_content_height=560,
+            min_content_width=720,
+            min_content_height=620,
             propagate_natural_width=True,
             propagate_natural_height=True,
         )
