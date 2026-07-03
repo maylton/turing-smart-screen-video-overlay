@@ -11,10 +11,29 @@ from library.theme_video_background import (
     build_background_command,
     display_video_path,
     find_prepared_local_video,
+    theme_uses_video_overlay,
 )
 
 
 class ThemeVideoBackgroundTests(unittest.TestCase):
+    def test_theme_uses_video_overlay(self):
+        self.assertTrue(
+            theme_uses_video_overlay(
+                {"video": {"ENABLED": True, "OVERLAY": True}}
+            )
+        )
+        self.assertTrue(
+            theme_uses_video_overlay(
+                {"video": {"ENABLED": "true", "OVERLAY": "yes"}}
+            )
+        )
+        self.assertFalse(
+            theme_uses_video_overlay(
+                {"video": {"ENABLED": True, "OVERLAY": False}}
+            )
+        )
+        self.assertFalse(theme_uses_video_overlay({}))
+
     def test_display_video_path_uses_selected_storage(self):
         self.assertEqual(
             display_video_path("gengar.mp4"),

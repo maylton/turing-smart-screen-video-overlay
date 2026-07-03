@@ -2111,6 +2111,9 @@ if bg_path.is_file():
     )
     display.lcd.screen_image = image
 display.display_static_images()
+from library.theme_video_background import theme_uses_video_overlay
+if theme_uses_video_overlay(config.THEME_DATA):
+    display.lcd.video_overlay_enabled = True
 display.display_static_text()
 import library.stats as stats
 callbacks = [

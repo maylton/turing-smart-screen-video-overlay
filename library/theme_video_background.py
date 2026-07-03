@@ -11,6 +11,20 @@ SD_VIDEO_DIR = "/mnt/SDCARD/video/"
 INTERNAL_VIDEO_DIR = "/root/video/"
 
 
+def _theme_bool(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def theme_uses_video_overlay(theme_data: dict) -> bool:
+    """Return whether widgets should render as transparent video overlays."""
+    video = theme_data.get("video", {}) if isinstance(theme_data, dict) else {}
+    if not isinstance(video, dict):
+        return False
+    return _theme_bool(video.get("ENABLED")) and _theme_bool(video.get("OVERLAY"))
+
+
 def display_video_path(filename: str, *, internal: bool = False) -> str:
     """Return a safe absolute video path for the selected display storage."""
     name = Path(str(filename)).name
