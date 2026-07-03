@@ -39,6 +39,31 @@ from library.theme_video_background import (
     find_prepared_local_video,
     generate_background,
 )
+from library.theme_element_catalog import (
+    STATE_ACTIVE,
+    STATE_INACTIVE,
+    STATE_MIXED,
+    STATE_STRUCTURAL,
+    catalog_entries,
+    catalog_presence,
+    catalog_preferred_path,
+    element_icon_name,
+    humanize_element_label,
+    theme_state_summary,
+    tree_state,
+)
+from library.theme_layer_order import (
+    BRING_TO_FRONT,
+    MOVE_BACKWARD,
+    MOVE_FORWARD,
+    SEND_TO_BACK,
+    LayerOrderError,
+    is_reorderable_layer,
+    layer_action_state,
+    layer_info,
+    layer_position_label,
+    move_layer,
+)
 from library.theme_property_presets import property_preset_options
 from library.theme_text_style_presets import (
     is_text_style_node,
@@ -97,25 +122,6 @@ COLOR_KEYS = {
     "FONT_COLOR", "BACKGROUND_COLOR", "BAR_COLOR",
     "BAR_BACKGROUND_COLOR", "LINE_COLOR", "AXIS_COLOR",
     "DISPLAY_RGB_LED",
-}
-
-COMPONENT_PRESETS = {
-    "Custom text": ("custom", "text"),
-    "Static image": ("custom", "image"),
-    "CPU usage": ("sensor", "CPU.PERCENTAGE"),
-    "CPU temperature": ("sensor", "CPU.TEMPERATURE"),
-    "RAM usage": ("sensor", "MEMORY"),
-    "GPU usage": ("sensor", "GPU.PERCENTAGE"),
-    "GPU temperature": ("sensor", "GPU.TEMPERATURE"),
-    "GPU memory usage": ("sensor", "GPU.MEMORY_PERCENT"),
-    "Internet download": ("sensor", "NET.WLO.DOWNLOAD"),
-    "Internet upload": ("sensor", "NET.WLO.UPLOAD"),
-    "Weather": ("sensor", "WEATHER"),
-    "Disk usage": ("sensor", "DISK"),
-    "Ping": ("sensor", "PING"),
-    "System uptime": ("sensor", "UPTIME"),
-    "Date": ("sensor", "DATE.DAY"),
-    "Time": ("sensor", "DATE.HOUR"),
 }
 
 yaml = ruamel.yaml.YAML()
@@ -242,12 +248,31 @@ class ElementItem(GObject.Object):
     label = GObject.Property(type=str)
     path_text = GObject.Property(type=str)
 
-    def __init__(self, label: str, path: tuple, node=None):
+    def __init__(
+        self,
+        label: str,
+        path: tuple,
+        node=None,
+        display_label: str | None = None,
+        icon_name: str = "applications-system-symbolic",
+        status: str = "structural",
+        status_label: str = "Configuration",
+        active_count: int = 0,
+        inactive_count: int = 0,
+        layer_label: str = "",
+    ):
         super().__init__()
         self.label = label
         self.path = path
         self.path_text = " / ".join(str(part) for part in path)
         self.node = node
+        self.display_label = display_label or label
+        self.icon_name = icon_name
+        self.status = status
+        self.status_label = status_label
+        self.active_count = active_count
+        self.inactive_count = inactive_count
+        self.layer_label = layer_label
         self.children = Gio.ListStore.new(ElementItem)
 
     def has_children(self):
@@ -388,9 +413,59 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         title.add_css_class("heading")
         box.append(title)
 
-        search = Gtk.SearchEntry(placeholder_text="Search elements")
-        search.connect("search-changed", self.on_search_changed)
-        box.append(search)
+        self.elements_summary_label = Gtk.Label(label="", xalign=0)
+        self.elements_summary_label.add_css_class("dim-label")
+        box.append(self.elements_summary_label)
+
+        add_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.catalog_entries = catalog_entries()
+        self.catalog_labels = [
+            f"{entry['category']} — {entry['label']}"
+            for entry in self.catalog_entries
+        ]
+        self.add_element_dropdown = Gtk.DropDown.new_from_strings(
+            self.catalog_labels
+        )
+        self.add_element_dropdown.set_hexpand(True)
+        self.add_element_dropdown.connect(
+            "notify::selected",
+            self.on_catalog_selection_changed,
+        )
+        add_row.append(self.add_element_dropdown)
+        self.add_element_button = Gtk.Button(
+            label="Add",
+            icon_name="list-add-symbolic",
+            tooltip_text="Add or select the chosen catalog element",
+        )
+        self.add_element_button.add_css_class("suggested-action")
+        self.add_element_button.connect("clicked", self.on_add_element_clicked)
+        add_row.append(self.add_element_button)
+        box.append(add_row)
+
+        self.catalog_status_label = Gtk.Label(label="", xalign=0)
+        self.catalog_status_label.add_css_class("dim-label")
+        box.append(self.catalog_status_label)
+
+        self.search_entry = Gtk.SearchEntry(placeholder_text="Search elements")
+        self.search_entry.connect("search-changed", self.on_search_changed)
+        box.append(self.search_entry)
+
+        self.state_filter_labels = [
+            "All elements",
+            "Visible",
+            "Hidden",
+            "Mixed",
+            "Structure",
+        ]
+        self.state_filter_dropdown = Gtk.DropDown.new_from_strings(
+            self.state_filter_labels
+        )
+        self.state_filter_dropdown.set_selected(0)
+        self.state_filter_dropdown.connect(
+            "notify::selected",
+            self.on_state_filter_changed,
+        )
+        box.append(self.state_filter_dropdown)
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
@@ -435,55 +510,111 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         controls.append(collapse_btn)
         box.append(controls)
 
-        action_grid = Gtk.Grid(
-            column_spacing=8,
-            row_spacing=8,
-            column_homogeneous=True,
+        actions_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.actions_button = Gtk.MenuButton(label="Actions")
+        actions_popover = Gtk.Popover()
+        actions_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            margin_top=8,
+            margin_bottom=8,
+            margin_start=8,
+            margin_end=8,
         )
-
-        add_button = Gtk.Button(
-            label="Add",
-            icon_name="list-add-symbolic",
-            tooltip_text="Add a new sensor, text, or image component",
+        self.show_action_button = Gtk.Button(label="Show / Enable")
+        self.show_action_button.set_tooltip_text(
+            "Show static elements or enable sensor/video components"
         )
-        add_button.add_css_class("suggested-action")
-        add_button.connect("clicked", lambda *_: self.show_add_component_dialog())
-        action_grid.attach(add_button, 0, 0, 1, 1)
-
-        duplicate_button = Gtk.Button(
-            label="Duplicate",
-            icon_name="edit-copy-symbolic",
-            tooltip_text="Duplicate the selected custom text or static image",
+        self.show_action_button.connect("clicked", self.on_show_action_clicked)
+        actions_box.append(self.show_action_button)
+        self.hide_action_button = Gtk.Button(label="Hide / Disable")
+        self.hide_action_button.set_tooltip_text(
+            "Hide static elements or disable sensor/video components"
         )
-        duplicate_button.connect("clicked", lambda *_: self.duplicate_selected())
-        action_grid.attach(duplicate_button, 1, 0, 1, 1)
+        self.hide_action_button.connect("clicked", self.on_hide_action_clicked)
+        actions_box.append(self.hide_action_button)
 
-        enable_button = Gtk.Button(
-            label="Enable",
-            icon_name="object-select-symbolic",
-            tooltip_text="Enable the selected component and its visible parts",
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        actions_box.append(separator)
+        layer_title = Gtk.Label(label="Layer order", xalign=0)
+        layer_title.add_css_class("dim-label")
+        actions_box.append(layer_title)
+
+        self.move_backward_button = Gtk.Button(
+            label="Move backward",
+            icon_name="go-up-symbolic",
         )
-        enable_button.connect("clicked", lambda *_: self.enable_selected())
-        action_grid.attach(enable_button, 0, 1, 1, 1)
-
-        disable_button = Gtk.Button(
-            label="Disable",
-            icon_name="process-stop-symbolic",
-            tooltip_text="Disable the selected component without deleting its YAML structure",
+        self.move_backward_button.set_tooltip_text(
+            "Move this layer one position toward the start of its group, drawing below its previous neighbor"
         )
-        disable_button.connect("clicked", lambda *_: self.disable_selected())
-        action_grid.attach(disable_button, 1, 1, 1, 1)
-
-        delete_button = Gtk.Button(
-            label="Delete",
-            icon_name="user-trash-symbolic",
-            tooltip_text="Delete custom elements or disable sensor components",
+        self.move_backward_button.connect(
+            "clicked",
+            lambda *_: self.move_selected_layer(MOVE_BACKWARD),
         )
-        delete_button.add_css_class("destructive-action")
-        delete_button.connect("clicked", lambda *_: self.delete_selected())
-        action_grid.attach(delete_button, 0, 2, 2, 1)
+        actions_box.append(self.move_backward_button)
 
-        box.append(action_grid)
+        self.move_forward_button = Gtk.Button(
+            label="Move forward",
+            icon_name="go-down-symbolic",
+        )
+        self.move_forward_button.set_tooltip_text(
+            "Move this layer one position toward the end of its group, drawing above its next neighbor"
+        )
+        self.move_forward_button.connect(
+            "clicked",
+            lambda *_: self.move_selected_layer(MOVE_FORWARD),
+        )
+        actions_box.append(self.move_forward_button)
+
+        self.send_to_back_button = Gtk.Button(
+            label="Send to back",
+            icon_name="go-top-symbolic",
+        )
+        self.send_to_back_button.set_tooltip_text(
+            "Move this layer to the first position of its text or image group"
+        )
+        self.send_to_back_button.connect(
+            "clicked",
+            lambda *_: self.move_selected_layer(SEND_TO_BACK),
+        )
+        actions_box.append(self.send_to_back_button)
+
+        self.bring_to_front_button = Gtk.Button(
+            label="Bring to front",
+            icon_name="go-bottom-symbolic",
+        )
+        self.bring_to_front_button.set_tooltip_text(
+            "Move this layer to the last position of its text or image group"
+        )
+        self.bring_to_front_button.connect(
+            "clicked",
+            lambda *_: self.move_selected_layer(BRING_TO_FRONT),
+        )
+        actions_box.append(self.bring_to_front_button)
+
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        actions_box.append(separator)
+
+        self.duplicate_action_button = Gtk.Button(label="Duplicate")
+        self.duplicate_action_button.set_tooltip_text(
+            "Duplicate the selected custom text or static image"
+        )
+        self.duplicate_action_button.connect(
+            "clicked",
+            self.on_duplicate_action_clicked,
+        )
+        actions_box.append(self.duplicate_action_button)
+        self.delete_action_button = Gtk.Button(label="Delete")
+        self.delete_action_button.add_css_class("destructive-action")
+        self.delete_action_button.set_tooltip_text(
+            "Delete custom elements; sensors are disabled after confirmation"
+        )
+        self.delete_action_button.connect("clicked", self.on_delete_action_clicked)
+        actions_box.append(self.delete_action_button)
+        actions_popover.set_child(actions_box)
+        self.actions_button.set_popover(actions_popover)
+        actions_row.append(self.actions_button)
+        box.append(actions_row)
 
         classic = Gtk.Button(
             label="Open classic editor…",
@@ -500,10 +631,31 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
 
     def setup_tree_item(self, _factory, list_item):
         expander = Gtk.TreeExpander()
-        label = Gtk.Label(xalign=0)
-        label.set_hexpand(True)
-        label.set_ellipsize(3)
-        expander.set_child(label)
+        row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row_box.set_margin_top(6)
+        row_box.set_margin_bottom(6)
+
+        icon = Gtk.Image(icon_name="applications-system-symbolic")
+        icon.set_pixel_size(18)
+        row_box.append(icon)
+
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box.set_hexpand(True)
+        title = Gtk.Label(xalign=0)
+        title.set_hexpand(True)
+        title.set_ellipsize(3)
+        subtitle = Gtk.Label(xalign=0)
+        subtitle.add_css_class("dim-label")
+        subtitle.set_ellipsize(3)
+        text_box.append(title)
+        text_box.append(subtitle)
+        row_box.append(text_box)
+
+        state = Gtk.Label(xalign=1)
+        state.add_css_class("dim-label")
+        row_box.append(state)
+
+        expander.set_child(row_box)
         list_item.set_child(expander)
 
     def bind_tree_item(self, _factory, list_item):
@@ -512,9 +664,25 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         expander.set_list_row(row)
 
         item = row.get_item()
-        label = expander.get_child()
-        label.set_label(item.label)
-        label.set_tooltip_text(item.path_text or item.label)
+        row_box = expander.get_child()
+        icon = row_box.get_first_child()
+        text_box = icon.get_next_sibling()
+        title = text_box.get_first_child()
+        subtitle = title.get_next_sibling()
+        state = text_box.get_next_sibling()
+
+        icon.set_from_icon_name(item.icon_name or "applications-system-symbolic")
+        title.set_label(item.display_label)
+        subtitle.set_label(self.element_summary_text(item))
+        subtitle.set_visible(bool(subtitle.get_label()))
+        state.set_label(item.status_label)
+        row_box.set_tooltip_text(item.path_text or item.label)
+
+        for widget in (title, icon, state):
+            if item.status == STATE_INACTIVE:
+                widget.add_css_class("dim-label")
+            else:
+                widget.remove_css_class("dim-label")
 
     def set_all_expanded(self, expanded):
         def walk(position=0):
@@ -663,6 +831,89 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             node = node[part]
         return node
 
+    def inherited_enabled_for_path(self, path):
+        node = self.theme_data
+        enabled = True
+        for part in path[:-1]:
+            if not isinstance(node, dict) or part not in node:
+                return enabled
+            node = node[part]
+            if isinstance(node, dict) and "INTERVAL" in node:
+                try:
+                    enabled = enabled and int(node.get("INTERVAL", 0) or 0) > 0
+                except (TypeError, ValueError):
+                    enabled = False
+        return enabled
+
+    def status_label_for_state(self, status, item=None):
+        if status == STATE_ACTIVE:
+            return "Visible"
+        if status == STATE_INACTIVE:
+            return "Hidden"
+        if status == STATE_MIXED:
+            return "Mixed"
+        if item is not None and item.has_children():
+            return "Group"
+        return "Configuration"
+
+    def element_counts(self, path, node):
+        state = tree_state(
+            path,
+            node,
+            inherited_enabled=self.inherited_enabled_for_path(path),
+        )
+        if state == STATE_ACTIVE:
+            return 1, 0
+        if state == STATE_INACTIVE:
+            return 0, 1
+        active = 0
+        inactive = 0
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(value, dict):
+                    child_active, child_inactive = self.element_counts(
+                        path + (key,),
+                        value,
+                    )
+                    active += child_active
+                    inactive += child_inactive
+        return active, inactive
+
+    def element_summary_text(self, item):
+        parts = []
+        if item.status == STATE_STRUCTURAL:
+            if item.layer_label:
+                parts.append(item.layer_label)
+            return " · ".join(parts)
+        if item.has_children() and item.active_count:
+            parts.append(f"{item.active_count} visible")
+        if item.has_children() and item.inactive_count:
+            parts.append(f"{item.inactive_count} hidden")
+        if item.layer_label:
+            parts.append(item.layer_label)
+        return " · ".join(parts)
+
+    def make_element_item(self, key, path, node):
+        status = tree_state(
+            path,
+            node,
+            inherited_enabled=self.inherited_enabled_for_path(path),
+        )
+        active_count, inactive_count = self.element_counts(path, node)
+        item = ElementItem(
+            str(key),
+            path,
+            node,
+            display_label=humanize_element_label(key),
+            icon_name=element_icon_name(path, node),
+            status=status,
+            status_label=self.status_label_for_state(status),
+            active_count=active_count,
+            inactive_count=inactive_count,
+            layer_label=layer_position_label(self.theme_data, path),
+        )
+        return item
+
     def build_element_tree(self):
         """Build a compact hierarchy from editable paths."""
         root = {}
@@ -675,22 +926,70 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                     cursor["__node__"] = node
                 cursor = cursor["__children__"]
 
+        def ordered_items(mapping, prefix):
+            items = list(mapping.items())
+            if not prefix:
+                order = {
+                    "display": 0,
+                    "video": 1,
+                    "static_text": 2,
+                    "static_images": 3,
+                    "STATS": 4,
+                }
+                items.sort(key=lambda pair: order.get(str(pair[0]), 99))
+            return items
+
         def build_store(mapping, prefix=()):
             store = Gio.ListStore.new(ElementItem)
-            for key, payload in mapping.items():
+            for key, payload in ordered_items(mapping, prefix):
                 path = prefix + (key,)
-                item = ElementItem(str(key), path, payload.get("__node__"))
+                node = payload.get("__node__")
+                if node is None:
+                    try:
+                        node = self.node_at_path(path)
+                    except Exception:
+                        node = None
+                item = self.make_element_item(key, path, node)
                 children = build_store(payload.get("__children__", {}), path)
                 for index in range(children.get_n_items()):
                     item.children.append(children.get_item(index))
+                item.status_label = self.status_label_for_state(item.status, item)
                 store.append(item)
             return store
 
         return build_store(root)
 
-    def populate_elements(self, search_text=""):
+    def state_filter_key(self):
+        index = getattr(self, "state_filter_dropdown", None)
+        if index is None:
+            return "all"
+        selected = self.state_filter_dropdown.get_selected()
+        labels = {
+            1: STATE_ACTIVE,
+            2: STATE_INACTIVE,
+            3: STATE_MIXED,
+            4: STATE_STRUCTURAL,
+        }
+        return labels.get(selected, "all")
+
+    def item_matches_filters(self, item, query, state_filter):
+        text_match = (
+            not query
+            or query in item.label.casefold()
+            or query in item.display_label.casefold()
+            or query in item.path_text.casefold()
+        )
+        state_match = state_filter == "all" or item.status == state_filter
+        return text_match and state_match
+
+    def populate_elements(self, search_text=None):
         self.root_items.remove_all()
+        if search_text is None and hasattr(self, "search_entry"):
+            search_text = self.search_entry.get_text()
+        if search_text is None:
+            search_text = ""
         query = search_text.strip().casefold()
+        state_filter = self.state_filter_key()
 
         full_tree = self.build_element_tree()
 
@@ -701,17 +1000,25 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 if clone is not None:
                     child_clones.append(clone)
 
-            own_match = (
-                not query
-                or query in item.label.casefold()
-                or query in item.path_text.casefold()
-            )
+            own_match = self.item_matches_filters(item, query, state_filter)
             if not own_match and not child_clones:
                 return None
 
-            clone = ElementItem(item.label, item.path, item.node)
+            clone = ElementItem(
+                item.label,
+                item.path,
+                item.node,
+                display_label=item.display_label,
+                icon_name=item.icon_name,
+                status=item.status,
+                status_label=item.status_label,
+                active_count=item.active_count,
+                inactive_count=item.inactive_count,
+                layer_label=item.layer_label,
+            )
             for child in child_clones:
                 clone.children.append(child)
+            clone.status_label = self.status_label_for_state(clone.status, clone)
             return clone
 
         for index in range(full_tree.get_n_items()):
@@ -719,11 +1026,18 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             if clone is not None:
                 self.root_items.append(clone)
 
-        if query:
+        self.update_elements_summary()
+        self.update_catalog_status()
+        self.update_actions_sensitivity()
+
+        if query or state_filter != "all":
             GLib.idle_add(lambda: (self.set_all_expanded(True), False)[1])
 
     def on_search_changed(self, entry):
         self.populate_elements(entry.get_text())
+
+    def on_state_filter_changed(self, *_args):
+        self.populate_elements()
 
     def on_tree_selected(self, selection, _param):
         if self.restoring_history:
@@ -749,9 +1063,102 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         if not isinstance(node, dict) or not any(key in node for key in EDITABLE_KEYS):
             self.clear_property_group()
             self.path_label.set_label(item.path_text)
+            self.update_actions_sensitivity()
             return
 
         self.build_property_rows()
+        self.update_actions_sensitivity()
+
+    def update_elements_summary(self):
+        summary = theme_state_summary(self.theme_data)
+        parts = [
+            f"{summary[STATE_ACTIVE]} visible",
+            f"{summary[STATE_INACTIVE]} hidden",
+        ]
+        if summary[STATE_MIXED]:
+            parts.append(f"{summary[STATE_MIXED]} mixed")
+        self.elements_summary_label.set_label(" · ".join(parts))
+
+    def selected_tree_status(self):
+        if self.selected_path is None:
+            return None
+        try:
+            node = self.node_at_path(self.selected_path)
+        except Exception:
+            return None
+        return tree_state(
+            self.selected_path,
+            node,
+            inherited_enabled=self.inherited_enabled_for_path(self.selected_path),
+        )
+
+    def selected_contains_state(self, desired_state):
+        if self.selected_path is None:
+            return False
+        try:
+            node = self.node_at_path(self.selected_path)
+        except Exception:
+            return False
+        return self.node_contains_state(self.selected_path, node, desired_state)
+
+    def node_contains_state(self, path, node, desired_state):
+        state = tree_state(
+            path,
+            node,
+            inherited_enabled=self.inherited_enabled_for_path(path),
+        )
+        if state == desired_state:
+            return True
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(value, dict) and self.node_contains_state(
+                    path + (key,),
+                    value,
+                    desired_state,
+                ):
+                    return True
+        return False
+
+    def update_actions_sensitivity(self):
+        has_selection = self.selected_path is not None
+        status = self.selected_tree_status()
+        can_show = has_selection and (
+            status in {STATE_INACTIVE, STATE_MIXED}
+            or self.selected_contains_state(STATE_INACTIVE)
+        )
+        can_hide = has_selection and (
+            status in {STATE_ACTIVE, STATE_MIXED}
+            or self.selected_contains_state(STATE_ACTIVE)
+        )
+        can_duplicate = (
+            has_selection
+            and len(self.selected_path) == 2
+            and self.selected_path[0] in ("static_text", "static_images")
+        )
+        can_delete = has_selection and len(self.selected_path) > 1
+        if has_selection and self.selected_path[0] in ("static_text", "static_images"):
+            can_delete = len(self.selected_path) == 2
+
+        self.show_action_button.set_sensitive(bool(can_show))
+        self.hide_action_button.set_sensitive(bool(can_hide))
+        self.duplicate_action_button.set_sensitive(bool(can_duplicate))
+        self.delete_action_button.set_sensitive(bool(can_delete))
+        layer_state = (
+            layer_action_state(self.theme_data, self.selected_path)
+            if has_selection else {}
+        )
+        self.move_backward_button.set_sensitive(
+            bool(layer_state.get(MOVE_BACKWARD, False))
+        )
+        self.move_forward_button.set_sensitive(
+            bool(layer_state.get(MOVE_FORWARD, False))
+        )
+        self.send_to_back_button.set_sensitive(
+            bool(layer_state.get(SEND_TO_BACK, False))
+        )
+        self.bring_to_front_button.set_sensitive(
+            bool(layer_state.get(BRING_TO_FRONT, False))
+        )
 
     def selected_movable_node(self):
         if self.selected_path is None:
@@ -1332,6 +1739,9 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.restoring_history = False
 
         GLib.idle_add(self.restore_tree_selection, self.selected_path)
+        self.update_elements_summary()
+        self.update_catalog_status()
+        self.update_actions_sensitivity()
         self.refresh_preview()
         self.update_history_buttons()
 
@@ -1394,6 +1804,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             node[key] = value
 
         save_yaml_atomic(self.theme_file, self.theme_data)
+        self.populate_elements()
+        GLib.idle_add(self.restore_tree_selection, self.selected_path)
         self.build_property_rows()
         self.refresh_preview()
         self.toast("Properties updated")
@@ -1417,6 +1829,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         parent[self.selected_path[-1]] = copy.deepcopy(original)
 
         save_yaml_atomic(self.theme_file, self.theme_data)
+        self.populate_elements()
+        GLib.idle_add(self.restore_tree_selection, self.selected_path)
         self.build_property_rows()
         self.refresh_preview()
         self.toast("Element restored")
@@ -2515,62 +2929,82 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             current = int(node.get("INTERVAL", 0) or 0)
             node["INTERVAL"] = max(current, fallback)
 
-    def show_add_component_dialog(self):
-        labels = list(COMPONENT_PRESETS.keys())
-        dropdown = Gtk.DropDown.new_from_strings(labels)
-        dropdown.set_selected(0)
+    def selected_catalog_entry(self):
+        index = self.add_element_dropdown.get_selected()
+        if index < 0 or index >= len(self.catalog_entries):
+            return None
+        return self.catalog_entries[index]
 
-        extra = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=10,
-            margin_top=8,
-        )
-        description = Gtk.Label(
-            label=(
-                "Sensor components use the official default.yaml and "
-                "theme_example.yaml structures."
-            ),
-            xalign=0,
-            wrap=True,
-        )
-        description.add_css_class("dim-label")
-        extra.append(description)
-        extra.append(dropdown)
+    def catalog_action(self, entry):
+        presence = catalog_presence(self.theme_data, entry["id"])
+        if entry["repeatable"] and presence["count"] > 0:
+            return "add_another"
+        if not presence["present"]:
+            return "add"
+        if presence["state"] == STATE_INACTIVE:
+            return "enable"
+        return "select"
 
-        dialog = Adw.AlertDialog(
-            heading="Add component",
-            body="Choose the component to add to this theme.",
-        )
-        dialog.set_extra_child(extra)
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("add", "Add")
-        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("add")
-        dialog.set_close_response("cancel")
+    def update_catalog_status(self):
+        if not hasattr(self, "add_element_dropdown"):
+            return
+        entry = self.selected_catalog_entry()
+        if entry is None:
+            return
+        presence = catalog_presence(self.theme_data, entry["id"])
+        action = self.catalog_action(entry)
+        if action == "add_another":
+            status_text = f"{presence['count']} existing items"
+            button_label = "Add another"
+        elif action == "add":
+            status_text = "Available to add"
+            button_label = "Add"
+        elif action == "enable":
+            status_text = "Currently hidden"
+            button_label = "Enable"
+        else:
+            status_text = (
+                "Already visible"
+                if presence["state"] == STATE_ACTIVE
+                else "Mixed visibility"
+            )
+            button_label = "Select"
+        self.catalog_status_label.set_label(status_text)
+        self.add_element_button.set_label(button_label)
 
-        def response(_dialog, response_id):
-            if response_id != "add":
-                return
-            index = dropdown.get_selected()
-            if index < 0 or index >= len(labels):
-                return
-            label = labels[index]
-            kind, component_id = COMPONENT_PRESETS[label]
-            if kind == "custom" and component_id == "text":
-                self.add_custom_text()
-            elif kind == "custom" and component_id == "image":
-                self.choose_static_image()
-            else:
-                self.add_sensor_component(component_id)
+    def on_catalog_selection_changed(self, *_args):
+        self.update_catalog_status()
 
-        dialog.connect("response", response)
-        dialog.present(self)
+    def on_add_element_clicked(self, *_args):
+        entry = self.selected_catalog_entry()
+        if entry is None:
+            return
+        action = self.catalog_action(entry)
+        if entry["component_id"] == "text" and action in {"add", "add_another"}:
+            self.add_custom_text()
+            return
+        if entry["component_id"] == "image" and action in {"add", "add_another"}:
+            self.choose_static_image()
+            return
+        if action == "add":
+            self.add_sensor_component(entry["component_id"])
+            return
+        path = catalog_preferred_path(self.theme_data, entry["id"])
+        if path is None:
+            self.toast("Element is not available in this theme")
+            return
+        if action == "enable":
+            self.enable_path(path)
+            return
+        self.selected_path = path
+        GLib.idle_add(self.restore_tree_selection, path)
 
     def add_custom_text(self):
         self.push_undo()
         container = self.theme_data.setdefault("static_text", {})
         key = self.unique_mapping_key(container, "custom_text")
         container[key] = {
+            "SHOW": True,
             "TEXT": "New text",
             "X": 240,
             "Y": 240,
@@ -2636,6 +3070,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         container = self.theme_data.setdefault("static_images", {})
         key = self.unique_mapping_key(container, "custom_image")
         container[key] = {
+            "SHOW": True,
             "PATH": destination.name,
             "X": 180,
             "Y": 180,
@@ -2752,11 +3187,17 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         save_yaml_atomic(self.theme_file, self.theme_data)
         self.populate_elements()
         self.selected_path = selected_path
+        GLib.idle_add(self.restore_tree_selection, selected_path)
         if selected_path is not None:
             try:
                 self.build_property_rows()
             except Exception:
                 pass
+        else:
+            self.clear_property_group()
+        self.update_elements_summary()
+        self.update_catalog_status()
+        self.update_actions_sensitivity()
         self.refresh_preview()
         self.toast(message)
 
@@ -2796,52 +3237,136 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                     )
         return changed
 
-    def enable_selected(self):
-        if self.selected_path is None:
-            self.toast("Select a component first")
-            return
-        node = self.node_at_path(self.selected_path)
-        self.push_undo()
-        changed = self.recursively_set_enabled(node, True)
-        if (
-            isinstance(node, dict)
-            and "INTERVAL" not in node
-            and self.selected_path[:1] == ("STATS",)
-        ):
-            node["INTERVAL"] = 1
+    def set_static_path_visible(self, path, visible):
+        node = self.node_at_path(path)
+        changed = False
+        if len(path) == 1 and path[0] in ("static_text", "static_images"):
+            if isinstance(node, dict):
+                for child in node.values():
+                    if isinstance(child, dict) and child.get("SHOW", True) != visible:
+                        child["SHOW"] = bool(visible)
+                        changed = True
+        elif len(path) == 2 and path[0] in ("static_text", "static_images"):
+            if isinstance(node, dict) and node.get("SHOW", True) != visible:
+                node["SHOW"] = bool(visible)
+                changed = True
+        return changed
+
+    def apply_enabled_to_path(self, path, enabled):
+        node = self.node_at_path(path)
+        if path and path[0] in ("static_text", "static_images"):
+            return self.set_static_path_visible(path, enabled)
+        if path == ("video",) and isinstance(node, dict):
+            if node.get("ENABLED", False) != enabled:
+                node["ENABLED"] = bool(enabled)
+                return True
+            return False
+
+        changed = self.recursively_set_enabled(node, enabled)
+        if isinstance(node, dict) and "INTERVAL" not in node and path[:1] == ("STATS",):
+            node["INTERVAL"] = 1 if enabled else 0
             changed = True
+        return changed
+
+    def enable_path(self, path):
+        self.push_undo()
+        changed = self.apply_enabled_to_path(path, True)
         if not changed:
             self.undo_stack.pop()
             self.toast("Component is already enabled")
             return
-        self.finish_structure_change(
-            self.selected_path,
-            "Component enabled",
-        )
+        self.finish_structure_change(path, "Component enabled")
+
+    def disable_path(self, path):
+        self.push_undo()
+        changed = self.apply_enabled_to_path(path, False)
+        if not changed:
+            self.undo_stack.pop()
+            self.toast("Component is already disabled")
+            return
+        self.finish_structure_change(path, "Component disabled")
+
+    def enable_selected(self):
+        if self.selected_path is None:
+            self.toast("Select a component first")
+            return
+        self.enable_path(self.selected_path)
 
     def disable_selected(self):
         if self.selected_path is None:
             self.toast("Select a component first")
             return
+        self.disable_path(self.selected_path)
 
-        if self.selected_path[0] in ("static_text", "static_images"):
-            self.toast("Use Delete for static text and images")
+    def on_show_action_clicked(self, *_args):
+        self.actions_button.popdown()
+        self.enable_selected()
+
+    def on_hide_action_clicked(self, *_args):
+        self.actions_button.popdown()
+        self.disable_selected()
+
+    def move_selected_layer(self, action):
+        self.actions_button.popdown()
+        if self.selected_path is None:
+            self.toast("Select a layer first")
+            return
+        selected_path = tuple(self.selected_path)
+        if not is_reorderable_layer(self.theme_data, selected_path):
+            self.toast("Only static text and image items can be reordered")
             return
 
-        node = self.node_at_path(self.selected_path)
+        info = layer_info(self.theme_data, selected_path)
+        if not info.get("actions", {}).get(action, False):
+            self.toast("Layer is already at that position")
+            self.update_actions_sensitivity()
+            return
+
+        messages = {
+            MOVE_BACKWARD: "Moved backward",
+            MOVE_FORWARD: "Moved forward",
+            SEND_TO_BACK: "Sent to back",
+            BRING_TO_FRONT: "Brought to front",
+        }
         self.push_undo()
-        changed = self.recursively_set_enabled(node, False)
-        if isinstance(node, dict) and "INTERVAL" not in node:
-            node["INTERVAL"] = 0
-            changed = True
-        if not changed:
-            self.undo_stack.pop()
-            self.toast("Component is already disabled")
+        try:
+            self.theme_data = move_layer(self.theme_data, selected_path, action)
+        except LayerOrderError as exc:
+            if self.undo_stack:
+                self.undo_stack.pop()
+                self.update_history_buttons()
+            self.toast(str(exc))
             return
-        self.finish_structure_change(
-            self.selected_path,
-            "Component disabled",
-        )
+        except Exception as exc:
+            if self.undo_stack:
+                self.undo_stack.pop()
+                self.update_history_buttons()
+            self.error_dialog("Could not move layer", str(exc))
+            return
+
+        save_yaml_atomic(self.theme_file, self.theme_data)
+        self.populate_elements()
+        self.selected_path = selected_path
+        # Filters may hide the selected item; keep the logical selection and
+        # let restore_tree_selection select it visually only when still shown.
+        GLib.idle_add(self.restore_tree_selection, selected_path)
+        try:
+            self.build_property_rows()
+        except Exception:
+            self.clear_property_group()
+        self.update_elements_summary()
+        self.update_catalog_status()
+        self.update_actions_sensitivity()
+        self.refresh_preview()
+        self.toast(messages.get(action, "Layer moved"))
+
+    def on_duplicate_action_clicked(self, *_args):
+        self.actions_button.popdown()
+        self.duplicate_selected()
+
+    def on_delete_action_clicked(self, *_args):
+        self.actions_button.popdown()
+        self.delete_selected()
 
     @staticmethod
     def offset_coordinates(node, amount=10):
@@ -2952,6 +3477,9 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             save_yaml_atomic(self.theme_file, self.theme_data)
             self.populate_elements()
             self.clear_property_group()
+            self.update_elements_summary()
+            self.update_catalog_status()
+            self.update_actions_sensitivity()
             self.refresh_preview()
             self.toast("Element deleted")
 

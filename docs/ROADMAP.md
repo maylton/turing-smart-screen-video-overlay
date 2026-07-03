@@ -221,6 +221,71 @@ Still pending for later roadmap stages: context-aware preset filtering, compound
 quick presets, property validation, live preview/debounce behavior, and broader
 theme editor module extraction.
 
+## Theme elements navigator
+
+The GTK editor's left column now acts as a visual navigator for theme
+components instead of a raw YAML list. YAML keys are preserved, but the tree
+uses friendly labels such as `Video and background`, `Text`, `Images`,
+`System metrics`, `Percentage text`, `Memory usage`, `Date`, and `Time`.
+
+The navigator shows symbolic icons by element type, a theme-level summary, and
+per-row states:
+
+- `Visible` for active static elements, enabled video, or shown sensor parts;
+- `Hidden` for `SHOW: false`, disabled video, or disabled sensor parts;
+- `Mixed` for groups containing both visible and hidden descendants;
+- `Configuration` or `Group` for structural nodes without display state.
+
+The search field works together with the state filter:
+
+- `All elements`;
+- `Visible`;
+- `Hidden`;
+- `Mixed`;
+- `Structure`.
+
+The Add element control is embedded directly in the panel and is backed by the
+central pure catalog in `library/theme_element_catalog.py`. It reports whether
+an item is available, already visible, currently hidden, mixed, or repeatable,
+and changes its action between `Add`, `Enable`, `Select`, and `Add another`.
+
+The Actions menu replaces the fixed button grid. It exposes `Show / Enable`,
+`Hide / Disable`, `Duplicate`, and `Delete`, with sensitivity based on the
+current selection. Static text and static images now support `SHOW`, so they can
+be hidden and shown without deleting their YAML entries. Themes without `SHOW`
+on static elements remain compatible: absence still means visible.
+
+Layer ordering is integrated for individual `static_images` and `static_text`
+entries. Reorderable rows show labels such as `Layer 2 of 4 · Images` or
+`Layer 3 of 5 · Text`. The Actions menu adds:
+
+- `Move backward`, which moves the item one position toward the start of its
+  mapping and draws it below its previous neighbor;
+- `Move forward`, which moves the item one position toward the end of its
+  mapping and draws it above its next neighbor;
+- `Send to back`, which moves the item to the first position of its container;
+- `Bring to front`, which moves the item to the last position of its container.
+
+Images and text keep independent stacks. Static images are still drawn first,
+then static text, so text remains above images and this stage does not reorder
+across categories. There is no drag-and-drop yet; ordering is currently handled
+through the Actions menu and preserves Undo/Redo, search, filters, selection,
+and preview refresh.
+
+Current limitations intentionally remain for future phases:
+
+- renaming;
+- drag-and-drop;
+- cross-category reordering if the runtime drawing model changes;
+- multiple selection;
+- batch actions;
+- a virtual `Available to add` group inside the tree;
+- validation of incomplete element structures;
+- a dedicated layers panel;
+- integrated media inspector;
+- canvas resizing;
+- preview on the display.
+
 ## Theme text and effect presets
 
 Text style presets are compound helpers for the selected text-like element.
