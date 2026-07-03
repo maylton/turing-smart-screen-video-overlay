@@ -530,6 +530,14 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         overflow_box.append(
             popover_action_button(
+                "Open Theme YAML",
+                "text-x-generic-symbolic",
+                self.confirm_open_theme_yaml,
+                overflow_popover,
+            )
+        )
+        overflow_box.append(
+            popover_action_button(
                 "Reload Theme From Disk",
                 "view-refresh-symbolic",
                 self.confirm_reload_theme_from_disk,
@@ -2291,6 +2299,141 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.restore_history_state(state)
         self.toast("Redo")
 
+
+    def open_theme_yaml_external(self):
+        import shutil
+
+        file_path = str(self.theme_file)
+
+        def launch(command):
+            subprocess.Popen(
+                command,
+                cwd=str(ROOT),
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.toast("Opening theme.yaml externally")
+
+        def terminal_micro_commands():
+            if not shutil.which("micro"):
+                return []
+
+            commands = []
+
+            if shutil.which("kitty"):
+                commands.append(["kitty", "micro", file_path])
+            if shutil.which("alacritty"):
+                commands.append(["alacritty", "-e", "micro", file_path])
+            if shutil.which("foot"):
+                commands.append(["foot", "micro", file_path])
+            if shutil.which("ghostty"):
+                commands.append(["ghostty", "-e", "micro", file_path])
+            if shutil.which("wezterm"):
+                commands.append(["wezterm", "start", "micro", file_path])
+            if shutil.which("konsole"):
+                commands.append(["konsole", "-e", "micro", file_path])
+            if shutil.which("gnome-terminal"):
+                commands.append(["gnome-terminal", "--", "micro", file_path])
+            if shutil.which("kgx"):
+                commands.append(["kgx", "--", "micro", file_path])
+            if shutil.which("xterm"):
+                commands.append(["xterm", "-e", "micro", file_path])
+
+            return commands
+
+        try:
+            default_result = subprocess.run(
+                ["xdg-mime", "query", "default", "text/plain"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            default_text_editor = default_result.stdout.strip()
+        except Exception:
+            default_text_editor = ""
+
+        commands = []
+
+        # Terminal editors registered through xdg-open often do not open a
+        # terminal window by themselves. Handle micro explicitly first.
+        if default_text_editor == "micro.desktop":
+            commands.extend(terminal_micro_commands())
+
+        # Prefer graphical editors when available.
+        for candidate in (
+            ["gnome-text-editor", file_path],
+            ["gedit", file_path],
+            ["kate", file_path],
+            ["kwrite", file_path],
+            ["code", "--reuse-window", file_path],
+            ["codium", "--reuse-window", file_path],
+        ):
+            if shutil.which(candidate[0]):
+                commands.append(candidate)
+
+        # If the default handler is not a terminal editor, try xdg-open too.
+        if default_text_editor and default_text_editor != "micro.desktop" and shutil.which("xdg-open"):
+            commands.append(["xdg-open", file_path])
+
+        # Last chance: micro in a terminal even if it is not the registered default.
+        commands.extend(terminal_micro_commands())
+
+        seen = set()
+        unique_commands = []
+        for command in commands:
+            key = tuple(command)
+            if key not in seen:
+                seen.add(key)
+                unique_commands.append(command)
+
+        errors = []
+        for command in unique_commands:
+            try:
+                launch(command)
+                return
+            except Exception as exc:
+                errors.append(f"{command[0]}: {exc}")
+
+        detail = (
+            "No graphical editor or terminal launcher was found for theme.yaml.\n\n"
+            f"File path:\n{self.theme_file}\n\n"
+            "Install a graphical editor like gnome-text-editor, gedit, kate, "
+            "code/codium, or make sure a terminal such as kitty, alacritty, "
+            "foot, ghostty, konsole, gnome-terminal, kgx, or xterm is available."
+        )
+        if default_text_editor:
+            detail += f"\n\nCurrent text/plain default:\n{default_text_editor}"
+        if errors:
+            detail += "\n\nAttempts:\n" + "\n".join(errors)
+
+        self.error_dialog("Could not open theme.yaml", detail)
+
+    def confirm_open_theme_yaml(self):
+        dialog = Adw.AlertDialog(
+            heading="Open theme.yaml externally?",
+            body=(
+                "External YAML edits are supported, but the GTK editor cannot "
+                "merge conflicts automatically. After changing theme.yaml outside "
+                "the editor, use Reload Theme From Disk before saving in GTK."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("open", "Open YAML")
+        dialog.set_close_response("cancel")
+        dialog.set_default_response("open")
+        dialog.set_response_appearance(
+            "open",
+            Adw.ResponseAppearance.SUGGESTED,
+        )
+
+        def response(_dialog, response_id):
+            if response_id == "open":
+                self.open_theme_yaml_external()
+
+        dialog.connect("response", response)
+        dialog.present(self)
 
     def reload_theme_from_disk(self):
         target_path = copy.deepcopy(self.selected_path)
