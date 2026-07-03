@@ -103,7 +103,8 @@ class LcdComm(ABC):
             return Image.new("RGBA", size, (0, 0, 0, 0))
 
         if background_image is None:
-            return Image.new("RGB", size, background_color)
+            mode = "RGBA" if len(background_color) == 4 else "RGB"
+            return Image.new(mode, size, background_color)
 
         image = self.open_image(background_image)
         if crop_box is not None:

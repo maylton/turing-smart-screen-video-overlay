@@ -78,6 +78,12 @@ class TransparentVideoOverlayTests(unittest.TestCase):
         self.assertEqual(canvas.mode, "RGB")
         self.assertEqual(canvas.getpixel((0, 0)), (1, 2, 3))
 
+    def test_non_video_mode_keeps_alpha_background(self):
+        self.lcd.video_overlay_enabled = False
+        canvas = self.lcd._make_widget_canvas((10, 5), (100, 20, 40, 128))
+        self.assertEqual(canvas.mode, "RGBA")
+        self.assertEqual(canvas.getpixel((0, 0)), (100, 20, 40, 128))
+
     def test_non_video_mode_keeps_legacy_background_crop(self):
         with tempfile.TemporaryDirectory() as directory:
             background = Path(directory) / "frame.png"

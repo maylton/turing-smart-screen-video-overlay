@@ -10,3 +10,6 @@ class TestColor(unittest.TestCase):
         self.assertEqual(parse_color("#f00"), (255, 0, 0))
         self.assertEqual(parse_color("#ff0000"), (255, 0, 0))
         self.assertEqual(parse_color((255, 0, 0)), (255, 0, 0))
+        self.assertEqual(parse_color("255, 0, 0, 128"), (255, 0, 0, 128))
+        self.assertEqual(parse_color("#ff000080"), (255, 0, 0, 128))
+        self.assertEqual(parse_color((255, 0, 0, 128)), (255, 0, 0, 128))

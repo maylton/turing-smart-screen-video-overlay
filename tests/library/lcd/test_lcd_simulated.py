@@ -1,8 +1,10 @@
 import unittest
+from threading import Lock
 
 from PIL import Image
 
 from library.lcd.lcd_simulated import LcdSimulated, _clip_image_to_screen
+from library.lcd.lcd_comm import Orientation
 
 
 class SimulatedLcdClippingTests(unittest.TestCase):
@@ -44,6 +46,20 @@ class SimulatedLcdClippingTests(unittest.TestCase):
         lcd = LcdSimulated.__new__(LcdSimulated)
 
         lcd.closeSerial()
+
+    def test_rgba_image_is_alpha_composited(self):
+        lcd = LcdSimulated.__new__(LcdSimulated)
+        lcd.display_width = 4
+        lcd.display_height = 4
+        lcd.orientation = Orientation.PORTRAIT
+        lcd.update_queue_mutex = Lock()
+        lcd.screen_image = Image.new("RGB", (4, 4), (0, 0, 255))
+        overlay = Image.new("RGBA", (2, 2), (255, 0, 0, 128))
+
+        lcd.DisplayPILImage(overlay, 1, 1)
+
+        self.assertEqual(lcd.screen_image.getpixel((0, 0)), (0, 0, 255))
+        self.assertEqual(lcd.screen_image.getpixel((1, 1)), (128, 0, 127))
 
 
 if __name__ == "__main__":
