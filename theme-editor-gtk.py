@@ -4838,8 +4838,33 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             f"Component added: {component_id}",
         )
 
+    def restore_after_failed_structure_save(self):
+        if self.undo_stack:
+            state = self.undo_stack.pop()
+            self.theme_data = copy.deepcopy(state["theme_data"])
+            self.selected_path = copy.deepcopy(state.get("selected_path"))
+
+        self.populate_elements()
+        if self.selected_path is not None:
+            try:
+                self.build_property_rows()
+            except Exception:
+                self.selected_path = None
+                self.clear_property_group()
+        else:
+            self.clear_property_group()
+        GLib.idle_add(self.restore_tree_selection, self.selected_path)
+        self.update_elements_summary()
+        self.update_catalog_status()
+        self.update_actions_sensitivity()
+        self.update_history_buttons()
+        self.refresh_preview()
+
     def finish_structure_change(self, selected_path, message):
-        save_yaml_atomic(self.theme_file, self.theme_data)
+        if not self.save_theme_data():
+            self.restore_after_failed_structure_save()
+            return
+
         self.populate_elements()
         self.selected_path = selected_path
         GLib.idle_add(self.restore_tree_selection, selected_path)
@@ -5581,7 +5606,13 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             try:
                 for key, value in final_values.items():
                     current_node[key] = value
-                save_yaml_atomic(self.theme_file, self.theme_data)
+                if not self.save_theme_data():
+                    for key, value in old_values.items():
+                        current_node[key] = value
+                    if pushed and self.undo_stack:
+                        self.undo_stack.pop()
+                        self.update_history_buttons()
+                    return
             except Exception as exc:
                 for key, value in old_values.items():
                     current_node[key] = value
@@ -5632,7 +5663,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             SEND_TO_BACK: "Sent to back",
             BRING_TO_FRONT: "Brought to front",
         }
-        self.push_undo()
+        pushed = self.push_undo()
         try:
             self.theme_data = move_layer(self.theme_data, selected_path, action)
         except LayerOrderError as exc:
@@ -5648,7 +5679,19 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             self.error_dialog("Could not move layer", str(exc))
             return
 
-        save_yaml_atomic(self.theme_file, self.theme_data)
+        if not self.save_theme_data():
+            if pushed and self.undo_stack:
+                state = self.undo_stack.pop()
+                self.theme_data = copy.deepcopy(state["theme_data"])
+                self.selected_path = copy.deepcopy(state.get("selected_path"))
+            self.populate_elements()
+            GLib.idle_add(self.restore_tree_selection, self.selected_path)
+            self.update_elements_summary()
+            self.update_catalog_status()
+            self.update_actions_sensitivity()
+            self.update_history_buttons()
+            self.refresh_preview()
+            return
         self.populate_elements()
         self.selected_path = selected_path
         # Filters may hide the selected item; keep the logical selection and
@@ -5778,7 +5821,9 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 self.theme_data.pop(self.selected_path[0], None)
 
             self.selected_path = None
-            save_yaml_atomic(self.theme_file, self.theme_data)
+            if not self.save_theme_data():
+                self.restore_after_failed_structure_save()
+                return
             self.populate_elements()
             self.clear_property_group()
             self.update_elements_summary()
