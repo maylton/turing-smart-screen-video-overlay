@@ -2,7 +2,7 @@ diff --git a/library/theme_video_inspector.py b/library/theme_video_inspector.py
 index fa2c04e..0000000 100644
 --- a/library/theme_video_inspector.py
 +++ b/library/theme_video_inspector.py
-@@ -83,12 +83,22 @@ def live_preview_settings(
+@@ -83,12 +83,21 @@ def live_preview_settings(
      if not math.isfinite(max_duration) or max_duration <= 0:
          raise ThemeVideoInspectorError("Maximum preview duration must be positive.")
  
@@ -226,6 +226,7 @@ index 0000000..0000000 100755
                  output_name_row.set_text(
                      prepared_output_path(cache_directory(), media.filename).name
 @@ -3507,6 +3632,10 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
+             crop_top_spin,
              crop_bottom_spin,
 +            trim_start_spin,
 +            trim_end_spin,
@@ -253,3 +254,4 @@ index 0000000..0000000 100755
  
          state["timeline_timer_id"] = GLib.timeout_add(
              200,
+             update_playback_controls,
