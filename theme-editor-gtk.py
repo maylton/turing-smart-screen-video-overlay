@@ -194,6 +194,15 @@ def project_python() -> str:
     return sys.executable
 
 
+def find_theme_file(theme_dir: Path) -> Path | None:
+    """Return the supported YAML file for a theme directory."""
+    for filename in ("theme.yaml", "theme.yml"):
+        candidate = theme_dir / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def available_themes() -> list[str]:
     if not THEMES_DIR.exists():
         return []
@@ -201,9 +210,7 @@ def available_themes() -> list[str]:
     themes = []
     try:
         for path in THEMES_DIR.iterdir():
-            if not path.is_dir():
-                continue
-            if (path / "theme.yaml").is_file() or (path / "theme.yml").is_file():
+            if path.is_dir() and find_theme_file(path) is not None:
                 themes.append(path.name)
     except OSError:
         return []
@@ -259,11 +266,13 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
 
         self.theme_name = theme_name
         self.theme_dir = THEMES_DIR / theme_name
-        self.theme_file = self.theme_dir / "theme.yaml"
+        theme_file = find_theme_file(self.theme_dir)
+        if theme_file is None:
+            raise FileNotFoundError(
+                f"No theme.yaml or theme.yml found in {self.theme_dir}"
+            )
+        self.theme_file = theme_file
         self.preview_file = self.theme_dir / "preview.png"
-
-        if not self.theme_file.is_file():
-            raise FileNotFoundError(self.theme_file)
 
         self.theme_data = load_yaml(self.theme_file)
         self.session_original = copy.deepcopy(self.theme_data)
@@ -1503,7 +1512,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 save_yaml_atomic(self.theme_file, self.theme_data)
                 shutil.copytree(self.theme_dir, destination)
                 save_yaml_atomic(
-                    destination / "theme.yaml",
+                    destination / self.theme_file.name,
                     copy.deepcopy(self.theme_data),
                 )
             except Exception as exc:
@@ -1966,11 +1975,11 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             return False
 
         theme_dir = THEMES_DIR / theme_name
-        theme_file = theme_dir / "theme.yaml"
-        if not theme_file.is_file():
+        theme_file = find_theme_file(theme_dir)
+        if theme_file is None:
             self.error_dialog(
                 "Could not change theme",
-                f"{theme_file} was not found.",
+                f"No theme.yaml or theme.yml was found in {theme_dir}.",
             )
             return False
 
@@ -2366,7 +2375,8 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             if index < 0 or index >= len(theme_names):
                 self.toast("Choose a theme first")
                 return
-            self.switch_theme(theme_names[index])
+            if self.switch_theme(theme_names[index]):
+                dialog.close()
 
         change_theme.connect("clicked", change_selected_theme)
 
