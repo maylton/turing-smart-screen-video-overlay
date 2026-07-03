@@ -272,11 +272,11 @@ across categories. There is no drag-and-drop yet; ordering is currently handled
 through the Actions menu and preserves Undo/Redo, search, filters, selection,
 and preview refresh.
 
-Media Inspector V1 is implemented for individual `static_images` entries. It is
+Media Inspector V2 is implemented for individual `static_images` entries. It is
 available from `Adjust image layout…` in Actions and from the contextual
 `Image layout` row in Properties. The inspector is non-destructive: it renders a
-local Pillow preview on a checkerboard background and only writes `X`, `Y`,
-`WIDTH`, and `HEIGHT` when the user clicks Apply. It supports:
+local Pillow preview on a checkerboard background and writes only `PATH`, `X`,
+`Y`, `WIDTH`, and `HEIGHT` when the user clicks Apply. It supports:
 
 - Original size;
 - Fit;
@@ -285,11 +285,24 @@ local Pillow preview on a checkerboard background and only writes `X`, `Y`,
 - Custom size;
 - 0.25× to 4.0× zoom;
 - 3×3 alignment;
+- 0°, 90°, 180°, and 270° clockwise rotation;
+- horizontal and vertical mirroring;
+- reset of rotation and mirrors;
+- combined transform and layout preview;
 - Cancel without YAML changes;
 - Apply with one Undo state and normal Redo support.
 
-It does not add mode, zoom, alignment, source-size, or inspector metadata to the
-theme YAML, and it does not modify or duplicate the original image asset.
+Non-identity transforms generate deterministic PNG assets in
+`generated-media/` and register their provenance in
+`generated-media/transform-manifest.json`. Later edits always resolve the
+original source from the manifest before applying a new transform, so
+transformations are not cumulative. Resetting the transform and applying an
+identity transform restores `PATH` to the original image reference. Generated
+assets are retained for Undo/Redo and are not cleaned up automatically in this
+stage. The original image is never overwritten.
+
+The inspector does not add mode, zoom, alignment, source-size, transform, or
+inspector metadata to the theme YAML.
 
 Current limitations intentionally remain for future phases:
 
@@ -302,13 +315,13 @@ Current limitations intentionally remain for future phases:
 - validation of incomplete element structures;
 - a dedicated layers panel;
 - crop;
-- rotation;
-- mirror;
-- derivative asset generation;
+- arbitrary-angle rotation;
+- explicit cleanup of unused generated assets;
+- GIF animation handling;
 - video inspector;
 - conversion;
 - upload;
-- canvas resizing;
+- visual canvas resize handles;
 - preview on the display.
 
 ## Theme text and effect presets

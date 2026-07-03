@@ -83,6 +83,19 @@ from library.theme_media_layout import (
     resolve_theme_image_path,
     theme_canvas_dimensions,
 )
+from library.theme_media_transform import (
+    ROTATION_0,
+    ROTATION_90,
+    ROTATION_180,
+    ROTATION_270,
+    ImageTransformSettings,
+    ThemeMediaTransformError,
+    is_identity_transform,
+    prepare_transform_asset,
+    render_transform_preview_asset,
+    resolve_transform_source,
+    transformed_dimensions,
+)
 from library.theme_property_presets import property_preset_options
 from library.theme_text_style_presets import (
     is_text_style_node,
@@ -1594,12 +1607,21 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         selected = self.selected_static_image(show_errors=False)
         if selected is None:
             return None
-        _path, _node, source_path = selected
+        _path, _node, _source_path = selected
         try:
-            source_size = image_dimensions(source_path)
+            transform_source = resolve_transform_source(
+                self.theme_dir,
+                str(node.get("PATH") or ""),
+            )
+            source_size = image_dimensions(transform_source.source_path)
+            transformed_size = transformed_dimensions(
+                source_size,
+                transform_source.current_settings,
+            )
             canvas_size = theme_canvas_dimensions(self.theme_data)
-            mode = infer_layout_mode(source_size, canvas_size, node)
+            mode = infer_layout_mode(transformed_size, canvas_size, node)
         except Exception:
+            transform_source = None
             mode = MODE_CUSTOM
         mode_labels = {
             MODE_ORIGINAL: "Original",
@@ -1612,15 +1634,39 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         height = int(node.get("HEIGHT", 0) or 0)
         x = int(node.get("X", 0) or 0)
         y = int(node.get("Y", 0) or 0)
+        parts = [f"{mode_labels.get(mode, 'Custom')} · {width}×{height} at {x},{y}"]
+        if transform_source is not None:
+            transform_label = self.transform_summary_label(
+                transform_source.current_settings,
+            )
+            if transform_label:
+                parts.append(transform_label)
+            if transform_source.is_managed_asset:
+                parts.append("Managed transformed asset")
         row = Adw.ActionRow(
             title="Image layout",
-            subtitle=f"{mode_labels.get(mode, 'Custom')} · {width}×{height} at {x},{y}",
+            subtitle=" · ".join(parts),
         )
         button = Gtk.Button(label="Adjust…", valign=Gtk.Align.CENTER)
         button.set_tooltip_text("Open the static image layout inspector")
         button.connect("clicked", self.on_adjust_image_layout_clicked)
         row.add_suffix(button)
         return row
+
+    @staticmethod
+    def transform_summary_label(settings):
+        parts = []
+        if settings.rotation == ROTATION_90:
+            parts.append("90° clockwise")
+        elif settings.rotation == ROTATION_180:
+            parts.append("180°")
+        elif settings.rotation == ROTATION_270:
+            parts.append("270° clockwise")
+        if settings.flip_horizontal:
+            parts.append("mirrored horizontally")
+        if settings.flip_vertical:
+            parts.append("mirrored vertically")
+        return " · ".join(parts)
 
     def build_property_rows(self):
         self.clear_property_group()
@@ -3407,9 +3453,18 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         selected = self.selected_static_image()
         if selected is None:
             return
-        selected_path, node, source_path = selected
+        selected_path, node, _current_path = selected
         try:
-            source_size = image_dimensions(source_path)
+            transform_source = resolve_transform_source(
+                self.theme_dir,
+                str(node.get("PATH") or ""),
+            )
+            source_size = image_dimensions(transform_source.source_path)
+            current_transform = transform_source.current_settings
+            current_transformed_size = transformed_dimensions(
+                source_size,
+                current_transform,
+            )
             canvas_size = theme_canvas_dimensions(self.theme_data)
         except Exception as exc:
             self.error_dialog("Could not inspect image", str(exc))
@@ -3421,7 +3476,11 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             "WIDTH": int(node.get("WIDTH", source_size[0]) or source_size[0]),
             "HEIGHT": int(node.get("HEIGHT", source_size[1]) or source_size[1]),
         }
-        inferred_mode = infer_layout_mode(source_size, canvas_size, current_geometry)
+        inferred_mode = infer_layout_mode(
+            current_transformed_size,
+            canvas_size,
+            current_geometry,
+        )
         mode_ids = [
             MODE_ORIGINAL,
             MODE_FIT,
@@ -3435,6 +3494,18 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             "Fill",
             "Stretch",
             "Custom size",
+        ]
+        rotation_ids = [
+            ROTATION_0,
+            ROTATION_90,
+            ROTATION_180,
+            ROTATION_270,
+        ]
+        rotation_labels = [
+            "0°",
+            "90° clockwise",
+            "180°",
+            "270° clockwise",
         ]
 
         dialog = Adw.Window(
@@ -3462,13 +3533,29 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         root.append(controls_scroll)
 
         info_group = Adw.PreferencesGroup(title="Image")
-        info_group.add(Adw.ActionRow(title="Filename", subtitle=source_path.name))
+        info_group.add(
+            Adw.ActionRow(
+                title="Original source",
+                subtitle=transform_source.source_reference,
+            )
+        )
+        info_group.add(
+            Adw.ActionRow(
+                title="Current asset",
+                subtitle=transform_source.current_asset_reference,
+            )
+        )
         info_group.add(
             Adw.ActionRow(
                 title="Source dimensions",
                 subtitle=f"{source_size[0]}×{source_size[1]}",
             )
         )
+        transformed_row = Adw.ActionRow(
+            title="Transformed dimensions",
+            subtitle=f"{current_transformed_size[0]}×{current_transformed_size[1]}",
+        )
+        info_group.add(transformed_row)
         info_group.add(
             Adw.ActionRow(
                 title="Canvas dimensions",
@@ -3485,6 +3572,27 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             )
         )
         controls.append(info_group)
+
+        transform_group = Adw.PreferencesGroup(title="Transform")
+        rotation_model = Gtk.StringList.new(rotation_labels)
+        rotation_row = Adw.ComboRow(title="Rotation", model=rotation_model)
+        rotation_row.set_selected(rotation_ids.index(current_transform.rotation))
+        transform_group.add(rotation_row)
+        flip_h_row = Adw.SwitchRow(title="Mirror horizontally")
+        flip_h_row.set_active(current_transform.flip_horizontal)
+        transform_group.add(flip_h_row)
+        flip_v_row = Adw.SwitchRow(title="Mirror vertically")
+        flip_v_row.set_active(current_transform.flip_vertical)
+        transform_group.add(flip_v_row)
+        reset_transform_row = Adw.ActionRow(title="Reset transform")
+        reset_transform_btn = Gtk.Button(
+            label="Reset rotation and mirrors",
+            tooltip_text="Reset transform controls without changing YAML until Apply",
+            valign=Gtk.Align.CENTER,
+        )
+        reset_transform_row.add_suffix(reset_transform_btn)
+        transform_group.add(reset_transform_row)
+        controls.append(transform_group)
 
         layout_group = Adw.PreferencesGroup(title="Layout")
         mode_model = Gtk.StringList.new(mode_labels)
@@ -3564,10 +3672,10 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         preview_box.append(aspect)
         root.append(preview_box)
 
-        preview_state = {"generation": 0, "source": 0}
+        preview_state = {"generation": 0, "source": 0, "closed": False}
         cache_dir = Path(tempfile.gettempdir()) / "turing-theme-editor-layout-preview"
 
-        def selected_settings():
+        def selected_layout_settings():
             mode_index = mode_row.get_selected()
             if mode_index < 0 or mode_index >= len(mode_ids):
                 mode_index = mode_ids.index(MODE_CUSTOM)
@@ -3580,16 +3688,31 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 custom_height=int(custom_height_spin.get_value()),
             )
 
+        def selected_transform_settings():
+            rotation_index = rotation_row.get_selected()
+            if rotation_index < 0 or rotation_index >= len(rotation_ids):
+                rotation_index = 0
+            return ImageTransformSettings(
+                rotation=rotation_ids[rotation_index],
+                flip_horizontal=flip_h_row.get_active(),
+                flip_vertical=flip_v_row.get_active(),
+            )
+
         def calculated_layout():
-            settings = selected_settings()
+            transform_settings = selected_transform_settings()
+            layout_settings = selected_layout_settings()
+            transformed_size = transformed_dimensions(
+                source_size,
+                transform_settings,
+            )
             layout = compute_image_layout(
-                source_size[0],
-                source_size[1],
+                transformed_size[0],
+                transformed_size[1],
                 canvas_size[0],
                 canvas_size[1],
-                settings,
+                layout_settings,
             )
-            return settings, layout
+            return transform_settings, layout_settings, transformed_size, layout
 
         def set_alignment(align_x, align_y):
             alignment_state["x"] = align_x
@@ -3614,11 +3737,19 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             custom_width_spin.set_sensitive(is_custom)
             custom_height_spin.set_sensitive(is_custom)
 
-        def render_preview(settings, layout, generation):
+        def render_preview(transform_settings, layout, generation):
+            transformed_path = cache_dir / (
+                f"layout-transform-{os.getpid()}-{generation}.png"
+            )
             output_path = cache_dir / f"layout-preview-{os.getpid()}-{generation}.png"
             try:
+                render_transform_preview_asset(
+                    transform_source.source_path,
+                    transformed_path,
+                    transform_settings,
+                )
                 rendered = render_image_layout_preview(
-                    source_path,
+                    transformed_path,
                     output_path,
                     canvas_size=canvas_size,
                     layout=layout,
@@ -3629,7 +3760,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 error = str(exc)
 
             def finish():
-                if generation != preview_state["generation"]:
+                if preview_state["closed"] or generation != preview_state["generation"]:
                     return False
                 if error:
                     preview_label.set_label("Could not render preview")
@@ -3644,20 +3775,33 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         def refresh_layout_preview():
             preview_state["source"] = 0
             try:
-                settings, layout = calculated_layout()
+                (
+                    transform_settings,
+                    layout_settings,
+                    transformed_size,
+                    layout,
+                ) = calculated_layout()
             except Exception as exc:
                 geometry_row.set_subtitle(str(exc))
+                transformed_row.set_subtitle("Unavailable")
                 preview_label.set_label("Could not render preview")
                 picture.set_paintable(None)
                 return False
 
-            geometry_row.set_subtitle(layout_summary(layout, settings))
+            transformed_row.set_subtitle(
+                f"{transformed_size[0]}×{transformed_size[1]}"
+            )
+            summary = layout_summary(layout, layout_settings)
+            transform_label = self.transform_summary_label(transform_settings)
+            if transform_label:
+                summary = f"{summary} · {transform_label}"
+            geometry_row.set_subtitle(summary)
             preview_state["generation"] += 1
             generation = preview_state["generation"]
             preview_label.set_label("Rendering preview…")
             threading.Thread(
                 target=render_preview,
-                args=(settings, layout, generation),
+                args=(transform_settings, layout, generation),
                 daemon=True,
             ).start()
             return False
@@ -3677,43 +3821,79 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             update_custom_sensitivity()
             queue_preview()
 
+        def transform_changed(*_args):
+            queue_preview()
+
+        def reset_transform(*_args):
+            rotation_row.set_selected(0)
+            flip_h_row.set_active(False)
+            flip_v_row.set_active(False)
+            queue_preview()
+
+        def on_close(*_args):
+            preview_state["closed"] = True
+            preview_state["generation"] += 1
+            return False
+
+        dialog.connect("close-request", on_close)
         mode_row.connect("notify::selected", mode_changed)
         zoom_spin.connect("value-changed", queue_preview)
         custom_width_spin.connect("value-changed", queue_preview)
         custom_height_spin.connect("value-changed", queue_preview)
+        rotation_row.connect("notify::selected", transform_changed)
+        flip_h_row.connect("notify::active", transform_changed)
+        flip_v_row.connect("notify::active", transform_changed)
+        reset_transform_btn.connect("clicked", reset_transform)
 
         def apply_layout(*_args):
             selected_now = self.selected_static_image()
             if selected_now is None:
                 return
-            current_path, current_node, current_source = selected_now
+            current_path, current_node, _current_source = selected_now
             if current_path != selected_path:
                 self.toast("Image selection changed")
                 return
             try:
-                current_source_size = image_dimensions(current_source)
-                settings, layout = calculated_layout()
+                transform_settings = selected_transform_settings()
+                layout_settings = selected_layout_settings()
+                prepared = prepare_transform_asset(
+                    self.theme_dir,
+                    str(current_node.get("PATH") or ""),
+                    transform_settings,
+                )
                 layout = compute_image_layout(
-                    current_source_size[0],
-                    current_source_size[1],
+                    prepared.output_size[0],
+                    prepared.output_size[1],
                     canvas_size[0],
                     canvas_size[1],
-                    settings,
+                    layout_settings,
                 )
             except Exception as exc:
                 self.error_dialog("Could not apply layout", str(exc))
                 return
 
-            keys = ("X", "Y", "WIDTH", "HEIGHT")
-            if all(int(current_node.get(key, 0) or 0) == layout[key] for key in keys):
-                self.toast("No image layout changes")
+            keys = ("PATH", "X", "Y", "WIDTH", "HEIGHT")
+            final_values = {
+                "PATH": prepared.output_reference,
+                "X": int(layout["X"]),
+                "Y": int(layout["Y"]),
+                "WIDTH": int(layout["WIDTH"]),
+                "HEIGHT": int(layout["HEIGHT"]),
+            }
+            changed = str(current_node.get("PATH") or "") != final_values["PATH"]
+            changed = changed or any(
+                int(current_node.get(key, 0) or 0) != final_values[key]
+                for key in ("X", "Y", "WIDTH", "HEIGHT")
+            )
+            if not changed:
+                self.toast("No image changes")
                 return
 
             old_values = {key: current_node.get(key) for key in keys}
             pushed = self.push_undo()
             try:
-                for key in keys:
-                    current_node[key] = int(layout[key])
+                for key, value in final_values.items():
+                    current_node[key] = value
                 save_yaml_atomic(self.theme_file, self.theme_data)
             except Exception as exc:
                 for key, value in old_values.items():
@@ -3732,7 +3912,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             self.update_catalog_status()
             self.update_actions_sensitivity()
             self.refresh_preview()
-            self.toast("Image layout updated")
+            self.toast("Image transform and layout updated")
             dialog.close()
 
         apply_btn.connect("clicked", apply_layout)
