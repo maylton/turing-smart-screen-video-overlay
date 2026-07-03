@@ -28,6 +28,28 @@ SCREENSHOT_FILE = "screencap.png"
 WEBSERVER_PORT = 5678
 
 
+def _clip_image_to_screen(
+        image: Image.Image,
+        x: int,
+        y: int,
+        screen_width: int,
+        screen_height: int
+) -> Tuple[Optional[Image.Image], int, int, int, int]:
+    image_width, image_height = image.size
+    left = max(0, -x)
+    top = max(0, -y)
+    right = min(image_width, screen_width - x)
+    bottom = min(image_height, screen_height - y)
+
+    if right <= left or bottom <= top:
+        return None, x, y, 0, 0
+
+    if left or top or right != image_width or bottom != image_height:
+        image = image.crop((left, top, right, bottom))
+
+    return image, x + left, y + top, image.size[0], image.size[1]
+
+
 # This webserver offer a blank page displaying simulated screen with auto-refresh
 class SimulatedLcdWebServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -81,7 +103,8 @@ class LcdSimulated(LcdComm):
 
     def closeSerial(self):
         logger.debug("Shutting down web server")
-        self.webServer.shutdown()
+        if hasattr(self, "webServer"):
+            self.webServer.shutdown()
 
     def InitializeComm(self):
         pass
@@ -125,12 +148,6 @@ class LcdSimulated(LcdComm):
         if not image_width:
             image_width = image.size[0]
 
-        # If image is bigger than display, crop it
-        if image.size[1] > self.get_height():
-            image_height = self.get_height()
-        if image.size[0] > self.get_width():
-            image_width = self.get_width()
-
         if image_width != image.size[0] or image_height != image.size[1]:
             image = image.crop((0, 0, image_width, image_height))
 
@@ -138,6 +155,16 @@ class LcdSimulated(LcdComm):
         assert y <= self.get_height(), 'Image Y coordinate must be <= display height'
         assert image_height > 0, 'Image height must be > 0'
         assert image_width > 0, 'Image width must be > 0'
+
+        image, x, y, image_width, image_height = _clip_image_to_screen(
+            image,
+            x,
+            y,
+            self.get_width(),
+            self.get_height(),
+        )
+        if image is None:
+            return
 
         with self.update_queue_mutex:
             if image.mode == "RGBA":
