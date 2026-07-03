@@ -369,6 +369,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.preview_file = self.theme_dir / "preview.png"
 
         self.theme_data = load_yaml(self.theme_file)
+        self.theme_file_signature = self.current_theme_file_signature()
         self.session_original = copy.deepcopy(self.theme_data)
         self.undo_stack = []
         self.redo_stack = []
@@ -524,6 +525,14 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 "Open Theme Folder",
                 "folder-open-symbolic",
                 lambda: self.reveal_generated_media(self.theme_dir),
+                overflow_popover,
+            )
+        )
+        overflow_box.append(
+            popover_action_button(
+                "Reload Theme From Disk",
+                "view-refresh-symbolic",
+                self.confirm_reload_theme_from_disk,
                 overflow_popover,
             )
         )
@@ -1440,7 +1449,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.drag_history_pushed = False
             return
 
-        save_yaml_atomic(self.theme_file, self.theme_data)
+        if not self.save_theme_data():
+            return
         self.refresh_preview()
         self.drag_dirty = False
         self.drag_history_pushed = False
@@ -1604,6 +1614,43 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.set_color_selector_value(widget, value)
         elif hasattr(widget, "set_text"):
             widget.set_text(self.value_to_text(value))
+
+    def current_theme_file_signature(self):
+        try:
+            stat = self.theme_file.stat()
+        except FileNotFoundError:
+            return None
+        return stat.st_mtime_ns, stat.st_size
+
+    def mark_theme_file_saved(self):
+        self.theme_file_signature = self.current_theme_file_signature()
+
+    def theme_file_changed_on_disk(self):
+        return self.current_theme_file_signature() != self.theme_file_signature
+
+    def show_external_theme_change_error(self):
+        self.error_dialog(
+            "Theme changed outside the editor",
+            (
+                f"{self.theme_file} was modified after this editor loaded it.\\n\\n"
+                "Use Reload Theme From Disk from the overflow menu before "
+                "saving from the GTK editor."
+            ),
+        )
+
+    def save_theme_data(self):
+        if self.theme_file_changed_on_disk():
+            self.show_external_theme_change_error()
+            return False
+
+        try:
+            save_yaml_atomic(self.theme_file, self.theme_data)
+        except Exception as exc:
+            self.error_dialog("Could not save theme", str(exc))
+            return False
+
+        self.mark_theme_file_saved()
+        return True
 
     def property_preset_options(self, key, current_value):
         return property_preset_options(
@@ -2019,7 +2066,11 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.theme_data = copy.deepcopy(state["theme_data"])
             self.selected_path = target_path
 
-            save_yaml_atomic(self.theme_file, self.theme_data)
+            if not self.save_theme_data():
+                self.theme_data = load_yaml(self.theme_file)
+                self.mark_theme_file_saved()
+                self.populate_elements()
+                return
             self.populate_elements()
 
             # Re-assert the restored logical selection after rebuilding the
@@ -2070,6 +2121,15 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.update_history_buttons()
         return True
 
+    def theme_values_equal(self, left, right):
+        if isinstance(left, bool) or isinstance(right, bool):
+            return left is right
+        if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            return float(left) == float(right)
+        if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+            return list(left) == list(right)
+        return left == right
+
     def property_widget_current_value(self, key, widget, old_value):
         if key in BOOLEAN_KEYS:
             return self.parse_value(key, widget.get_active(), old_value)
@@ -2098,7 +2158,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 # Invalid typed values are still unsaved edits and should not be
                 # silently discarded by a window close.
                 return True
-            if new != old:
+            if not self.theme_values_equal(new, old):
                 return True
         return False
 
@@ -2161,7 +2221,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 new = self.property_widget_current_value(key, widget, old)
 
                 updates[key] = new
-                changed = changed or new != old
+                changed = changed or not self.theme_values_equal(new, old)
         except Exception as exc:
             self.error_dialog("Invalid property", str(exc))
             return False
@@ -2174,7 +2234,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         for key, value in updates.items():
             node[key] = value
 
-        save_yaml_atomic(self.theme_file, self.theme_data)
+        if not self.save_theme_data():
+            return False
         self.populate_elements()
         GLib.idle_add(self.restore_tree_selection, self.selected_path)
         self.build_property_rows()
@@ -2200,7 +2261,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             parent = parent[part]
         parent[self.selected_path[-1]] = copy.deepcopy(original)
 
-        save_yaml_atomic(self.theme_file, self.theme_data)
+        if not self.save_theme_data():
+            return
         self.populate_elements()
         GLib.idle_add(self.restore_tree_selection, self.selected_path)
         self.build_property_rows()
@@ -2229,6 +2291,77 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.restore_history_state(state)
         self.toast("Redo")
 
+
+    def reload_theme_from_disk(self):
+        target_path = copy.deepcopy(self.selected_path)
+
+        try:
+            reloaded = load_yaml(self.theme_file)
+        except Exception as exc:
+            self.error_dialog("Could not reload theme", str(exc))
+            return
+
+        self.theme_data = reloaded
+        self.mark_theme_file_saved()
+        self.session_original = copy.deepcopy(reloaded)
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self.selected_path = target_path
+
+        self.populate_elements()
+
+        if self.selected_path is not None:
+            try:
+                self.node_at_path(self.selected_path)
+                self.build_property_rows()
+            except Exception:
+                self.selected_path = None
+                self.clear_property_group()
+        else:
+            self.clear_property_group()
+
+        GLib.idle_add(self.restore_tree_selection, self.selected_path)
+        self.update_elements_summary()
+        self.update_catalog_status()
+        self.update_actions_sensitivity()
+        self.update_history_buttons()
+        self.refresh_preview()
+        self.toast("Theme reloaded from disk")
+
+    def confirm_reload_theme_from_disk(self):
+        changed_on_disk = self.theme_file_changed_on_disk()
+        pending_edits = self.has_pending_property_edits()
+
+        if not changed_on_disk and not pending_edits:
+            self.toast("Theme file is already up to date")
+            return
+
+        details = []
+        if changed_on_disk:
+            details.append("The theme YAML changed outside the GTK editor.")
+        if pending_edits:
+            details.append("The selected element has unapplied typed changes.")
+        details.append("Reloading discards GTK-only pending edits and clears Undo/Redo history.")
+
+        dialog = Adw.AlertDialog(
+            heading="Reload theme from disk?",
+            body="\n\n".join(details),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("reload", "Reload")
+        dialog.set_close_response("cancel")
+        dialog.set_default_response("reload")
+        dialog.set_response_appearance(
+            "reload",
+            Adw.ResponseAppearance.SUGGESTED,
+        )
+
+        def response(_dialog, response_id):
+            if response_id == "reload":
+                self.reload_theme_from_disk()
+
+        dialog.connect("response", response)
+        dialog.present(self)
 
     def save_as(self):
         entry = Gtk.Entry(
@@ -2288,7 +2421,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 return
 
             try:
-                save_yaml_atomic(self.theme_file, self.theme_data)
+                if not self.save_theme_data():
+                    return
                 shutil.copytree(self.theme_dir, destination)
                 save_yaml_atomic(
                     destination / self.theme_file.name,
@@ -2367,7 +2501,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             old_dir = self.theme_dir
             old_file_name = self.theme_file.name
             try:
-                save_yaml_atomic(self.theme_file, self.theme_data)
+                if not self.save_theme_data():
+                    return
                 old_dir.rename(destination)
                 write_current_theme(name)
             except Exception as exc:
@@ -2595,8 +2730,13 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def save(self):
-        save_yaml_atomic(self.theme_file, self.theme_data)
-        self.toast("Theme saved")
+        if self.has_pending_property_edits():
+            if self.apply_properties():
+                self.toast("Theme saved")
+            return
+
+        if self.save_theme_data():
+            self.toast("Theme saved")
 
     def refresh_preview(self):
         self.preview_generation += 1
