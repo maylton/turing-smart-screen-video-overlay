@@ -40,6 +40,15 @@ from library.theme_video_background import (
     find_prepared_local_video,
     generate_background,
 )
+from library.theme_video_inspector import (
+    VideoThemeUpdate,
+    build_video_section,
+    convert_media_atomic,
+    create_preview_atomic,
+    prepared_output_path,
+    preview_background_path,
+    resolve_local_video_source,
+)
 from library.theme_element_catalog import (
     STATE_ACTIVE,
     STATE_INACTIVE,
@@ -82,6 +91,13 @@ from library.theme_media_layout import (
     render_image_layout_preview,
     resolve_theme_image_path,
     theme_canvas_dimensions,
+)
+from library.media_preparation import (
+    ConversionSettings,
+    alignment_offsets,
+    cache_directory,
+    create_preview,
+    probe_source,
 )
 from library.theme_generated_media import (
     GeneratedMediaStatus,
@@ -437,6 +453,13 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         refresh_btn.connect("clicked", lambda *_: self.refresh_preview())
         header.pack_end(refresh_btn)
+
+        video_inspector_btn = Gtk.Button(
+            icon_name="media-playback-start-symbolic",
+            tooltip_text="Inspect, preview, and prepare a local theme video",
+        )
+        video_inspector_btn.connect("clicked", self.on_video_inspector_clicked)
+        header.pack_end(video_inspector_btn)
 
         media_btn = Gtk.Button(
             icon_name="video-x-generic-symbolic",
@@ -2502,6 +2525,12 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             self.preview_status.set_label(str(exc))
         return False
 
+    def on_video_inspector_clicked(self, *_args):
+        try:
+            self.open_video_inspector()
+        except Exception as exc:
+            self.error_dialog("Could not open video inspector", str(exc))
+
     def on_video_tools_clicked(self, *_args):
         try:
             self.open_video_tools()
@@ -2916,6 +2945,526 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         self.build_property_rows()
         self.refresh_preview()
         self.toast(f"Theme video selected: {Path(path).name}")
+
+    def open_video_inspector(self):
+        current_video = self.theme_data.get("video", {})
+        if not isinstance(current_video, dict):
+            current_video = {}
+        target_width, target_height = theme_canvas_dimensions(self.theme_data)
+
+        dialog = Adw.PreferencesDialog()
+        dialog.set_title("Video Inspector")
+        dialog.set_content_width(920)
+        dialog.set_content_height(760)
+
+        page = Adw.PreferencesPage(
+            title="Video Inspector",
+            icon_name="media-playback-start-symbolic",
+        )
+        dialog.add(page)
+
+        source_group = Adw.PreferencesGroup(
+            title="Source",
+            description="Choose and inspect a local GIF or video before changing the theme.",
+        )
+        preview_group = Adw.PreferencesGroup(title="Preview")
+        framing_group = Adw.PreferencesGroup(
+            title="Framing",
+            description=f"Prepared output: {target_width}×{target_height} H.264/yuv420p.",
+        )
+        crop_group = Adw.PreferencesGroup(title="Crop and rotation")
+        output_group = Adw.PreferencesGroup(title="Output and theme")
+        page.add(source_group)
+        page.add(preview_group)
+        page.add(framing_group)
+        page.add(crop_group)
+        page.add(output_group)
+
+        source_row = Adw.ActionRow(
+            title="No local video selected",
+            subtitle="Choose a supported GIF, MP4, MKV, WebM, MOV, or AVI file.",
+        )
+        choose_source = Gtk.Button(
+            label="Choose…",
+            icon_name="document-open-symbolic",
+            valign=Gtk.Align.CENTER,
+        )
+        source_row.add_suffix(choose_source)
+        source_group.add(source_row)
+
+        metadata_row = Adw.ActionRow(
+            title="Media information",
+            subtitle="No source has been analyzed.",
+        )
+        source_group.add(metadata_row)
+
+        preview_picture = Gtk.Picture()
+        preview_picture.set_size_request(360, 360)
+        preview_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        preview_picture.set_can_shrink(True)
+        preview_status = Gtk.Label(
+            label="Choose a source to generate a preview.",
+            xalign=0,
+            wrap=True,
+        )
+        preview_status.add_css_class("dim-label")
+        preview_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=10,
+            margin_top=12,
+            margin_bottom=12,
+            margin_start=12,
+            margin_end=12,
+        )
+        preview_box.append(preview_picture)
+        preview_box.append(preview_status)
+        preview_group.add(preview_box)
+
+        mode_ids = ("fit", "fill", "stretch", "original", "custom")
+        mode_row = Adw.ComboRow(
+            title="Mode",
+            model=Gtk.StringList.new(("Fit", "Fill", "Stretch", "Original", "Custom")),
+        )
+        mode_row.set_selected(0)
+        framing_group.add(mode_row)
+
+        def add_spin(group, title, value, lower, upper, step=1.0, digits=0):
+            row = Adw.ActionRow(title=title)
+            spin = Gtk.SpinButton.new_with_range(lower, upper, step)
+            spin.set_digits(digits)
+            spin.set_value(float(value))
+            spin.set_size_request(130, -1)
+            spin.set_valign(Gtk.Align.CENTER)
+            row.add_suffix(spin)
+            group.add(row)
+            return spin
+
+        zoom_spin = add_spin(framing_group, "Zoom", 1.0, 0.25, 4.0, 0.05, 2)
+        custom_width_spin = add_spin(
+            framing_group,
+            "Custom width",
+            target_width,
+            2,
+            4096,
+        )
+        custom_height_spin = add_spin(
+            framing_group,
+            "Custom height",
+            target_height,
+            2,
+            4096,
+        )
+
+        align_x_ids = ("left", "center", "right")
+        align_x_row = Adw.ComboRow(
+            title="Horizontal alignment",
+            model=Gtk.StringList.new(("Left", "Center", "Right")),
+        )
+        align_x_row.set_selected(1)
+        framing_group.add(align_x_row)
+
+        align_y_ids = ("top", "center", "bottom")
+        align_y_row = Adw.ComboRow(
+            title="Vertical alignment",
+            model=Gtk.StringList.new(("Top", "Center", "Bottom")),
+        )
+        align_y_row.set_selected(1)
+        framing_group.add(align_y_row)
+
+        rotation_ids = (0, 90, 180, 270)
+        rotation_row = Adw.ComboRow(
+            title="Rotation",
+            model=Gtk.StringList.new(("0°", "90°", "180°", "270°")),
+        )
+        rotation_row.set_selected(0)
+        crop_group.add(rotation_row)
+
+        crop_left_spin = add_spin(crop_group, "Crop left", 0, 0, 4096)
+        crop_right_spin = add_spin(crop_group, "Crop right", 0, 0, 4096)
+        crop_top_spin = add_spin(crop_group, "Crop top", 0, 0, 4096)
+        crop_bottom_spin = add_spin(crop_group, "Crop bottom", 0, 0, 4096)
+
+        fps_ids = (24, 30)
+        fps_row = Adw.ComboRow(
+            title="Output FPS",
+            model=Gtk.StringList.new(("24 FPS", "30 FPS")),
+        )
+        fps_row.set_selected(1)
+        output_group.add(fps_row)
+        crf_spin = add_spin(output_group, "Quality (CRF)", 20, 0, 51)
+
+        output_name_row = Adw.EntryRow(title="Prepared video filename")
+        output_name_row.set_text(str(current_video.get("LOCAL_PATH") or ""))
+        output_group.add(output_name_row)
+
+        storage_row = Adw.ComboRow(
+            title="Display storage",
+            model=Gtk.StringList.new(("SD card", "Internal memory")),
+        )
+        if str(current_video.get("PATH") or "").startswith("/root/video/"):
+            storage_row.set_selected(1)
+        output_group.add(storage_row)
+
+        preview_name_row = Adw.EntryRow(title="Theme preview background")
+        preview_name_row.set_text(
+            str(current_video.get("PREVIEW_BACKGROUND") or "video-preview.png")
+        )
+        output_group.add(preview_name_row)
+
+        overlay_row = Adw.SwitchRow(
+            title="Transparent video overlay",
+            subtitle="Render widgets over the video on supported displays.",
+        )
+        overlay_row.set_active(bool(current_video.get("OVERLAY", True)))
+        output_group.add(overlay_row)
+
+        preview_button = Gtk.Button(
+            label="Generate preview",
+            icon_name="view-refresh-symbolic",
+            sensitive=False,
+        )
+        apply_button = Gtk.Button(
+            label="Convert and apply",
+            icon_name="media-record-symbolic",
+            sensitive=False,
+        )
+        apply_button.add_css_class("suggested-action")
+        close_button = Gtk.Button(label="Close")
+        actions = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+            halign=Gtk.Align.END,
+            margin_top=12,
+            margin_bottom=12,
+            margin_start=12,
+            margin_end=12,
+        )
+        actions.append(close_button)
+        actions.append(preview_button)
+        actions.append(apply_button)
+        output_group.add(actions)
+
+        state = {
+            "source_path": None,
+            "source_media": None,
+            "probe_generation": 0,
+            "preview_generation": 0,
+            "preview_path": None,
+            "closed": False,
+            "busy": False,
+        }
+
+        def set_busy(busy):
+            state["busy"] = bool(busy)
+            choose_source.set_sensitive(not busy)
+            preview_button.set_sensitive(not busy and state["source_media"] is not None)
+            apply_button.set_sensitive(not busy and state["source_media"] is not None)
+
+        def update_custom_sensitivity(*_args):
+            custom = mode_row.get_selected() == mode_ids.index("custom")
+            custom_width_spin.set_sensitive(custom)
+            custom_height_spin.set_sensitive(custom)
+
+        mode_row.connect("notify::selected", update_custom_sensitivity)
+        update_custom_sensitivity()
+
+        def selected_settings():
+            media = state["source_media"]
+            if media is None:
+                raise ValueError("Choose and analyze a local source first.")
+            mode_index = mode_row.get_selected()
+            rotation_index = rotation_row.get_selected()
+            fps_index = fps_row.get_selected()
+            values = {
+                "mode": mode_ids[mode_index] if mode_index < len(mode_ids) else "fit",
+                "zoom": zoom_spin.get_value(),
+                "target_width": target_width,
+                "target_height": target_height,
+                "profile_id": f"theme:{self.theme_name}",
+                "custom_width": int(custom_width_spin.get_value()),
+                "custom_height": int(custom_height_spin.get_value()),
+                "crop_left": int(crop_left_spin.get_value()),
+                "crop_right": int(crop_right_spin.get_value()),
+                "crop_top": int(crop_top_spin.get_value()),
+                "crop_bottom": int(crop_bottom_spin.get_value()),
+                "rotation": rotation_ids[rotation_index]
+                if rotation_index < len(rotation_ids)
+                else 0,
+                "fps": fps_ids[fps_index] if fps_index < len(fps_ids) else 30,
+                "crf": int(crf_spin.get_value()),
+            }
+            base = ConversionSettings(**values)
+            horizontal_index = align_x_row.get_selected()
+            vertical_index = align_y_row.get_selected()
+            horizontal = align_x_ids[horizontal_index]
+            vertical = align_y_ids[vertical_index]
+            offset_x, offset_y = alignment_offsets(
+                media.width,
+                media.height,
+                base,
+                horizontal,
+                vertical,
+            )
+            values["offset_x"] = offset_x
+            values["offset_y"] = offset_y
+            return ConversionSettings(**values).validated(
+                duration=media.duration,
+                source_width=media.width,
+                source_height=media.height,
+            )
+
+        def finish_probe(generation, path, media, error):
+            if state["closed"] or generation != state["probe_generation"]:
+                return False
+            set_busy(False)
+            if error:
+                state["source_path"] = None
+                state["source_media"] = None
+                source_row.set_title("Could not analyze source")
+                source_row.set_subtitle(str(path))
+                metadata_row.set_subtitle(error)
+                preview_status.set_label(error)
+                return False
+
+            state["source_path"] = Path(path)
+            state["source_media"] = media
+            source_row.set_title(media.filename)
+            source_row.set_subtitle(media.path)
+            fps_text = f"{media.fps:.2f}" if media.fps is not None else "unknown"
+            metadata_row.set_subtitle(
+                f"{media.width}×{media.height} · {media.codec} · {media.pixel_format or 'unknown'} · "
+                f"{fps_text} FPS · {media.duration:.2f} s · {media.size_bytes} bytes"
+            )
+            crop_left_spin.set_range(0, max(0, media.width - 1))
+            crop_right_spin.set_range(0, max(0, media.width - 1))
+            crop_top_spin.set_range(0, max(0, media.height - 1))
+            crop_bottom_spin.set_range(0, max(0, media.height - 1))
+            if not output_name_row.get_text().strip():
+                output_name_row.set_text(
+                    prepared_output_path(cache_directory(), media.filename).name
+                )
+            queue_preview()
+            return False
+
+        def start_probe(path):
+            path = Path(path).expanduser().resolve()
+            state["probe_generation"] += 1
+            generation = state["probe_generation"]
+            state["preview_generation"] += 1
+            set_busy(True)
+            source_row.set_title("Analyzing source…")
+            source_row.set_subtitle(str(path))
+            metadata_row.set_subtitle("Running FFprobe…")
+
+            def worker():
+                try:
+                    media = probe_source(path)
+                    error = None
+                except Exception as exc:
+                    media = None
+                    error = str(exc)
+                GLib.idle_add(finish_probe, generation, path, media, error)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def choose_local_source(*_args):
+            chooser = Gtk.FileDialog(title="Choose a GIF or video", modal=True)
+            media_filter = Gtk.FileFilter()
+            media_filter.set_name("GIF and video files")
+            for pattern in ("*.gif", "*.mp4", "*.mkv", "*.webm", "*.mov", "*.avi"):
+                media_filter.add_pattern(pattern)
+            filters = Gio.ListStore.new(Gtk.FileFilter)
+            filters.append(media_filter)
+            chooser.set_filters(filters)
+
+            def selected(chooser, result):
+                try:
+                    file = chooser.open_finish(result)
+                except GLib.Error:
+                    return
+                path = file.get_path()
+                if path:
+                    start_probe(path)
+
+            chooser.open(self, None, selected)
+
+        choose_source.connect("clicked", choose_local_source)
+
+        def finish_preview(generation, output, error):
+            if state["closed"] or generation != state["preview_generation"]:
+                Path(output).unlink(missing_ok=True)
+                return False
+            set_busy(False)
+            if error:
+                preview_status.set_label(error)
+                return False
+            try:
+                texture = Gdk.Texture.new_from_filename(str(output))
+                preview_picture.set_paintable(texture)
+                preview_status.set_label(str(output))
+                old_output = state.get("preview_path")
+                state["preview_path"] = Path(output)
+                if old_output is not None and Path(old_output) != Path(output):
+                    Path(old_output).unlink(missing_ok=True)
+            except GLib.Error as exc:
+                preview_status.set_label(str(exc))
+            return False
+
+        def queue_preview(*_args):
+            source = state["source_path"]
+            if source is None or state["source_media"] is None:
+                return
+            try:
+                settings = selected_settings()
+            except Exception as exc:
+                preview_status.set_label(str(exc))
+                return
+            state["preview_generation"] += 1
+            generation = state["preview_generation"]
+            output = (
+                cache_directory()
+                / f"theme-editor-video-preview-{os.getpid()}-{generation}.png"
+            )
+            set_busy(True)
+            preview_status.set_label("Generating preview…")
+
+            def worker():
+                try:
+                    create_preview(source, output, settings)
+                    error = None
+                except Exception as exc:
+                    error = str(exc)
+                GLib.idle_add(finish_preview, generation, output, error)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        preview_button.connect("clicked", queue_preview)
+
+        def finish_conversion(output, preview_destination, update, error):
+            if state["closed"]:
+                return False
+            set_busy(False)
+            if error:
+                self.error_dialog("Could not prepare video", error)
+                return False
+            try:
+                self.push_undo()
+                existing = self.theme_data.get("video", {})
+                self.theme_data["video"] = build_video_section(existing, update)
+                save_yaml_atomic(self.theme_file, self.theme_data)
+            except Exception as exc:
+                self.error_dialog("Could not apply video to theme", str(exc))
+                return False
+
+            self.populate_elements()
+            self.selected_path = ("video",)
+            GLib.idle_add(self.restore_tree_selection, self.selected_path)
+            self.build_property_rows()
+            self.refresh_preview()
+            self.toast(f"Prepared and applied {Path(output).name}")
+            preview_status.set_label(
+                f"Prepared: {output}\nTheme background: {preview_destination}"
+            )
+            return False
+
+        def begin_conversion(output, preview_destination, settings, update):
+            source = state["source_path"]
+            set_busy(True)
+            preview_status.set_label("Converting video and generating theme background…")
+
+            def worker():
+                try:
+                    convert_media_atomic(source, output, settings)
+                    create_preview_atomic(source, preview_destination, settings)
+                    error = None
+                except Exception as exc:
+                    error = str(exc)
+                GLib.idle_add(
+                    finish_conversion,
+                    output,
+                    preview_destination,
+                    update,
+                    error,
+                )
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def convert_and_apply(*_args):
+            if state["source_path"] is None or state["source_media"] is None:
+                self.toast("Choose a local source first")
+                return
+            try:
+                settings = selected_settings()
+                output = prepared_output_path(
+                    cache_directory(),
+                    output_name_row.get_text() or state["source_media"].filename,
+                )
+                preview_destination = preview_background_path(
+                    self.theme_dir,
+                    preview_name_row.get_text(),
+                )
+                remote_path = display_video_path(
+                    output.name,
+                    internal=storage_row.get_selected() == 1,
+                )
+                update = VideoThemeUpdate(
+                    local_filename=output.name,
+                    remote_path=remote_path,
+                    preview_background=preview_destination.name,
+                    background_frame_time=0.0,
+                    overlay=overlay_row.get_active(),
+                )
+            except Exception as exc:
+                self.error_dialog("Invalid video settings", str(exc))
+                return
+
+            if not output.exists():
+                begin_conversion(output, preview_destination, settings, update)
+                return
+
+            confirm = Adw.AlertDialog(
+                heading="Replace prepared video?",
+                body=(
+                    f"{output.name} already exists in the media-preparation cache. "
+                    "The existing prepared copy will be replaced only after a successful conversion."
+                ),
+            )
+            confirm.add_response("cancel", "Cancel")
+            confirm.add_response("replace", "Replace")
+            confirm.set_response_appearance(
+                "replace",
+                Adw.ResponseAppearance.DESTRUCTIVE,
+            )
+            confirm.set_close_response("cancel")
+
+            def response(_confirm, response_id):
+                if response_id == "replace":
+                    begin_conversion(output, preview_destination, settings, update)
+
+            confirm.connect("response", response)
+            confirm.present(dialog)
+
+        apply_button.connect("clicked", convert_and_apply)
+        close_button.connect("clicked", lambda *_: dialog.close())
+
+        def closed(*_args):
+            state["closed"] = True
+            state["probe_generation"] += 1
+            state["preview_generation"] += 1
+            preview_path = state.get("preview_path")
+            if preview_path is not None:
+                Path(preview_path).unlink(missing_ok=True)
+
+        dialog.connect("closed", closed)
+        dialog.present(self)
+
+        initial_source = resolve_local_video_source(self.theme_dir, current_video)
+        if initial_source is None:
+            initial_source = find_prepared_local_video(
+                str(current_video.get("PATH") or "")
+            )
+        if initial_source is not None:
+            start_probe(initial_source)
 
     def open_video_tools(self):
         theme_names = available_themes()

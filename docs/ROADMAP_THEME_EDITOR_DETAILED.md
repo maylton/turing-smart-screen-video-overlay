@@ -233,22 +233,29 @@ Still possible later:
 - multi-select cleanup after broader field testing.
 
 ### 2.5. Video inspector
-**Status:** Planned
+**Status:** V1 foundation implemented; pending visual validation
 
-Target:
-- integrate existing media preparation workflow into the theme editor;
-- then expand toward near-parity with the Windows flow:
-  - Fit/Fill/Stretch;
-  - crop;
-  - zoom;
-  - rotation;
-  - mirror;
-  - alignment;
-  - trim;
-  - speed;
-  - loop;
-  - preview;
-  - conversion.
+Delivered in V1:
+- local GIF/video selection and FFprobe metadata;
+- Fit, Fill, Stretch, Original, and Custom framing;
+- zoom and horizontal/vertical alignment;
+- numeric crop and 0/90/180/270 rotation;
+- 24/30 FPS and CRF controls;
+- asynchronous FFmpeg preview;
+- atomic H.264/yuv420p conversion in the media-preparation cache;
+- atomic theme preview background generation;
+- SD/internal remote path selection;
+- Apply flow with Undo/Redo and atomic YAML save;
+- overwrite confirmation for prepared videos;
+- pure helpers and unit tests.
+
+Still planned:
+- mirror;
+- visual crop handles;
+- trim timeline;
+- speed and loop controls;
+- solid/blur/image background controls;
+- direct upload and remote playback management inside the inspector.
 
 ---
 
