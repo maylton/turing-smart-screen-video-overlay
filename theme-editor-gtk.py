@@ -547,9 +547,9 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         overflow_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
         overflow_box.append(
             popover_action_button(
-                "Open Classic Editor",
+                "Advanced / Legacy Editor…",
                 "applications-system-symbolic",
-                self.open_classic_editor,
+                self.confirm_open_classic_editor,
                 overflow_popover,
             )
         )
@@ -813,12 +813,16 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         actions_row.append(self.actions_button)
         box.append(actions_row)
 
-        classic = Gtk.Button(
-            label="Open classic editor…",
-            tooltip_text="Open the original editor for tools not yet migrated to GTK",
+        legacy_note = Gtk.Label(
+            label=(
+                "Legacy editor access moved to More theme actions → "
+                "Advanced / Legacy Editor…"
+            ),
+            xalign=0,
+            wrap=True,
         )
-        classic.connect("clicked", lambda *_: self.open_classic_editor())
-        box.append(classic)
+        legacy_note.add_css_class("dim-label")
+        box.append(legacy_note)
         return box
 
     def create_children_model(self, item):
@@ -5978,7 +5982,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         dialog.connect("response", response)
         dialog.present(self)
 
-    def open_classic_editor(self):
+    def launch_classic_editor(self):
         try:
             subprocess.Popen(
                 [project_python(), str(CLASSIC_EDITOR), self.theme_name],
@@ -5987,6 +5991,34 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             )
         except Exception as exc:
             self.toast(f"Could not open classic editor: {exc}")
+
+    def confirm_open_classic_editor(self):
+        dialog = Adw.AlertDialog(
+            heading="Open legacy editor?",
+            body=(
+                "Most theme editing workflows now live in the GTK editor. "
+                "The legacy editor is kept as an advanced fallback for tools "
+                "that have not fully migrated yet.\n\n"
+                "Before using it, save or reload the GTK editor state. Changes "
+                "made outside this window may require Reload Theme From Disk "
+                "before saving here again."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("open", "Open Legacy Editor")
+        dialog.set_close_response("cancel")
+        dialog.set_default_response("cancel")
+        dialog.set_response_appearance(
+            "open",
+            Adw.ResponseAppearance.DESTRUCTIVE,
+        )
+
+        def response(_dialog, response_id):
+            if response_id == "open":
+                self.launch_classic_editor()
+
+        dialog.connect("response", response)
+        dialog.present(self)
 
     def error_dialog(self, heading, body):
         dialog = Adw.AlertDialog(heading=heading, body=body)
