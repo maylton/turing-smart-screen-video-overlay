@@ -111,6 +111,49 @@ class ThemeCompositionPresetTests(unittest.TestCase):
         self.assertEqual(node["FONT_COLOR"], [255, 255, 255])
         self.assertEqual(node["ALIGN"], "center")
 
+    def test_static_clock_title_uses_clock_preset_only(self):
+        theme = {
+            "static_text": {
+                "CLOCK_TITLE": {
+                    "FONT_SIZE": 20,
+                    "FONT_COLOR": [1, 2, 3],
+                    "ALIGN": "left",
+                    "WIDTH": 100,
+                }
+            }
+        }
+        applied = apply_composition_preset(theme, "video_hud_readable")
+        node = applied["static_text"]["CLOCK_TITLE"]
+        self.assertEqual(node["FONT_SIZE"], 96)
+        self.assertEqual(node["ALIGN"], "center")
+        self.assertEqual(node["WIDTH"], 480)
+
+    def test_clock_rule_does_not_block_effect_rule(self):
+        theme = {
+            "static_text": {
+                "CLOCK": {
+                    "FONT_SIZE": 20,
+                    "FONT_COLOR": [1, 2, 3],
+                    "ALIGN": "left",
+                    "EFFECTS": {
+                        "SHADOW": {
+                            "ENABLED": False,
+                            "COLOR": [1, 2, 3, 4],
+                        },
+                        "OUTLINE": {
+                            "ENABLED": False,
+                            "WIDTH": 1,
+                        },
+                    },
+                }
+            }
+        }
+        applied = apply_composition_preset(theme, "video_hud_readable")
+        node = applied["static_text"]["CLOCK"]
+        self.assertEqual(node["FONT_SIZE"], 96)
+        self.assertTrue(node["EFFECTS"]["SHADOW"]["ENABLED"])
+        self.assertTrue(node["EFFECTS"]["OUTLINE"]["ENABLED"])
+
     def test_video_hud_preserves_background_color(self):
         theme = {"BACKGROUND_COLOR": [9, 8, 7], "FONT_COLOR": [1, 2, 3]}
         applied = apply_composition_preset(theme, "video_hud_readable")
@@ -147,10 +190,22 @@ class ThemeCompositionPresetTests(unittest.TestCase):
         self.assertNotIn("BAR_BACKGROUND_COLOR", applied["CPU"]["PERCENTAGE"])
 
     def test_radial_rule_updates_existing_radial_fields(self):
-        theme = {"CPU": {"PERCENTAGE": {"RADIUS": 90, "LINE_WIDTH": 2}}}
+        theme = {
+            "CPU": {
+                "PERCENTAGE": {
+                    "RADIAL": {
+                        "RADIUS": 90,
+                        "WIDTH": 10,
+                        "BAR_COLOR": [1, 2, 3],
+                    }
+                }
+            }
+        }
         applied = apply_composition_preset(theme, "compact_metrics_grid")
-        self.assertEqual(applied["CPU"]["PERCENTAGE"]["RADIUS"], 90)
-        self.assertEqual(applied["CPU"]["PERCENTAGE"]["LINE_WIDTH"], 8)
+        node = applied["CPU"]["PERCENTAGE"]["RADIAL"]
+        self.assertEqual(node["RADIUS"], 90)
+        self.assertEqual(node["WIDTH"], 8)
+        self.assertEqual(node["BAR_COLOR"], [120, 169, 255])
 
     def test_line_graph_rule_updates_existing_line_fields(self):
         theme = {"CPU": {"GRAPH": {"LINE_COLOR": [1, 2, 3], "AXIS_COLOR": [4, 5, 6]}}}

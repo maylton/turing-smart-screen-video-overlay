@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 import threading
 import subprocess
 import sys
@@ -49,6 +50,7 @@ from video_manager_backend import VideoManager
 from ruamel.yaml.comments import CommentedSeq
 
 APP_ID = "io.github.turing.SmartScreen.ThemeEditor"
+CONFIG_FILE = ROOT / "config.yaml"
 THEMES_DIR = ROOT / "res" / "themes"
 CLASSIC_EDITOR = ROOT / "theme-editor.py"
 EDITOR_TEMPLATE_DIR = ROOT / "res" / "editor-templates"
@@ -191,6 +193,41 @@ def project_python() -> str:
     return sys.executable
 
 
+def available_themes() -> list[str]:
+    if not THEMES_DIR.exists():
+        return []
+
+    themes = []
+    try:
+        for path in THEMES_DIR.iterdir():
+            if not path.is_dir():
+                continue
+            if (path / "theme.yaml").is_file() or (path / "theme.yml").is_file():
+                themes.append(path.name)
+    except OSError:
+        return []
+    return sorted(themes, key=str.casefold)
+
+
+def write_current_theme(theme_name: str) -> None:
+    if not CONFIG_FILE.is_file():
+        raise FileNotFoundError(CONFIG_FILE)
+
+    content = CONFIG_FILE.read_text(encoding="utf-8")
+    pattern = re.compile(r"(?m)^(\s*THEME\s*:\s*).*$")
+    if not pattern.search(content):
+        raise RuntimeError("Could not find config.THEME in config.yaml")
+
+    updated = pattern.sub(
+        lambda match: f'{match.group(1)}"{theme_name}"',
+        content,
+        count=1,
+    )
+    temporary = CONFIG_FILE.with_suffix(".yaml.theme-editor.tmp")
+    temporary.write_text(updated, encoding="utf-8")
+    os.replace(temporary, CONFIG_FILE)
+
+
 class ElementItem(GObject.Object):
     """Tree node used by Gtk.TreeListModel."""
 
@@ -247,12 +284,11 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.toast_overlay.set_child(toolbar)
 
         header = Adw.HeaderBar()
-        header.set_title_widget(
-            Adw.WindowTitle(
-                title=theme_name,
-                subtitle="Theme editor",
-            )
+        self.window_title = Adw.WindowTitle(
+            title=theme_name,
+            subtitle="Theme editor",
         )
+        header.set_title_widget(self.window_title)
         toolbar.add_top_bar(header)
 
         self.undo_button = Gtk.Button(
@@ -1889,6 +1925,56 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         value = self.video_node().get("PATH", "")
         return str(value or "")
 
+    def switch_theme(self, theme_name: str):
+        theme_name = str(theme_name or "").strip()
+        if not theme_name:
+            self.toast("Choose a theme first")
+            return False
+        if theme_name == self.theme_name:
+            self.toast(f"{theme_name} is already open")
+            return False
+
+        theme_dir = THEMES_DIR / theme_name
+        theme_file = theme_dir / "theme.yaml"
+        if not theme_file.is_file():
+            self.error_dialog(
+                "Could not change theme",
+                f"{theme_file} was not found.",
+            )
+            return False
+
+        try:
+            theme_data = load_yaml(theme_file)
+            write_current_theme(theme_name)
+        except Exception as exc:
+            self.error_dialog("Could not change theme", str(exc))
+            return False
+
+        self.theme_name = theme_name
+        self.theme_dir = theme_dir
+        self.theme_file = theme_file
+        self.preview_file = theme_dir / "preview.png"
+        self.theme_data = theme_data
+        self.session_original = copy.deepcopy(theme_data)
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self.selected_path = None
+        self.property_widgets.clear()
+        self.clear_property_group()
+        self.path_label.set_label("Select an element")
+
+        self.set_title(f"Theme Editor — {theme_name}")
+        self.window_title.set_title(theme_name)
+        app = self.get_application()
+        if app is not None:
+            app.theme_name = theme_name
+
+        self.populate_elements()
+        self.update_history_buttons()
+        self.refresh_preview()
+        self.toast(f"Theme changed to {theme_name}")
+        return True
+
     def apply_video_path(self, path):
         path = str(path).strip()
         if not path:
@@ -1914,6 +2000,14 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         self.toast(f"Theme video selected: {Path(path).name}")
 
     def open_video_tools(self):
+        theme_names = available_themes()
+        theme_dropdown = Gtk.DropDown.new_from_strings(
+            theme_names or ("No themes found",)
+        )
+        theme_dropdown.set_sensitive(bool(theme_names))
+        if self.theme_name in theme_names:
+            theme_dropdown.set_selected(theme_names.index(self.theme_name))
+
         source_labels = (
             "Local file",
             "Display SD card",
@@ -1963,14 +2057,15 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             grid.attach(title, 0, row, 1, 1)
             grid.attach(widget, 1, row, 1, 1)
 
-        add_row(0, "Source", source_dropdown)
-        add_row(1, "Selected video", selected_path)
-        add_row(2, "", choose_local)
-        add_row(3, "", load_remote)
-        add_row(4, "Display videos", remote_dropdown)
-        add_row(5, "Frame time (seconds)", timestamp)
-        add_row(6, "Background filename", output_name)
-        add_row(7, "Set as preview background", set_preview)
+        add_row(0, "Theme", theme_dropdown)
+        add_row(1, "Source", source_dropdown)
+        add_row(2, "Selected video", selected_path)
+        add_row(3, "", choose_local)
+        add_row(4, "", load_remote)
+        add_row(5, "Display videos", remote_dropdown)
+        add_row(6, "Frame time (seconds)", timestamp)
+        add_row(7, "Background filename", output_name)
+        add_row(8, "Set as preview background", set_preview)
 
         help_label = Gtk.Label(
             label=(
@@ -1983,7 +2078,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             wrap=True,
         )
         help_label.add_css_class("dim-label")
-        grid.attach(help_label, 0, 8, 2, 1)
+        grid.attach(help_label, 0, 9, 2, 1)
 
         state = {
             "remote_paths": [],
@@ -2002,6 +2097,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         dialog.add_response("close", "Close")
         dialog.add_response("stop", "Stop display video")
         dialog.add_response("play", "Play on display")
+        dialog.add_response("theme", "Change theme")
         dialog.add_response("use", "Use in theme")
         dialog.add_response("generate", "Generate background")
         dialog.set_response_appearance(
@@ -2225,6 +2321,14 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             if response_id == "use":
                 self.apply_video_path(selected_path.get_text())
                 dialog.present(self)
+            elif response_id == "theme":
+                index = theme_dropdown.get_selected()
+                if index < 0 or index >= len(theme_names):
+                    self.toast("Choose a theme first")
+                    dialog.present(self)
+                    return
+                if not self.switch_theme(theme_names[index]):
+                    dialog.present(self)
             elif response_id == "generate":
                 generate_selected_background()
                 dialog.present(self)

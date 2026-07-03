@@ -159,7 +159,7 @@ _COMPONENT_PRESETS = (
             "BAR_COLOR": {TOKEN_REF_KEY: "PRIMARY"},
             "BAR_BACKGROUND_COLOR": {TOKEN_REF_KEY: "SURFACE_ALT"},
             "FONT_COLOR": {TOKEN_REF_KEY: "ON_SURFACE"},
-            "LINE_WIDTH": 8,
+            "WIDTH": 8,
         },
     },
     {
@@ -172,7 +172,7 @@ _COMPONENT_PRESETS = (
             "BAR_COLOR": {TOKEN_REF_KEY: "WARNING"},
             "BAR_BACKGROUND_COLOR": {TOKEN_REF_KEY: "SURFACE_ALT"},
             "FONT_COLOR": {TOKEN_REF_KEY: "ON_SURFACE"},
-            "LINE_WIDTH": 8,
+            "WIDTH": 8,
         },
     },
     {

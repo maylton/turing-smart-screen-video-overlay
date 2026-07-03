@@ -174,14 +174,19 @@ class ThemeComponentPresetTests(unittest.TestCase):
         self.assertEqual(applied["LINE_COLOR"], [69, 137, 255])
         self.assertEqual(applied["AXIS_COLOR"], [57, 57, 57])
 
-    def test_radial_preset_updates_existing_line_width(self):
-        node = {"LINE_WIDTH": 2, "BAR_COLOR": [1, 2, 3]}
+    def test_radial_preset_updates_existing_radial_width(self):
+        node = {
+            "RADIUS": 40,
+            "WIDTH": 10,
+            "BAR_COLOR": [1, 2, 3],
+        }
         applied = apply_component_preset(
             node,
             "radial_warning",
             resolve_semantic_tokens("technical_data_dark"),
         )
-        self.assertEqual(applied["LINE_WIDTH"], 8)
+        self.assertEqual(applied["RADIUS"], 40)
+        self.assertEqual(applied["WIDTH"], 8)
         self.assertEqual(applied["BAR_COLOR"], [241, 194, 27])
 
     def test_data_palette_updates_existing_semantic_fields(self):

@@ -43,6 +43,8 @@ _COMPOSITION_PRESETS = (
                 "component_preset_id": "typography_display_clock",
                 "path_contains": ("HOUR", "CLOCK", "TIME"),
                 "required_any_keys": ("FONT_SIZE", "FONT_COLOR"),
+                "priority": 300,
+                "exclusive_group": "typography",
             },
             {
                 "component_preset_id": "typography_metric_value",
@@ -54,11 +56,15 @@ _COMPOSITION_PRESETS = (
                     "VALUE",
                 ),
                 "required_any_keys": ("FONT_SIZE", "FONT_COLOR"),
+                "priority": 200,
+                "exclusive_group": "typography",
             },
             {
                 "component_preset_id": "typography_small_label",
-                "path_contains": ("LABEL", "TITLE", "CAPTION", "STATIC_TEXT"),
+                "path_contains": ("LABEL", "TITLE", "CAPTION"),
                 "required_any_keys": ("FONT_SIZE", "FONT_COLOR"),
+                "priority": 100,
+                "exclusive_group": "typography",
             },
         ),
     },
@@ -74,11 +80,15 @@ _COMPOSITION_PRESETS = (
                 "component_preset_id": "typography_metric_value",
                 "path_contains": ("PERCENT", "PERCENTAGE", "MEMORY", "TEMP"),
                 "required_any_keys": ("FONT_SIZE", "FONT_COLOR"),
+                "priority": 200,
+                "exclusive_group": "typography",
             },
             {
                 "component_preset_id": "typography_small_label",
-                "path_contains": ("LABEL", "TITLE", "CAPTION", "STATIC_TEXT"),
+                "path_contains": ("LABEL", "TITLE", "CAPTION"),
                 "required_any_keys": ("FONT_SIZE", "FONT_COLOR"),
+                "priority": 100,
+                "exclusive_group": "typography",
             },
             {
                 "component_preset_id": "bar_primary",
@@ -189,13 +199,24 @@ def _apply_rules_to_value(
             key: _apply_rules_to_value(item, path + (str(key),), rules, tokens)
             for key, item in value.items()
         }
-        for rule in rules:
+        applied_groups = set()
+        ordered_rules = sorted(
+            rules,
+            key=lambda rule: int(rule.get("priority", 0)),
+            reverse=True,
+        )
+        for rule in ordered_rules:
+            exclusive_group = rule.get("exclusive_group")
+            if exclusive_group and exclusive_group in applied_groups:
+                continue
             if _rule_matches(rule, path, result):
                 result = apply_component_preset(
                     result,
                     str(rule["component_preset_id"]),
                     tokens,
                 )
+                if exclusive_group:
+                    applied_groups.add(str(exclusive_group))
         return result
 
     if isinstance(value, list):
@@ -264,6 +285,19 @@ def validate_composition_preset(preset: Mapping[str, Any]) -> List[str]:
                 value = rule.get(key, ())
                 if not isinstance(value, tuple):
                     errors.append(f"rules[{index}].{key} must be a tuple.")
+
+            priority = rule.get("priority", 0)
+            if not isinstance(priority, int) or isinstance(priority, bool):
+                errors.append(f"rules[{index}].priority must be an int.")
+
+            exclusive_group = rule.get("exclusive_group")
+            if exclusive_group is not None and (
+                not isinstance(exclusive_group, str)
+                or not exclusive_group.strip()
+            ):
+                errors.append(
+                    f"rules[{index}].exclusive_group must be a non-empty string."
+                )
 
     return errors
 
