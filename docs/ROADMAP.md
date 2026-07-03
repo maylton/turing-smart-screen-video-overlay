@@ -261,3 +261,94 @@ Initial effect presets:
 Still pending for later roadmap stages: graph presets, radial indicator presets,
 coordinate and size validation, palette/global style presets, live preview,
 debounce behavior, multi-element application, and wizard-style theme creation.
+
+## Theme Engine Semantic Presets
+
+Semantic presets define global visual identities through named color roles such
+as `BACKGROUND`, `SURFACE`, `PRIMARY`, `ON_SURFACE`, `OUTLINE`, `SUCCESS`,
+`WARNING`, and `DANGER`. They are different from property presets: a property
+preset fills one field in the editor, while a semantic visual preset resolves a
+coherent token set and can apply those roles to existing color properties across
+a theme copy.
+
+Initial global presets:
+
+- `tonal_expressive_dark`;
+- `tonal_expressive_light`;
+- `soft_neutral_dark`;
+- `soft_neutral_light`;
+- `technical_data_dark`;
+- `technical_data_light`;
+- `video_overlay_readable`;
+- `monochrome_high_contrast`.
+
+Initial YAML color mapping:
+
+- `FONT_COLOR` -> `ON_SURFACE`;
+- `BACKGROUND_COLOR` -> `SURFACE`;
+- `BAR_COLOR` -> `PRIMARY`;
+- `BAR_BACKGROUND_COLOR` -> `SURFACE_ALT`;
+- `LINE_COLOR` -> `PRIMARY`;
+- `AXIS_COLOR` -> `OUTLINE`;
+- `DISPLAY_RGB_LED` -> `PRIMARY`.
+
+The engine applies presets as a pure operation over a deep copy. It does not
+save YAML, update previews, access files, or call the GTK editor. Geometry,
+text content, font/media paths, video sections, static images, hierarchy, and
+missing properties are preserved. `video_overlay_readable` preserves existing
+`BACKGROUND_COLOR` by default so video or captured backgrounds remain readable,
+while explicit `preserve_background=False` can override that policy.
+
+Future phases remain intentionally separate: GTK integration, typography
+presets, effect presets, bars, radial indicators, line graphs, complete layouts,
+automated accessibility presets, and contrast validation.
+
+## Theme Component Presets
+
+Component presets sit one layer above semantic tokens. They describe reusable
+settings for one selected node, such as typography, text effects, bars, radial
+gauges, line graphs, and data palettes. They may reference semantic color roles
+from the theme engine, but they remain pure data operations and do not save YAML,
+open GTK, render previews, or modify sibling elements.
+
+Initial component preset types:
+
+- `typography`;
+- `effects`;
+- `bar`;
+- `radial`;
+- `line_graph`;
+- `data_palette`.
+
+The Phase B foundation applies presets only to properties already present on the
+selected node. Missing properties are not added, geometry and text content are
+preserved unless those exact editable fields already exist in the node, and
+token references are resolved only when a semantic token mapping is supplied.
+
+Still pending for later phases: GTK controls for component presets, richer
+component detection, complete layout presets, automatic contrast checks, and
+preview-assisted application.
+
+## Theme Composition Presets
+
+Composition presets combine one semantic visual preset with a set of component
+rules. They provide a pure foundation for broader visual systems such as a video
+HUD, compact metrics grid, or high-contrast readout. A composition first applies
+the semantic token mapping to a theme copy, then applies matching component
+presets to existing nodes only.
+
+Initial composition presets:
+
+- `video_hud_readable`;
+- `compact_metrics_grid`;
+- `monochrome_accessible_readout`.
+
+Composition rules match existing nodes by path tokens and existing property
+keys. They do not create missing elements, do not add missing properties, do not
+save YAML, do not render previews, and do not call the GTK editor. Geometry,
+text content, media paths, and unrelated sibling elements remain preserved by
+default.
+
+Still pending for later phases: editor integration, richer rule authoring,
+complete generated layouts, preview comparison, contrast scoring, and
+accessibility-specific validation.

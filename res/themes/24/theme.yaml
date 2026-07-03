@@ -31,14 +31,39 @@ static_text:
     HEIGHT: 24
     FONT: roboto/Roboto-Black.ttf
     FONT_SIZE: 14
-    FONT_COLOR:
-      - 255
-      - 255
-      - 255
+    FONT_COLOR: [255, 255, 255]
     BACKGROUND_IMAGE: transparent.png
     ALIGN: left
     ANCHOR: lt
 
+    EFFECTS:
+      SHADOW:
+        ENABLED: false
+        COLOR:
+          - 0
+          - 0
+          - 0
+          - 180
+        OFFSET_X: 3
+        OFFSET_Y: 3
+        BLUR_RADIUS: 4.0
+      GLOW:
+        ENABLED: true
+        COLOR:
+          - 80
+          - 180
+          - 255
+          - 210
+        BLUR_RADIUS: 10.0
+        INTENSITY: 3
+      OUTLINE:
+        ENABLED: false
+        COLOR:
+          - 0
+          - 0
+          - 0
+          - 255
+        WIDTH: 2
 STATS:
   CPU:
     PERCENTAGE:

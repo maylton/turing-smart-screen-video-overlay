@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import copy
 import os
+import re
+import shutil
 import threading
 import subprocess
 import sys
@@ -49,6 +51,7 @@ from video_manager_backend import VideoManager
 from ruamel.yaml.comments import CommentedSeq
 
 APP_ID = "io.github.turing.SmartScreen.ThemeEditor"
+CONFIG_FILE = ROOT / "config.yaml"
 THEMES_DIR = ROOT / "res" / "themes"
 CLASSIC_EDITOR = ROOT / "theme-editor.py"
 EDITOR_TEMPLATE_DIR = ROOT / "res" / "editor-templates"
@@ -191,6 +194,48 @@ def project_python() -> str:
     return sys.executable
 
 
+def find_theme_file(theme_dir: Path) -> Path | None:
+    """Return the supported YAML file for a theme directory."""
+    for filename in ("theme.yaml", "theme.yml"):
+        candidate = theme_dir / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def available_themes() -> list[str]:
+    if not THEMES_DIR.exists():
+        return []
+
+    themes = []
+    try:
+        for path in THEMES_DIR.iterdir():
+            if path.is_dir() and find_theme_file(path) is not None:
+                themes.append(path.name)
+    except OSError:
+        return []
+    return sorted(themes, key=str.casefold)
+
+
+def write_current_theme(theme_name: str) -> None:
+    if not CONFIG_FILE.is_file():
+        raise FileNotFoundError(CONFIG_FILE)
+
+    content = CONFIG_FILE.read_text(encoding="utf-8")
+    pattern = re.compile(r"(?m)^(\s*THEME\s*:\s*).*$")
+    if not pattern.search(content):
+        raise RuntimeError("Could not find config.THEME in config.yaml")
+
+    updated = pattern.sub(
+        lambda match: f'{match.group(1)}"{theme_name}"',
+        content,
+        count=1,
+    )
+    temporary = CONFIG_FILE.with_suffix(".yaml.theme-editor.tmp")
+    temporary.write_text(updated, encoding="utf-8")
+    os.replace(temporary, CONFIG_FILE)
+
+
 class ElementItem(GObject.Object):
     """Tree node used by Gtk.TreeListModel."""
 
@@ -214,18 +259,20 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         super().__init__(
             application=app,
             title=f"Theme Editor — {theme_name}",
-            default_width=1380,
-            default_height=820,
+            default_width=1540,
+            default_height=900,
         )
-        self.set_size_request(980, 640)
+        self.set_size_request(1180, 720)
 
         self.theme_name = theme_name
         self.theme_dir = THEMES_DIR / theme_name
-        self.theme_file = self.theme_dir / "theme.yaml"
+        theme_file = find_theme_file(self.theme_dir)
+        if theme_file is None:
+            raise FileNotFoundError(
+                f"No theme.yaml or theme.yml found in {self.theme_dir}"
+            )
+        self.theme_file = theme_file
         self.preview_file = self.theme_dir / "preview.png"
-
-        if not self.theme_file.is_file():
-            raise FileNotFoundError(self.theme_file)
 
         self.theme_data = load_yaml(self.theme_file)
         self.session_original = copy.deepcopy(self.theme_data)
@@ -247,12 +294,11 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.toast_overlay.set_child(toolbar)
 
         header = Adw.HeaderBar()
-        header.set_title_widget(
-            Adw.WindowTitle(
-                title=theme_name,
-                subtitle="GTK4 visual theme editor",
-            )
+        self.window_title = Adw.WindowTitle(
+            title=theme_name,
+            subtitle="Theme editor",
         )
+        header.set_title_widget(self.window_title)
         toolbar.add_top_bar(header)
 
         self.undo_button = Gtk.Button(
@@ -271,7 +317,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
 
         classic_btn = Gtk.Button(
             icon_name="applications-system-symbolic",
-            tooltip_text="Open the classic editor with advanced tools",
+            tooltip_text="Open the classic editor",
         )
         classic_btn.connect("clicked", lambda *_: self.open_classic_editor())
         header.pack_end(classic_btn)
@@ -306,14 +352,18 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         header.pack_end(media_btn)
 
         body = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        body.set_position(290)
+        body.set_position(340)
+        body.set_shrink_start_child(False)
+        body.set_shrink_end_child(False)
         toolbar.set_content(body)
 
         left = self.build_elements_panel()
         body.set_start_child(left)
 
         center_right = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        center_right.set_position(650)
+        center_right.set_position(740)
+        center_right.set_shrink_start_child(False)
+        center_right.set_shrink_end_child(False)
         body.set_end_child(center_right)
 
         center_right.set_start_child(self.build_preview_panel())
@@ -332,6 +382,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             margin_start=16,
             margin_end=16,
         )
+        box.set_size_request(320, -1)
 
         title = Gtk.Label(label="Theme elements", xalign=0)
         title.add_css_class("heading")
@@ -484,6 +535,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             margin_start=16,
             margin_end=16,
         )
+        box.set_size_request(560, -1)
 
         title = Gtk.Label(label="Live preview", xalign=0)
         title.add_css_class("heading")
@@ -530,6 +582,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
     def build_properties_panel(self):
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_size_request(420, -1)
 
         self.properties_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -552,17 +605,6 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         self.path_label.add_css_class("dim-label")
         self.properties_box.append(self.path_label)
-
-        preset_hint = Gtk.Label(
-            label=(
-                "Use the preset menus for common values, "
-                "or type a custom value."
-            ),
-            xalign=0,
-            wrap=True,
-        )
-        preset_hint.add_css_class("dim-label")
-        self.properties_box.append(preset_hint)
 
         self.dynamic_group = Adw.PreferencesGroup()
         self.properties_box.append(self.dynamic_group)
@@ -972,7 +1014,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         labels = tuple(label for label, _value in options)
         values = tuple(value for _label, value in options)
         dropdown = Gtk.DropDown.new_from_strings(labels)
-        dropdown.set_size_request(190, -1)
+        dropdown.set_size_request(220, -1)
         dropdown.set_valign(Gtk.Align.CENTER)
         dropdown.set_tooltip_text(
             "Choose a common value, or type a custom value in the field."
@@ -1019,14 +1061,14 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
 
         labels = ["Choose a preset…"] + preset_names
         dropdown = Gtk.DropDown.new_from_strings(labels)
-        dropdown.set_size_request(190, -1)
+        dropdown.set_size_request(220, -1)
         dropdown.set_valign(Gtk.Align.CENTER)
         dropdown.set_tooltip_text("Fill available text fields")
         dropdown._theme_resetting_text_style = False
 
         row = Adw.ActionRow(
             title="Text style preset",
-            subtitle="Fill the available text fields without saving them.",
+            subtitle="Apply values to the current text fields.",
         )
         row.add_suffix(dropdown)
 
@@ -1050,6 +1092,41 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         dropdown.connect("notify::selected", preset_changed)
         return row
 
+    def create_theme_switch_row(self):
+        theme_names = available_themes()
+        if not theme_names:
+            return None
+
+        dropdown = Gtk.DropDown.new_from_strings(theme_names)
+        dropdown.set_size_request(190, -1)
+        dropdown.set_valign(Gtk.Align.CENTER)
+        if self.theme_name in theme_names:
+            dropdown.set_selected(theme_names.index(self.theme_name))
+
+        button = Gtk.Button(
+            label="Change",
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Set the selected theme as active and open it here",
+            valign=Gtk.Align.CENTER,
+        )
+
+        row = Adw.ActionRow(
+            title="Active theme",
+            subtitle=self.theme_name,
+        )
+        row.add_suffix(dropdown)
+        row.add_suffix(button)
+
+        def change_selected_theme(*_args):
+            index = dropdown.get_selected()
+            if index < 0 or index >= len(theme_names):
+                self.toast("Choose a theme first")
+                return
+            self.switch_theme(theme_names[index])
+
+        button.connect("clicked", change_selected_theme)
+        return row
+
     def build_property_rows(self):
         self.clear_property_group()
 
@@ -1062,6 +1139,12 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
 
         if not isinstance(node, dict):
             return
+
+        if self.selected_path == ("display",):
+            theme_row = self.create_theme_switch_row()
+            if theme_row is not None:
+                self.dynamic_group.add(theme_row)
+                self.property_rows.append(theme_row)
 
         ordered_keys = [key for key in EDITABLE_KEYS if key in node]
         ordered_keys.extend(
@@ -1080,6 +1163,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             preset_row = self.create_text_style_preset_row(node)
             if preset_row is not None:
                 self.dynamic_group.add(preset_row)
+                self.property_rows.append(preset_row)
 
         for key in ordered_keys:
             value = node[key]
@@ -1428,7 +1512,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 save_yaml_atomic(self.theme_file, self.theme_data)
                 shutil.copytree(self.theme_dir, destination)
                 save_yaml_atomic(
-                    destination / "theme.yaml",
+                    destination / self.theme_file.name,
                     copy.deepcopy(self.theme_data),
                 )
             except Exception as exc:
@@ -1437,18 +1521,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 self.error_dialog("Could not create theme", str(exc))
                 return
 
-            self.toast(f"Theme created: {name}")
-            try:
-                subprocess.Popen(
-                    [sys.executable, str(Path(__file__).resolve()), name],
-                    cwd=str(ROOT),
-                    start_new_session=True,
-                )
-            except Exception as exc:
-                self.error_dialog(
-                    "Theme created, but could not open it",
-                    f"The new theme is available at {destination}.\n\n{exc}",
-                )
+            self.switch_theme(name)
 
         dialog.connect("response", response)
         dialog.present(self)
@@ -1615,7 +1688,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
 
         effect_labels = ["Choose a preset…"] + text_effect_preset_names()
         effect_dropdown = Gtk.DropDown.new_from_strings(effect_labels)
-        effect_dropdown.set_size_request(220, -1)
+        effect_dropdown.set_size_request(250, -1)
         effect_dropdown.set_valign(Gtk.Align.CENTER)
         effect_dropdown.set_tooltip_text("Fill effect controls")
         effect_dropdown._theme_resetting_effect_preset = False
@@ -1786,8 +1859,8 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         effect_dropdown.connect("notify::selected", effect_preset_changed)
 
         scroll = Gtk.ScrolledWindow(
-            min_content_width=620,
-            min_content_height=560,
+            min_content_width=720,
+            min_content_height=620,
             propagate_natural_width=True,
             propagate_natural_height=True,
         )
@@ -1892,6 +1965,56 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         value = self.video_node().get("PATH", "")
         return str(value or "")
 
+    def switch_theme(self, theme_name: str):
+        theme_name = str(theme_name or "").strip()
+        if not theme_name:
+            self.toast("Choose a theme first")
+            return False
+        if theme_name == self.theme_name:
+            self.toast(f"{theme_name} is already open")
+            return False
+
+        theme_dir = THEMES_DIR / theme_name
+        theme_file = find_theme_file(theme_dir)
+        if theme_file is None:
+            self.error_dialog(
+                "Could not change theme",
+                f"No theme.yaml or theme.yml was found in {theme_dir}.",
+            )
+            return False
+
+        try:
+            theme_data = load_yaml(theme_file)
+            write_current_theme(theme_name)
+        except Exception as exc:
+            self.error_dialog("Could not change theme", str(exc))
+            return False
+
+        self.theme_name = theme_name
+        self.theme_dir = theme_dir
+        self.theme_file = theme_file
+        self.preview_file = theme_dir / "preview.png"
+        self.theme_data = theme_data
+        self.session_original = copy.deepcopy(theme_data)
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self.selected_path = None
+        self.property_widgets.clear()
+        self.clear_property_group()
+        self.path_label.set_label("Select an element")
+
+        self.set_title(f"Theme Editor — {theme_name}")
+        self.window_title.set_title(theme_name)
+        app = self.get_application()
+        if app is not None:
+            app.theme_name = theme_name
+
+        self.populate_elements()
+        self.update_history_buttons()
+        self.refresh_preview()
+        self.toast(f"Theme changed to {theme_name}")
+        return True
+
     def apply_video_path(self, path):
         path = str(path).strip()
         if not path:
@@ -1917,6 +2040,28 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         self.toast(f"Theme video selected: {Path(path).name}")
 
     def open_video_tools(self):
+        theme_names = available_themes()
+        theme_dropdown = Gtk.DropDown.new_from_strings(
+            theme_names or ("No themes found",)
+        )
+        theme_dropdown.set_sensitive(bool(theme_names))
+        if self.theme_name in theme_names:
+            theme_dropdown.set_selected(theme_names.index(self.theme_name))
+        change_theme = Gtk.Button(
+            label="Change",
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Set the selected theme as active and open it here",
+        )
+        change_theme.set_sensitive(bool(theme_names))
+
+        theme_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        theme_dropdown.set_hexpand(True)
+        theme_box.append(theme_dropdown)
+        theme_box.append(change_theme)
+
         source_labels = (
             "Local file",
             "Display SD card",
@@ -1966,14 +2111,15 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             grid.attach(title, 0, row, 1, 1)
             grid.attach(widget, 1, row, 1, 1)
 
-        add_row(0, "Source", source_dropdown)
-        add_row(1, "Selected video", selected_path)
-        add_row(2, "", choose_local)
-        add_row(3, "", load_remote)
-        add_row(4, "Display videos", remote_dropdown)
-        add_row(5, "Frame time (seconds)", timestamp)
-        add_row(6, "Background filename", output_name)
-        add_row(7, "Set as preview background", set_preview)
+        add_row(0, "Theme", theme_box)
+        add_row(1, "Source", source_dropdown)
+        add_row(2, "Selected video", selected_path)
+        add_row(3, "", choose_local)
+        add_row(4, "", load_remote)
+        add_row(5, "Display videos", remote_dropdown)
+        add_row(6, "Frame time (seconds)", timestamp)
+        add_row(7, "Background filename", output_name)
+        add_row(8, "Set as preview background", set_preview)
 
         help_label = Gtk.Label(
             label=(
@@ -1986,7 +2132,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             wrap=True,
         )
         help_label.add_css_class("dim-label")
-        grid.attach(help_label, 0, 8, 2, 1)
+        grid.attach(help_label, 0, 9, 2, 1)
 
         state = {
             "remote_paths": [],
@@ -2223,6 +2369,16 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 GLib.idle_add(finish)
 
             threading.Thread(target=worker, daemon=True).start()
+
+        def change_selected_theme(*_args):
+            index = theme_dropdown.get_selected()
+            if index < 0 or index >= len(theme_names):
+                self.toast("Choose a theme first")
+                return
+            if self.switch_theme(theme_names[index]):
+                dialog.close()
+
+        change_theme.connect("clicked", change_selected_theme)
 
         def response(_dialog, response_id):
             if response_id == "use":

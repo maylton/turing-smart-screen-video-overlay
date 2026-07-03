@@ -68,10 +68,10 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         super().__init__(
             application=app,
             title="Prepare media",
-            default_width=1240,
-            default_height=820,
+            default_width=1380,
+            default_height=880,
         )
-        self.set_size_request(940, 660)
+        self.set_size_request(1120, 720)
         self.source_path: Path | None = None
         self.source_duration = 0.0
         self.source_width = 0
@@ -93,14 +93,16 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(
             Adw.WindowTitle(
-                title="Advanced media preparation",
+                title="Media preparation",
                 subtitle="Crop, rotate, align, style, convert, and upload",
             )
         )
         toolbar.add_top_bar(header)
 
         split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        split.set_position(570)
+        split.set_position(660)
+        split.set_shrink_start_child(False)
+        split.set_shrink_end_child(False)
         toolbar.set_content(split)
         split.set_start_child(self.build_controls())
         split.set_end_child(self.build_preview())
@@ -108,7 +110,7 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
 
     def build_controls(self):
         scrolled = Gtk.ScrolledWindow(vexpand=True)
-        clamp = Adw.Clamp(maximum_size=620)
+        clamp = Adw.Clamp(maximum_size=720)
         scrolled.set_child(clamp)
         box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -341,7 +343,8 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
             margin_start=22,
             margin_end=22,
         )
-        title = Gtk.Label(label="Advanced framing preview", xalign=0)
+        box.set_size_request(500, -1)
+        title = Gtk.Label(label="Framing preview", xalign=0)
         title.add_css_class("title-2")
         box.append(title)
 
@@ -808,7 +811,7 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
                 str(output),
                 *self.settings_args(),
             ],
-            "Converting advanced media…",
+            "Converting media…",
             self.on_conversion_complete,
             pulse=True,
         )
@@ -841,8 +844,8 @@ class MediaPreparationWindow(Adw.ApplicationWindow):
             title=f"Preview — {self.converted_path.name}",
             transient_for=self,
             modal=True,
-            default_width=560,
-            default_height=620,
+            default_width=660,
+            default_height=720,
         )
         box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
