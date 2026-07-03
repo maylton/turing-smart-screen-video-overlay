@@ -6,6 +6,11 @@ on:
       - feature/theme-engine-composition-presets
     paths:
       - .github/workflows/apply-theme-switch-fixes.yml
+  pull_request:
+    branches:
+      - feature/theme-editor-text-effect-presets
+    paths:
+      - .github/workflows/apply-theme-switch-fixes.yml
 
 permissions:
   contents: write
