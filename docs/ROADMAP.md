@@ -272,6 +272,25 @@ across categories. There is no drag-and-drop yet; ordering is currently handled
 through the Actions menu and preserves Undo/Redo, search, filters, selection,
 and preview refresh.
 
+Media Inspector V1 is implemented for individual `static_images` entries. It is
+available from `Adjust image layout…` in Actions and from the contextual
+`Image layout` row in Properties. The inspector is non-destructive: it renders a
+local Pillow preview on a checkerboard background and only writes `X`, `Y`,
+`WIDTH`, and `HEIGHT` when the user clicks Apply. It supports:
+
+- Original size;
+- Fit;
+- Fill;
+- Stretch;
+- Custom size;
+- 0.25× to 4.0× zoom;
+- 3×3 alignment;
+- Cancel without YAML changes;
+- Apply with one Undo state and normal Redo support.
+
+It does not add mode, zoom, alignment, source-size, or inspector metadata to the
+theme YAML, and it does not modify or duplicate the original image asset.
+
 Current limitations intentionally remain for future phases:
 
 - renaming;
@@ -282,7 +301,13 @@ Current limitations intentionally remain for future phases:
 - a virtual `Available to add` group inside the tree;
 - validation of incomplete element structures;
 - a dedicated layers panel;
-- integrated media inspector;
+- crop;
+- rotation;
+- mirror;
+- derivative asset generation;
+- video inspector;
+- conversion;
+- upload;
 - canvas resizing;
 - preview on the display.
 

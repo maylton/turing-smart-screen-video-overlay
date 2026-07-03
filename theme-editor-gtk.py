@@ -11,6 +11,7 @@ import shutil
 import threading
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -63,6 +64,24 @@ from library.theme_layer_order import (
     layer_info,
     layer_position_label,
     move_layer,
+)
+from library.theme_media_layout import (
+    ALIGN_X,
+    ALIGN_Y,
+    MODE_CUSTOM,
+    MODE_FILL,
+    MODE_FIT,
+    MODE_ORIGINAL,
+    MODE_STRETCH,
+    ImageLayoutSettings,
+    ThemeMediaLayoutError,
+    compute_image_layout,
+    image_dimensions,
+    infer_layout_mode,
+    layout_summary,
+    render_image_layout_preview,
+    resolve_theme_image_path,
+    theme_canvas_dimensions,
 )
 from library.theme_property_presets import property_preset_options
 from library.theme_text_style_presets import (
@@ -533,6 +552,18 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         self.hide_action_button.connect("clicked", self.on_hide_action_clicked)
         actions_box.append(self.hide_action_button)
+        self.adjust_image_layout_button = Gtk.Button(
+            label="Adjust image layout…",
+            icon_name="image-x-generic-symbolic",
+        )
+        self.adjust_image_layout_button.set_tooltip_text(
+            "Open the non-destructive static image layout inspector"
+        )
+        self.adjust_image_layout_button.connect(
+            "clicked",
+            self.on_adjust_image_layout_clicked,
+        )
+        actions_box.append(self.adjust_image_layout_button)
 
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         actions_box.append(separator)
@@ -1159,6 +1190,31 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.bring_to_front_button.set_sensitive(
             bool(layer_state.get(BRING_TO_FRONT, False))
         )
+        self.adjust_image_layout_button.set_sensitive(
+            self.selected_static_image(show_errors=False) is not None
+        )
+
+    def selected_static_image(self, show_errors=True):
+        if (
+            self.selected_path is None
+            or len(self.selected_path) != 2
+            or self.selected_path[0] != "static_images"
+        ):
+            if show_errors:
+                self.toast("Select a static image first")
+            return None
+        try:
+            node = self.node_at_path(self.selected_path)
+            source_path = resolve_theme_image_path(self.theme_dir, node)
+        except Exception as exc:
+            if show_errors:
+                self.error_dialog("Static image unavailable", str(exc))
+            return None
+        if not isinstance(node, dict):
+            if show_errors:
+                self.toast("Select a static image first")
+            return None
+        return tuple(self.selected_path), node, source_path
 
     def selected_movable_node(self):
         if self.selected_path is None:
@@ -1534,6 +1590,38 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         button.connect("clicked", change_selected_theme)
         return row
 
+    def create_image_layout_row(self, node):
+        selected = self.selected_static_image(show_errors=False)
+        if selected is None:
+            return None
+        _path, _node, source_path = selected
+        try:
+            source_size = image_dimensions(source_path)
+            canvas_size = theme_canvas_dimensions(self.theme_data)
+            mode = infer_layout_mode(source_size, canvas_size, node)
+        except Exception:
+            mode = MODE_CUSTOM
+        mode_labels = {
+            MODE_ORIGINAL: "Original",
+            MODE_FIT: "Fit",
+            MODE_FILL: "Fill",
+            MODE_STRETCH: "Stretch",
+            MODE_CUSTOM: "Custom",
+        }
+        width = int(node.get("WIDTH", 0) or 0)
+        height = int(node.get("HEIGHT", 0) or 0)
+        x = int(node.get("X", 0) or 0)
+        y = int(node.get("Y", 0) or 0)
+        row = Adw.ActionRow(
+            title="Image layout",
+            subtitle=f"{mode_labels.get(mode, 'Custom')} · {width}×{height} at {x},{y}",
+        )
+        button = Gtk.Button(label="Adjust…", valign=Gtk.Align.CENTER)
+        button.set_tooltip_text("Open the static image layout inspector")
+        button.connect("clicked", self.on_adjust_image_layout_clicked)
+        row.add_suffix(button)
+        return row
+
     def build_property_rows(self):
         self.clear_property_group()
 
@@ -1552,6 +1640,11 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             if theme_row is not None:
                 self.dynamic_group.add(theme_row)
                 self.property_rows.append(theme_row)
+
+        image_layout_row = self.create_image_layout_row(node)
+        if image_layout_row is not None:
+            self.dynamic_group.add(image_layout_row)
+            self.property_rows.append(image_layout_row)
 
         ordered_keys = [key for key in EDITABLE_KEYS if key in node]
         ordered_keys.extend(
@@ -3305,6 +3398,348 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
     def on_hide_action_clicked(self, *_args):
         self.actions_button.popdown()
         self.disable_selected()
+
+    def on_adjust_image_layout_clicked(self, *_args):
+        self.actions_button.popdown()
+        self.open_image_layout_inspector()
+
+    def open_image_layout_inspector(self):
+        selected = self.selected_static_image()
+        if selected is None:
+            return
+        selected_path, node, source_path = selected
+        try:
+            source_size = image_dimensions(source_path)
+            canvas_size = theme_canvas_dimensions(self.theme_data)
+        except Exception as exc:
+            self.error_dialog("Could not inspect image", str(exc))
+            return
+
+        current_geometry = {
+            "X": int(node.get("X", 0) or 0),
+            "Y": int(node.get("Y", 0) or 0),
+            "WIDTH": int(node.get("WIDTH", source_size[0]) or source_size[0]),
+            "HEIGHT": int(node.get("HEIGHT", source_size[1]) or source_size[1]),
+        }
+        inferred_mode = infer_layout_mode(source_size, canvas_size, current_geometry)
+        mode_ids = [
+            MODE_ORIGINAL,
+            MODE_FIT,
+            MODE_FILL,
+            MODE_STRETCH,
+            MODE_CUSTOM,
+        ]
+        mode_labels = [
+            "Original size",
+            "Fit",
+            "Fill",
+            "Stretch",
+            "Custom size",
+        ]
+
+        dialog = Adw.Window(
+            title="Image layout",
+            transient_for=self,
+            modal=True,
+        )
+        dialog.set_default_size(1000, 720)
+
+        root = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=16,
+            margin_top=16,
+            margin_bottom=16,
+            margin_start=16,
+            margin_end=16,
+        )
+        dialog.set_content(root)
+
+        controls_scroll = Gtk.ScrolledWindow()
+        controls_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        controls_scroll.set_size_request(360, -1)
+        controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        controls_scroll.set_child(controls)
+        root.append(controls_scroll)
+
+        info_group = Adw.PreferencesGroup(title="Image")
+        info_group.add(Adw.ActionRow(title="Filename", subtitle=source_path.name))
+        info_group.add(
+            Adw.ActionRow(
+                title="Source dimensions",
+                subtitle=f"{source_size[0]}×{source_size[1]}",
+            )
+        )
+        info_group.add(
+            Adw.ActionRow(
+                title="Canvas dimensions",
+                subtitle=f"{canvas_size[0]}×{canvas_size[1]}",
+            )
+        )
+        info_group.add(
+            Adw.ActionRow(
+                title="Current geometry",
+                subtitle=(
+                    f"{current_geometry['WIDTH']}×{current_geometry['HEIGHT']} "
+                    f"at {current_geometry['X']},{current_geometry['Y']}"
+                ),
+            )
+        )
+        controls.append(info_group)
+
+        layout_group = Adw.PreferencesGroup(title="Layout")
+        mode_model = Gtk.StringList.new(mode_labels)
+        mode_row = Adw.ComboRow(title="Mode", model=mode_model)
+        mode_row.set_selected(mode_ids.index(inferred_mode))
+        layout_group.add(mode_row)
+
+        zoom_row = Adw.ActionRow(title="Zoom")
+        zoom_spin = Gtk.SpinButton.new_with_range(0.25, 4.0, 0.05)
+        zoom_spin.set_digits(2)
+        zoom_spin.set_value(1.0)
+        zoom_spin.set_valign(Gtk.Align.CENTER)
+        zoom_spin.set_size_request(110, -1)
+        zoom_row.add_suffix(zoom_spin)
+        layout_group.add(zoom_row)
+
+        custom_width_row = Adw.ActionRow(title="Custom width")
+        custom_width_spin = Gtk.SpinButton.new_with_range(1, 4096, 1)
+        custom_width_spin.set_value(float(current_geometry["WIDTH"]))
+        custom_width_spin.set_valign(Gtk.Align.CENTER)
+        custom_width_spin.set_size_request(110, -1)
+        custom_width_row.add_suffix(custom_width_spin)
+        layout_group.add(custom_width_row)
+
+        custom_height_row = Adw.ActionRow(title="Custom height")
+        custom_height_spin = Gtk.SpinButton.new_with_range(1, 4096, 1)
+        custom_height_spin.set_value(float(current_geometry["HEIGHT"]))
+        custom_height_spin.set_valign(Gtk.Align.CENTER)
+        custom_height_spin.set_size_request(110, -1)
+        custom_height_row.add_suffix(custom_height_spin)
+        layout_group.add(custom_height_row)
+
+        align_row = Adw.ActionRow(title="Alignment")
+        align_grid = Gtk.Grid(column_spacing=4, row_spacing=4)
+        alignment_buttons = {}
+        alignment_state = {"x": "center", "y": "center"}
+        for row_index, align_y in enumerate(ALIGN_Y):
+            for col_index, align_x in enumerate(ALIGN_X):
+                button = Gtk.ToggleButton()
+                button.set_size_request(34, 28)
+                button.set_tooltip_text(f"{align_x} / {align_y}")
+                button.set_label("•")
+                alignment_buttons[(align_x, align_y)] = button
+                align_grid.attach(button, col_index, row_index, 1, 1)
+        align_row.add_suffix(align_grid)
+        layout_group.add(align_row)
+
+        geometry_row = Adw.ActionRow(title="Calculated geometry")
+        layout_group.add(geometry_row)
+        controls.append(layout_group)
+
+        button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda *_: dialog.close())
+        apply_btn = Gtk.Button(label="Apply")
+        apply_btn.add_css_class("suggested-action")
+        button_row.append(cancel_btn)
+        button_row.append(apply_btn)
+        controls.append(button_row)
+
+        preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        preview_box.set_hexpand(True)
+        preview_box.set_vexpand(True)
+        preview_label = Gtk.Label(label="Rendering preview…", xalign=0)
+        preview_label.add_css_class("dim-label")
+        preview_box.append(preview_label)
+        aspect = Gtk.AspectFrame()
+        aspect.set_ratio(canvas_size[0] / canvas_size[1])
+        aspect.set_obey_child(False)
+        aspect.set_hexpand(True)
+        aspect.set_vexpand(True)
+        picture = Gtk.Picture()
+        picture.set_can_shrink(True)
+        if hasattr(Gtk, "ContentFit"):
+            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        aspect.set_child(picture)
+        preview_box.append(aspect)
+        root.append(preview_box)
+
+        preview_state = {"generation": 0, "source": 0}
+        cache_dir = Path(tempfile.gettempdir()) / "turing-theme-editor-layout-preview"
+
+        def selected_settings():
+            mode_index = mode_row.get_selected()
+            if mode_index < 0 or mode_index >= len(mode_ids):
+                mode_index = mode_ids.index(MODE_CUSTOM)
+            return ImageLayoutSettings(
+                mode=mode_ids[mode_index],
+                zoom=float(zoom_spin.get_value()),
+                align_x=alignment_state["x"],
+                align_y=alignment_state["y"],
+                custom_width=int(custom_width_spin.get_value()),
+                custom_height=int(custom_height_spin.get_value()),
+            )
+
+        def calculated_layout():
+            settings = selected_settings()
+            layout = compute_image_layout(
+                source_size[0],
+                source_size[1],
+                canvas_size[0],
+                canvas_size[1],
+                settings,
+            )
+            return settings, layout
+
+        def set_alignment(align_x, align_y):
+            alignment_state["x"] = align_x
+            alignment_state["y"] = align_y
+            for key, button in alignment_buttons.items():
+                button.set_active(key == (align_x, align_y))
+            queue_preview()
+
+        for (align_x, align_y), button in alignment_buttons.items():
+            button.connect(
+                "clicked",
+                lambda widget, x=align_x, y=align_y: set_alignment(x, y)
+                if widget.get_active() else None,
+            )
+
+        def update_custom_sensitivity():
+            mode_index = mode_row.get_selected()
+            is_custom = (
+                0 <= mode_index < len(mode_ids)
+                and mode_ids[mode_index] == MODE_CUSTOM
+            )
+            custom_width_spin.set_sensitive(is_custom)
+            custom_height_spin.set_sensitive(is_custom)
+
+        def render_preview(settings, layout, generation):
+            output_path = cache_dir / f"layout-preview-{os.getpid()}-{generation}.png"
+            try:
+                rendered = render_image_layout_preview(
+                    source_path,
+                    output_path,
+                    canvas_size=canvas_size,
+                    layout=layout,
+                )
+                error = None
+            except Exception as exc:
+                rendered = None
+                error = str(exc)
+
+            def finish():
+                if generation != preview_state["generation"]:
+                    return False
+                if error:
+                    preview_label.set_label("Could not render preview")
+                    picture.set_paintable(None)
+                    return False
+                picture.set_filename(str(rendered))
+                preview_label.set_label("Preview ready")
+                return False
+
+            GLib.idle_add(finish)
+
+        def refresh_layout_preview():
+            preview_state["source"] = 0
+            try:
+                settings, layout = calculated_layout()
+            except Exception as exc:
+                geometry_row.set_subtitle(str(exc))
+                preview_label.set_label("Could not render preview")
+                picture.set_paintable(None)
+                return False
+
+            geometry_row.set_subtitle(layout_summary(layout, settings))
+            preview_state["generation"] += 1
+            generation = preview_state["generation"]
+            preview_label.set_label("Rendering preview…")
+            threading.Thread(
+                target=render_preview,
+                args=(settings, layout, generation),
+                daemon=True,
+            ).start()
+            return False
+
+        def queue_preview(*_args):
+            preview_state["source"] += 1
+            source = preview_state["source"]
+
+            def maybe_refresh():
+                if source != preview_state["source"]:
+                    return False
+                return refresh_layout_preview()
+
+            GLib.timeout_add(250, maybe_refresh)
+
+        def mode_changed(*_args):
+            update_custom_sensitivity()
+            queue_preview()
+
+        mode_row.connect("notify::selected", mode_changed)
+        zoom_spin.connect("value-changed", queue_preview)
+        custom_width_spin.connect("value-changed", queue_preview)
+        custom_height_spin.connect("value-changed", queue_preview)
+
+        def apply_layout(*_args):
+            selected_now = self.selected_static_image()
+            if selected_now is None:
+                return
+            current_path, current_node, current_source = selected_now
+            if current_path != selected_path:
+                self.toast("Image selection changed")
+                return
+            try:
+                current_source_size = image_dimensions(current_source)
+                settings, layout = calculated_layout()
+                layout = compute_image_layout(
+                    current_source_size[0],
+                    current_source_size[1],
+                    canvas_size[0],
+                    canvas_size[1],
+                    settings,
+                )
+            except Exception as exc:
+                self.error_dialog("Could not apply layout", str(exc))
+                return
+
+            keys = ("X", "Y", "WIDTH", "HEIGHT")
+            if all(int(current_node.get(key, 0) or 0) == layout[key] for key in keys):
+                self.toast("No image layout changes")
+                return
+
+            old_values = {key: current_node.get(key) for key in keys}
+            pushed = self.push_undo()
+            try:
+                for key in keys:
+                    current_node[key] = int(layout[key])
+                save_yaml_atomic(self.theme_file, self.theme_data)
+            except Exception as exc:
+                for key, value in old_values.items():
+                    current_node[key] = value
+                if pushed and self.undo_stack:
+                    self.undo_stack.pop()
+                    self.update_history_buttons()
+                self.error_dialog("Could not apply layout", str(exc))
+                return
+
+            self.populate_elements()
+            self.selected_path = selected_path
+            GLib.idle_add(self.restore_tree_selection, selected_path)
+            self.build_property_rows()
+            self.update_elements_summary()
+            self.update_catalog_status()
+            self.update_actions_sensitivity()
+            self.refresh_preview()
+            self.toast("Image layout updated")
+            dialog.close()
+
+        apply_btn.connect("clicked", apply_layout)
+        set_alignment("center", "center")
+        update_custom_sensitivity()
+        queue_preview()
+        dialog.present()
 
     def move_selected_layer(self, action):
         self.actions_button.popdown()
