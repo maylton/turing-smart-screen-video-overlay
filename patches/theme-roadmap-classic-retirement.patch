@@ -1,0 +1,148 @@
+diff --git a/docs/ROADMAP_THEME_EDITOR_DETAILED.md b/docs/ROADMAP_THEME_EDITOR_DETAILED.md
+index cfff9a6..0000000 100644
+--- a/docs/ROADMAP_THEME_EDITOR_DETAILED.md
++++ b/docs/ROADMAP_THEME_EDITOR_DETAILED.md
+@@ -1091,3 +1091,104 @@ When a roadmap item is implemented, the result should be reviewable against:
+ 
+ That discipline is what will let the GTK editor grow toward — and in many areas surpass — the usability of the official Windows tooling, while keeping our architecture cleaner, more testable, and more open.
++
++---
++
++## 14. Classic editor parity and retirement checkpoint
++
++The original Tkinter editor (`theme-editor.py`) is currently kept as a fallback
++for workflows that have not yet been fully migrated to the modern GTK editor.
++Before removing that fallback from the GTK UI or deleting the classic editor from
++the repository, run a final parity audit after the current roadmap work is
++complete.
++
++This checkpoint should happen **after** the current Video Inspector, media
++management, validation, preview, data-source, and canvas work has been reviewed.
++At that point, compare the classic editor again against the GTK editor and mark
++each item below as:
++
++- already implemented in GTK;
++- still needed and not migrated;
++- intentionally superseded by a better GTK workflow;
++- no longer needed.
++
++### 14.1. Required before hiding/removing the fallback
++
++The GTK editor should provide equivalent or better workflows for these classic
++editor capabilities before `Open Classic Editor` is removed from the GTK UI.
++
++#### Restore session
++
++The classic editor has an explicit session restore action that discards all
++changes made since the editor was opened.
++
++GTK requirement:
++- add a global `Restore session` action;
++- restore `theme_data` from `session_original`;
++- preserve atomic YAML saving;
++- clear or rebuild selection safely;
++- refresh preview, property panel, tree state, and Undo/Redo buttons;
++- keep the operation itself undoable when practical.
++
++Suggested UI location:
++
++```text
++⋮ → Restore session
++```
++
++#### Safe close behavior
++
++The classic editor asks what to do with unsaved/session changes when closing.
++
++GTK requirement:
++- detect when the current theme differs from `session_original`;
++- prompt before closing;
++- support:
++  - save and close;
++  - discard session changes and close;
++  - cancel and keep editing;
++- avoid leaving partially written YAML.
++
++#### Open theme YAML
++
++The classic editor can open the current `theme.yaml` directly.
++
++GTK requirement:
++- add an `Open theme.yaml` action;
++- open the exact current theme YAML path;
++- keep `Open Theme Folder` as a separate action.
++
++Suggested UI location:
++
++```text
++⋮ → Open theme.yaml
++⋮ → Open Theme Folder
++```
++
++#### Background image tools for selected elements
++
++The classic editor has contextual helpers for elements using `BACKGROUND_IMAGE`:
++
++- preview the configured background image;
++- preview the exact region used by the selected element when geometry exists;
++- open the background image in the file manager/default image viewer;
++- choose a new background image and copy it into the theme folder;
++- clear `BACKGROUND_IMAGE` from the selected element.
++
++GTK requirement:
++- add a contextual `Background image` section for eligible selected elements;
++- show a thumbnail/region preview;
++- expose `Choose image…`, `Open`, and `Clear` actions;
++- copy external images into the theme folder using safe names;
++- preserve Undo/Redo and atomic YAML save;
++- keep compatibility with shared video preview backgrounds.
++
++Suggested UI location:
++
++```text
++Selected element → Background image
++  [Preview]
++  [Choose image…] [Open] [Clear]
++```
++
++### 14.2. Do not port literally
++
++The classic editor's `Apply to display` action currently restarts the runtime
++process directly. The GTK editor should not copy that behavior as-is.
++
++Instead, replace it with the safer roadmap workflow:
++
++```text
++Validation pipeline
++→ Preview on display
++→ Keep or Restore
++```
++
++This means classic `Apply to display` is considered **superseded**, not missing.
++
++### 14.3. Safe retirement sequence
++
++When the required parity items above are implemented or explicitly superseded,
++retire the fallback in small steps:
++
++1. Remove `Open Classic Editor` from the GTK visible UI.
++2. Keep `theme-editor.py` in the repository for one extra cycle as a legacy
++   script that can still be run manually.
++3. Add a short deprecation note pointing users to `theme-editor-gtk.py`.
++4. After one stable release/checkpoint with no regressions, delete
++   `theme-editor.py` and any Tkinter-only documentation.
++
++Suggested branch:
++
++```text
++feature/theme-editor-classic-retirement
++```
++
++Suggested checkpoint commits:
++
++```text
++Add GTK session restore and close guard
++Add GTK background image element tools
++Deprecate classic theme editor fallback
++Remove classic theme editor
++```
