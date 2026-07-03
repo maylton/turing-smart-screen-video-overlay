@@ -49,6 +49,25 @@ class MediaPreparationTests(unittest.TestCase):
         self.assertIn("crop=iw-30:ih-20:10:5", value)
         self.assertIn("transpose=1", value)
 
+    def test_mirror_filters_are_applied_after_rotation(self):
+        value = build_filter(
+            ConversionSettings(
+                rotation=90,
+                flip_horizontal=True,
+                flip_vertical=True,
+            )
+        )
+        source_graph = value.split("[fg];", 1)[0]
+        self.assertIn("transpose=1,hflip,vflip", source_graph)
+
+    def test_validated_preserves_boolean_mirror_flags(self):
+        settings = ConversionSettings(
+            flip_horizontal=1,
+            flip_vertical="yes",
+        ).validated()
+        self.assertTrue(settings.flip_horizontal)
+        self.assertTrue(settings.flip_vertical)
+
     def test_blurred_background_uses_split_and_gblur(self):
         value = build_filter(
             ConversionSettings(background_mode="blur", blur_strength=31)

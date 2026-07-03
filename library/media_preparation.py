@@ -90,6 +90,8 @@ class ConversionSettings:
     crop_top: int = 0
     crop_bottom: int = 0
     rotation: int = 0
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
     start: float = 0.0
     end: float | None = None
     fps: int = 30
@@ -201,6 +203,8 @@ class ConversionSettings:
             crop_top=crop_values[2],
             crop_bottom=crop_values[3],
             rotation=int(self.rotation),
+            flip_horizontal=bool(self.flip_horizontal),
+            flip_vertical=bool(self.flip_vertical),
             start=float(self.start),
             end=float(self.end) if self.end is not None else None,
             fps=int(self.fps),
@@ -346,6 +350,15 @@ def _rotation_filter(rotation: int) -> list[str]:
     return []
 
 
+def _mirror_filter(settings: ConversionSettings) -> list[str]:
+    filters: list[str] = []
+    if settings.flip_horizontal:
+        filters.append("hflip")
+    if settings.flip_vertical:
+        filters.append("vflip")
+    return filters
+
+
 def _crop_filter(settings: ConversionSettings) -> list[str]:
     if not any(
         (
@@ -443,6 +456,7 @@ def build_filter(settings: ConversionSettings, *, preview: bool = False) -> str:
         f"setpts=(PTS-STARTPTS)/{settings.speed:.6f}",
         *_crop_filter(settings),
         *_rotation_filter(settings.rotation),
+        *_mirror_filter(settings),
         _base_scale_filter(settings),
         (
             f"scale='max(2,trunc(iw*{zoom}/2)*2)':"
