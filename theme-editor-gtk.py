@@ -1076,6 +1076,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             preset_row = self.create_text_style_preset_row(node)
             if preset_row is not None:
                 self.dynamic_group.add(preset_row)
+                self.property_rows.append(preset_row)
 
         for key in ordered_keys:
             value = node[key]
