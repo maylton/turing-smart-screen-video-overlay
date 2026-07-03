@@ -3070,11 +3070,21 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             description=f"Prepared output: {target_width}×{target_height} H.264/yuv420p.",
         )
         crop_group = Adw.PreferencesGroup(title="Crop and rotation")
+        timing_group = Adw.PreferencesGroup(
+            title="Timing",
+            description="Trim the source, change speed, or repeat the source before conversion.",
+        )
+        background_group = Adw.PreferencesGroup(
+            title="Background",
+            description="Choose the canvas behind fit, original, and custom layouts.",
+        )
         output_group = Adw.PreferencesGroup(title="Output and theme")
         page.add(source_group)
         page.add(preview_group)
         page.add(framing_group)
         page.add(crop_group)
+        page.add(timing_group)
+        page.add(background_group)
         page.add(output_group)
 
         source_row = Adw.ActionRow(
@@ -3214,10 +3224,78 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         rotation_row.set_selected(0)
         crop_group.add(rotation_row)
 
+        mirror_h_row = Adw.SwitchRow(
+            title="Mirror horizontally",
+            subtitle="Flip the foreground video left-to-right before scaling.",
+        )
+        mirror_h_row.set_active(False)
+        crop_group.add(mirror_h_row)
+
+        mirror_v_row = Adw.SwitchRow(
+            title="Mirror vertically",
+            subtitle="Flip the foreground video top-to-bottom before scaling.",
+        )
+        mirror_v_row.set_active(False)
+        crop_group.add(mirror_v_row)
+
         crop_left_spin = add_spin(crop_group, "Crop left", 0, 0, 4096)
         crop_right_spin = add_spin(crop_group, "Crop right", 0, 0, 4096)
         crop_top_spin = add_spin(crop_group, "Crop top", 0, 0, 4096)
         crop_bottom_spin = add_spin(crop_group, "Crop bottom", 0, 0, 4096)
+
+        trim_start_spin = add_spin(
+            timing_group,
+            "Trim start (seconds)",
+            0.0,
+            0.0,
+            86400.0,
+            0.1,
+            1,
+        )
+        trim_end_spin = add_spin(
+            timing_group,
+            "Trim end (0 = full source)",
+            0.0,
+            0.0,
+            86400.0,
+            0.1,
+            1,
+        )
+        speed_spin = add_spin(timing_group, "Playback speed", 1.0, 0.25, 4.0, 0.05, 2)
+        loop_count_spin = add_spin(timing_group, "Loop count", 0, 0, 20)
+
+        background_mode_ids = ("solid", "blur", "image")
+        background_mode_row = Adw.ComboRow(
+            title="Background mode",
+            model=Gtk.StringList.new(("Solid color", "Blurred source", "Image")),
+        )
+        background_mode_row.set_selected(0)
+        background_group.add(background_mode_row)
+
+        background_color_row = Adw.EntryRow(title="Solid background RGB")
+        background_color_row.set_text("000000")
+        background_group.add(background_color_row)
+
+        blur_strength_spin = add_spin(
+            background_group,
+            "Blur strength",
+            24.0,
+            1.0,
+            100.0,
+            1.0,
+            0,
+        )
+
+        background_image_row = Adw.EntryRow(title="Background image")
+        background_group.add(background_image_row)
+        choose_background = Gtk.Button(
+            label="Choose image…",
+            icon_name="document-open-symbolic",
+            valign=Gtk.Align.CENTER,
+        )
+        background_image_action = Adw.ActionRow(title="Image file")
+        background_image_action.add_suffix(choose_background)
+        background_group.add(background_image_action)
 
         fps_ids = (24, 30)
         fps_row = Adw.ComboRow(
@@ -3292,6 +3370,29 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             "busy": False,
         }
 
+        def choose_background_image(*_args):
+            chooser = Gtk.FileDialog(title="Choose a background image", modal=True)
+            image_filter = Gtk.FileFilter()
+            image_filter.set_name("Image files")
+            for pattern in ("*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp"):
+                image_filter.add_pattern(pattern)
+            filters = Gio.ListStore.new(Gtk.FileFilter)
+            filters.append(image_filter)
+            chooser.set_filters(filters)
+
+            def selected(chooser, result):
+                try:
+                    file = chooser.open_finish(result)
+                except GLib.Error:
+                    return
+                path = file.get_path()
+                if path:
+                    background_image_row.set_text(path)
+
+            chooser.open(self, None, selected)
+
+        choose_background.connect("clicked", choose_background_image)
+
         def set_busy(busy):
             state["busy"] = bool(busy)
             choose_source.set_sensitive(not busy)
@@ -3306,6 +3407,18 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         mode_row.connect("notify::selected", update_custom_sensitivity)
         update_custom_sensitivity()
 
+        def update_background_sensitivity(*_args):
+            index = background_mode_row.get_selected()
+            mode = background_mode_ids[index] if index < len(background_mode_ids) else "solid"
+            background_color_row.set_sensitive(mode == "solid")
+            blur_strength_spin.set_sensitive(mode == "blur")
+            background_image_row.set_sensitive(mode == "image")
+            choose_background.set_sensitive(mode == "image")
+            background_image_action.set_sensitive(mode == "image")
+
+        background_mode_row.connect("notify::selected", update_background_sensitivity)
+        update_background_sensitivity()
+
         def selected_settings():
             media = state["source_media"]
             if media is None:
@@ -3313,6 +3426,14 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             mode_index = mode_row.get_selected()
             rotation_index = rotation_row.get_selected()
             fps_index = fps_row.get_selected()
+            background_index = background_mode_row.get_selected()
+            background_mode = (
+                background_mode_ids[background_index]
+                if background_index < len(background_mode_ids)
+                else "solid"
+            )
+            trim_end_value = float(trim_end_spin.get_value())
+            background_image_value = background_image_row.get_text().strip() or None
             values = {
                 "mode": mode_ids[mode_index] if mode_index < len(mode_ids) else "fit",
                 "zoom": zoom_spin.get_value(),
@@ -3328,8 +3449,18 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 "rotation": rotation_ids[rotation_index]
                 if rotation_index < len(rotation_ids)
                 else 0,
+                "flip_horizontal": mirror_h_row.get_active(),
+                "flip_vertical": mirror_v_row.get_active(),
                 "fps": fps_ids[fps_index] if fps_index < len(fps_ids) else 30,
                 "crf": int(crf_spin.get_value()),
+                "start": float(trim_start_spin.get_value()),
+                "end": trim_end_value if trim_end_value > 0 else None,
+                "speed": float(speed_spin.get_value()),
+                "loop_count": int(loop_count_spin.get_value()),
+                "background_mode": background_mode,
+                "background": background_color_row.get_text().strip() or "000000",
+                "background_image": background_image_value,
+                "blur_strength": float(blur_strength_spin.get_value()),
             }
             base = ConversionSettings(**values)
             horizontal_index = align_x_row.get_selected()
@@ -3377,6 +3508,8 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             crop_right_spin.set_range(0, max(0, media.width - 1))
             crop_top_spin.set_range(0, max(0, media.height - 1))
             crop_bottom_spin.set_range(0, max(0, media.height - 1))
+            trim_start_spin.set_range(0.0, max(0.0, media.duration - 0.1))
+            trim_end_spin.set_range(0.0, media.duration)
             if not output_name_row.get_text().strip():
                 output_name_row.set_text(
                     prepared_output_path(cache_directory(), media.filename).name
@@ -3617,6 +3750,12 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             fps_row,
         ):
             combo.connect("notify::selected", schedule_preview)
+
+        for switch in (mirror_h_row, mirror_v_row):
+            switch.connect("notify::active", schedule_preview)
+
+        for entry in (background_color_row, background_image_row):
+            entry.connect("changed", schedule_preview)
 
         state["timeline_timer_id"] = GLib.timeout_add(
             200,

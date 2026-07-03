@@ -113,6 +113,15 @@ class LivePreviewSettingsTests(unittest.TestCase):
         with self.assertRaises(ThemeVideoInspectorError):
             live_preview_settings(ConversionSettings(), 0)
 
+    def test_live_preview_respects_trim_start_and_speed(self):
+        preview = live_preview_settings(
+            ConversionSettings(start=5.0, end=20.0, speed=1.5),
+            30.0,
+        )
+        self.assertEqual(preview.start, 5.0)
+        self.assertEqual(preview.end, 13.0)
+        self.assertEqual(preview.speed, 1.5)
+
 
 class AtomicMediaTests(unittest.TestCase):
     def test_conversion_replaces_destination_only_after_success(self):

@@ -81,10 +81,19 @@ def live_preview_settings(
     if not math.isfinite(max_duration) or max_duration <= 0:
         raise ThemeVideoInspectorError("Maximum preview duration must be positive.")
 
-    preview_end = min(duration, max_duration)
+    source_start = max(0.0, float(settings.start))
+    source_end = duration
+    if settings.end is not None:
+        source_end = min(duration, float(settings.end))
+    if source_start >= source_end:
+        raise ThemeVideoInspectorError(
+            "Preview trim start must be before the available source end."
+        )
+
+    preview_end = min(source_end, source_start + max_duration)
     return replace(
         settings,
-        start=0.0,
+        start=source_start,
         end=preview_end,
         fps=24,
         crf=max(28, int(settings.crf)),
