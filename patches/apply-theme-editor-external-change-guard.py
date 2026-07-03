@@ -90,7 +90,7 @@ def main() -> None:
         self.error_dialog(
             "Theme changed outside the editor",
             (
-                f"{self.theme_file} was modified after this editor loaded it.\n\n"
+                f"{self.theme_file} was modified after this editor loaded it.\\n\\n"
                 "To avoid overwriting external edits, close and reopen the theme "
                 "before saving from the GTK editor."
             ),
