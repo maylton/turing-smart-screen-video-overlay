@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import os
 import re
+import shutil
 import threading
 import subprocess
 import sys
@@ -1082,6 +1083,41 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         dropdown.connect("notify::selected", preset_changed)
         return row
 
+    def create_theme_switch_row(self):
+        theme_names = available_themes()
+        if not theme_names:
+            return None
+
+        dropdown = Gtk.DropDown.new_from_strings(theme_names)
+        dropdown.set_size_request(190, -1)
+        dropdown.set_valign(Gtk.Align.CENTER)
+        if self.theme_name in theme_names:
+            dropdown.set_selected(theme_names.index(self.theme_name))
+
+        button = Gtk.Button(
+            label="Change",
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Set the selected theme as active and open it here",
+            valign=Gtk.Align.CENTER,
+        )
+
+        row = Adw.ActionRow(
+            title="Active theme",
+            subtitle=self.theme_name,
+        )
+        row.add_suffix(dropdown)
+        row.add_suffix(button)
+
+        def change_selected_theme(*_args):
+            index = dropdown.get_selected()
+            if index < 0 or index >= len(theme_names):
+                self.toast("Choose a theme first")
+                return
+            self.switch_theme(theme_names[index])
+
+        button.connect("clicked", change_selected_theme)
+        return row
+
     def build_property_rows(self):
         self.clear_property_group()
 
@@ -1094,6 +1130,12 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
 
         if not isinstance(node, dict):
             return
+
+        if self.selected_path == ("display",):
+            theme_row = self.create_theme_switch_row()
+            if theme_row is not None:
+                self.dynamic_group.add(theme_row)
+                self.property_rows.append(theme_row)
 
         ordered_keys = [key for key in EDITABLE_KEYS if key in node]
         ordered_keys.extend(
@@ -1470,18 +1512,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 self.error_dialog("Could not create theme", str(exc))
                 return
 
-            self.toast(f"Theme created: {name}")
-            try:
-                subprocess.Popen(
-                    [sys.executable, str(Path(__file__).resolve()), name],
-                    cwd=str(ROOT),
-                    start_new_session=True,
-                )
-            except Exception as exc:
-                self.error_dialog(
-                    "Theme created, but could not open it",
-                    f"The new theme is available at {destination}.\n\n{exc}",
-                )
+            self.switch_theme(name)
 
         dialog.connect("response", response)
         dialog.present(self)
@@ -2007,6 +2038,20 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         theme_dropdown.set_sensitive(bool(theme_names))
         if self.theme_name in theme_names:
             theme_dropdown.set_selected(theme_names.index(self.theme_name))
+        change_theme = Gtk.Button(
+            label="Change",
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Set the selected theme as active and open it here",
+        )
+        change_theme.set_sensitive(bool(theme_names))
+
+        theme_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        theme_dropdown.set_hexpand(True)
+        theme_box.append(theme_dropdown)
+        theme_box.append(change_theme)
 
         source_labels = (
             "Local file",
@@ -2057,7 +2102,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             grid.attach(title, 0, row, 1, 1)
             grid.attach(widget, 1, row, 1, 1)
 
-        add_row(0, "Theme", theme_dropdown)
+        add_row(0, "Theme", theme_box)
         add_row(1, "Source", source_dropdown)
         add_row(2, "Selected video", selected_path)
         add_row(3, "", choose_local)
@@ -2097,7 +2142,6 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         dialog.add_response("close", "Close")
         dialog.add_response("stop", "Stop display video")
         dialog.add_response("play", "Play on display")
-        dialog.add_response("theme", "Change theme")
         dialog.add_response("use", "Use in theme")
         dialog.add_response("generate", "Generate background")
         dialog.set_response_appearance(
@@ -2317,18 +2361,19 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
 
             threading.Thread(target=worker, daemon=True).start()
 
+        def change_selected_theme(*_args):
+            index = theme_dropdown.get_selected()
+            if index < 0 or index >= len(theme_names):
+                self.toast("Choose a theme first")
+                return
+            self.switch_theme(theme_names[index])
+
+        change_theme.connect("clicked", change_selected_theme)
+
         def response(_dialog, response_id):
             if response_id == "use":
                 self.apply_video_path(selected_path.get_text())
                 dialog.present(self)
-            elif response_id == "theme":
-                index = theme_dropdown.get_selected()
-                if index < 0 or index >= len(theme_names):
-                    self.toast("Choose a theme first")
-                    dialog.present(self)
-                    return
-                if not self.switch_theme(theme_names[index]):
-                    dialog.present(self)
             elif response_id == "generate":
                 generate_selected_background()
                 dialog.present(self)
