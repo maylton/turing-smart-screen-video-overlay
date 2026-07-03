@@ -1,0 +1,181 @@
+name: Apply theme switch fixes
+
+on:
+  push:
+    branches:
+      - feature/theme-engine-composition-presets
+    paths:
+      - .github/workflows/apply-theme-switch-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/theme-engine-composition-presets
+          fetch-depth: 0
+
+      - name: Apply theme switching corrections
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("theme-editor-gtk.py")
+          source = path.read_text(encoding="utf-8")
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              source = source.replace(old, new, 1)
+
+          replace_once(
+              '''def available_themes() -> list[str]:
+              if not THEMES_DIR.exists():
+                  return []
+
+              themes = []
+              try:
+                  for path in THEMES_DIR.iterdir():
+                      if not path.is_dir():
+                          continue
+                      if (path / "theme.yaml").is_file() or (path / "theme.yml").is_file():
+                          themes.append(path.name)
+              except OSError:
+                  return []
+              return sorted(themes, key=str.casefold)
+          ''',
+              '''def find_theme_file(theme_dir: Path) -> Path | None:
+              """Return the supported YAML file for a theme directory."""
+              for filename in ("theme.yaml", "theme.yml"):
+                  candidate = theme_dir / filename
+                  if candidate.is_file():
+                      return candidate
+              return None
+
+
+          def available_themes() -> list[str]:
+              if not THEMES_DIR.exists():
+                  return []
+
+              themes = []
+              try:
+                  for path in THEMES_DIR.iterdir():
+                      if path.is_dir() and find_theme_file(path) is not None:
+                          themes.append(path.name)
+              except OSError:
+                  return []
+              return sorted(themes, key=str.casefold)
+          ''',
+              "theme file resolver",
+          )
+
+          replace_once(
+              '''        self.theme_name = theme_name
+                  self.theme_dir = THEMES_DIR / theme_name
+                  self.theme_file = self.theme_dir / "theme.yaml"
+                  self.preview_file = self.theme_dir / "preview.png"
+
+                  if not self.theme_file.is_file():
+                      raise FileNotFoundError(self.theme_file)
+          ''',
+              '''        self.theme_name = theme_name
+                  self.theme_dir = THEMES_DIR / theme_name
+                  theme_file = find_theme_file(self.theme_dir)
+                  if theme_file is None:
+                      raise FileNotFoundError(
+                          f"No theme.yaml or theme.yml found in {self.theme_dir}"
+                      )
+                  self.theme_file = theme_file
+                  self.preview_file = self.theme_dir / "preview.png"
+          ''',
+              "initial theme file lookup",
+          )
+
+          replace_once(
+              '''                save_yaml_atomic(
+                          destination / "theme.yaml",
+                          copy.deepcopy(self.theme_data),
+                      )
+          ''',
+              '''                save_yaml_atomic(
+                          destination / self.theme_file.name,
+                          copy.deepcopy(self.theme_data),
+                      )
+          ''',
+              "save as theme filename",
+          )
+
+          replace_once(
+              '''        theme_dir = THEMES_DIR / theme_name
+                  theme_file = theme_dir / "theme.yaml"
+                  if not theme_file.is_file():
+                      self.error_dialog(
+                          "Could not change theme",
+                          f"{theme_file} was not found.",
+                      )
+                      return False
+          ''',
+              '''        theme_dir = THEMES_DIR / theme_name
+                  theme_file = find_theme_file(theme_dir)
+                  if theme_file is None:
+                      self.error_dialog(
+                          "Could not change theme",
+                          f"No theme.yaml or theme.yml was found in {theme_dir}.",
+                      )
+                      return False
+          ''',
+              "theme switch file lookup",
+          )
+
+          replace_once(
+              '''        def change_selected_theme(*_args):
+                  index = theme_dropdown.get_selected()
+                  if index < 0 or index >= len(theme_names):
+                      self.toast("Choose a theme first")
+                      return
+                  self.switch_theme(theme_names[index])
+
+              change_theme.connect("clicked", change_selected_theme)
+          ''',
+              '''        def change_selected_theme(*_args):
+                  index = theme_dropdown.get_selected()
+                  if index < 0 or index >= len(theme_names):
+                      self.toast("Choose a theme first")
+                      return
+                  if self.switch_theme(theme_names[index]):
+                      dialog.close()
+
+              change_theme.connect("clicked", change_selected_theme)
+          ''',
+              "video dialog theme switch",
+          )
+
+          path.write_text(source, encoding="utf-8")
+          PY
+
+      - name: Validate corrections
+        shell: bash
+        run: |
+          python3 -m py_compile theme-editor-gtk.py
+          python3 -m unittest -v \
+            tests.test_theme_component_presets \
+            tests.test_theme_composition_presets
+          git diff --check
+
+      - name: Commit corrections and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-theme-switch-fixes.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add theme-editor-gtk.py .github/workflows/apply-theme-switch-fixes.yml
+          git commit -m "Fix theme switching consistency"
+          git push origin HEAD:feature/theme-engine-composition-presets
