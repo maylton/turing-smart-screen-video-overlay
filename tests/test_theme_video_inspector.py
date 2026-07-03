@@ -12,6 +12,7 @@ from library.theme_video_inspector import (
     build_video_section,
     convert_media_atomic,
     create_preview_atomic,
+    live_preview_settings,
     prepared_output_path,
     preview_background_path,
     resolve_local_video_source,
@@ -92,6 +93,25 @@ class VideoThemeUpdateTests(unittest.TestCase):
                 remote_path="/mnt/SDCARD/video/../demo.mp4",
                 preview_background="preview.png",
             )
+
+
+class LivePreviewSettingsTests(unittest.TestCase):
+    def test_limits_preview_to_eight_seconds(self):
+        original = ConversionSettings(fps=30, crf=20)
+        preview = live_preview_settings(original, 30.0)
+        self.assertEqual(preview.start, 0.0)
+        self.assertEqual(preview.end, 8.0)
+        self.assertEqual(preview.fps, 24)
+        self.assertEqual(preview.crf, 28)
+        self.assertIsNone(original.end)
+
+    def test_uses_shorter_source_duration(self):
+        preview = live_preview_settings(ConversionSettings(), 3.5)
+        self.assertEqual(preview.end, 3.5)
+
+    def test_rejects_invalid_duration(self):
+        with self.assertRaises(ThemeVideoInspectorError):
+            live_preview_settings(ConversionSettings(), 0)
 
 
 class AtomicMediaTests(unittest.TestCase):

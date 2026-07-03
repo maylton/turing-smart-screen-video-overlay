@@ -45,6 +45,7 @@ from library.theme_video_inspector import (
     build_video_section,
     convert_media_atomic,
     create_preview_atomic,
+    live_preview_settings,
     prepared_output_path,
     preview_background_path,
     resolve_local_video_source,
@@ -96,7 +97,6 @@ from library.media_preparation import (
     ConversionSettings,
     alignment_offsets,
     cache_directory,
-    create_preview,
     probe_source,
 )
 from library.theme_generated_media import (
@@ -409,12 +409,12 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.redo_button.connect("clicked", lambda *_: self.redo())
         header.pack_start(self.redo_button)
 
-        classic_btn = Gtk.Button(
-            icon_name="applications-system-symbolic",
-            tooltip_text="Open the classic editor",
+        refresh_btn = Gtk.Button(
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Render and refresh the theme preview",
         )
-        classic_btn.connect("clicked", lambda *_: self.open_classic_editor())
-        header.pack_end(classic_btn)
+        refresh_btn.connect("clicked", lambda *_: self.refresh_preview())
+        header.pack_end(refresh_btn)
 
         save_btn = Gtk.Button(
             label="Save",
@@ -424,49 +424,124 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         save_btn.connect("clicked", lambda *_: self.save())
         header.pack_end(save_btn)
 
-        save_as_btn = Gtk.Button(
-            label="Save as…",
-            tooltip_text="Create a new theme from the current theme",
-        )
-        save_as_btn.connect("clicked", lambda *_: self.save_as())
-        header.pack_end(save_as_btn)
+        def popover_action_button(label, icon_name, callback, popover):
+            button = Gtk.Button()
+            button.add_css_class("flat")
+            button.set_halign(Gtk.Align.FILL)
+            content = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                spacing=10,
+                margin_top=4,
+                margin_bottom=4,
+                margin_start=4,
+                margin_end=4,
+            )
+            content.append(Gtk.Image.new_from_icon_name(icon_name))
+            text = Gtk.Label(label=label, xalign=0)
+            text.set_hexpand(True)
+            content.append(text)
+            button.set_child(content)
 
-        rename_btn = Gtk.Button(
-            label="Rename…",
-            tooltip_text="Rename the current theme directory",
-        )
-        rename_btn.connect("clicked", lambda *_: self.rename_theme())
-        header.pack_end(rename_btn)
+            def activate(*_args):
+                popover.popdown()
+                callback()
 
-        generated_media_btn = Gtk.Button(
-            icon_name="folder-pictures-symbolic",
-            tooltip_text="Inspect generated media",
-        )
-        generated_media_btn.connect(
-            "clicked", lambda *_: self.open_generated_media_manager()
-        )
-        header.pack_end(generated_media_btn)
+            button.connect("clicked", activate)
+            return button
 
-        refresh_btn = Gtk.Button(
-            icon_name="view-refresh-symbolic",
-            tooltip_text="Render and refresh the theme preview",
+        tools_popover = Gtk.Popover()
+        tools_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=4,
+            margin_top=10,
+            margin_bottom=10,
+            margin_start=10,
+            margin_end=10,
         )
-        refresh_btn.connect("clicked", lambda *_: self.refresh_preview())
-        header.pack_end(refresh_btn)
+        tools_box.set_size_request(260, -1)
+        media_heading = Gtk.Label(label="Media", xalign=0)
+        media_heading.add_css_class("heading")
+        tools_box.append(media_heading)
+        tools_box.append(
+            popover_action_button(
+                "Video Inspector",
+                "media-playback-start-symbolic",
+                self.open_video_inspector,
+                tools_popover,
+            )
+        )
+        tools_box.append(
+            popover_action_button(
+                "Video and Background",
+                "video-x-generic-symbolic",
+                self.open_video_tools,
+                tools_popover,
+            )
+        )
+        tools_box.append(
+            popover_action_button(
+                "Generated Media",
+                "folder-pictures-symbolic",
+                self.open_generated_media_manager,
+                tools_popover,
+            )
+        )
+        tools_popover.set_child(tools_box)
 
-        video_inspector_btn = Gtk.Button(
-            icon_name="media-playback-start-symbolic",
-            tooltip_text="Inspect, preview, and prepare a local theme video",
-        )
-        video_inspector_btn.connect("clicked", self.on_video_inspector_clicked)
-        header.pack_end(video_inspector_btn)
+        tools_button = Gtk.MenuButton(label="Tools")
+        tools_button.set_tooltip_text("Open theme editing tools")
+        tools_button.set_popover(tools_popover)
+        header.pack_end(tools_button)
 
-        media_btn = Gtk.Button(
-            icon_name="video-x-generic-symbolic",
-            tooltip_text="Choose theme video or generate its preview background",
+        overflow_popover = Gtk.Popover()
+        overflow_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=4,
+            margin_top=10,
+            margin_bottom=10,
+            margin_start=10,
+            margin_end=10,
         )
-        media_btn.connect("clicked", self.on_video_tools_clicked)
-        header.pack_end(media_btn)
+        overflow_box.set_size_request(240, -1)
+        overflow_box.append(
+            popover_action_button(
+                "Save As…",
+                "document-save-as-symbolic",
+                self.save_as,
+                overflow_popover,
+            )
+        )
+        overflow_box.append(
+            popover_action_button(
+                "Rename Theme…",
+                "document-edit-symbolic",
+                self.rename_theme,
+                overflow_popover,
+            )
+        )
+        overflow_box.append(
+            popover_action_button(
+                "Open Theme Folder",
+                "folder-open-symbolic",
+                lambda: self.reveal_generated_media(self.theme_dir),
+                overflow_popover,
+            )
+        )
+        overflow_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        overflow_box.append(
+            popover_action_button(
+                "Open Classic Editor",
+                "applications-system-symbolic",
+                self.open_classic_editor,
+                overflow_popover,
+            )
+        )
+        overflow_popover.set_child(overflow_box)
+
+        overflow_button = Gtk.MenuButton(icon_name="open-menu-symbolic")
+        overflow_button.set_tooltip_text("More theme actions")
+        overflow_button.set_popover(overflow_popover)
+        header.pack_end(overflow_button)
 
         body = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         body.set_position(340)
@@ -1750,6 +1825,28 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 self.dynamic_group.add(theme_row)
                 self.property_rows.append(theme_row)
 
+        if self.selected_path == ("video",):
+            tools_row = Adw.ActionRow(
+                title="Video tools",
+                subtitle="Preview, prepare, or manage the theme video.",
+            )
+            inspector_button = Gtk.Button(
+                label="Inspector",
+                icon_name="media-playback-start-symbolic",
+                valign=Gtk.Align.CENTER,
+            )
+            inspector_button.connect("clicked", self.on_video_inspector_clicked)
+            background_button = Gtk.Button(
+                label="Background",
+                icon_name="video-x-generic-symbolic",
+                valign=Gtk.Align.CENTER,
+            )
+            background_button.connect("clicked", self.on_video_tools_clicked)
+            tools_row.add_suffix(inspector_button)
+            tools_row.add_suffix(background_button)
+            self.dynamic_group.add(tools_row)
+            self.property_rows.append(tools_row)
+
         image_layout_row = self.create_image_layout_row(node)
         if image_layout_row is not None:
             self.dynamic_group.add(image_layout_row)
@@ -2998,12 +3095,49 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         )
         source_group.add(metadata_row)
 
-        preview_picture = Gtk.Picture()
-        preview_picture.set_size_request(360, 360)
-        preview_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-        preview_picture.set_can_shrink(True)
+        preview_video = Gtk.Video()
+        preview_video.set_size_request(480, 360)
+        preview_video.set_hexpand(True)
+        preview_video.set_vexpand(True)
+        preview_video.set_autoplay(True)
+        preview_video.set_loop(True)
+
+        play_pause_button = Gtk.Button(
+            icon_name="media-playback-start-symbolic",
+            tooltip_text="Play or pause the preview",
+            sensitive=False,
+        )
+        restart_button = Gtk.Button(
+            icon_name="media-skip-backward-symbolic",
+            tooltip_text="Restart the preview",
+            sensitive=False,
+        )
+        timeline = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL,
+            0.0,
+            1.0,
+            0.01,
+        )
+        timeline.set_draw_value(False)
+        timeline.set_hexpand(True)
+        timeline.set_sensitive(False)
+        time_label = Gtk.Label(label="00:00 / 00:00")
+        time_label.add_css_class("numeric")
+        loop_toggle = Gtk.CheckButton(label="Loop")
+        loop_toggle.set_active(True)
+
+        playback_controls = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        playback_controls.append(play_pause_button)
+        playback_controls.append(restart_button)
+        playback_controls.append(timeline)
+        playback_controls.append(time_label)
+        playback_controls.append(loop_toggle)
+
         preview_status = Gtk.Label(
-            label="Choose a source to generate a preview.",
+            label="Choose a source to start the automatic preview.",
             xalign=0,
             wrap=True,
         )
@@ -3016,7 +3150,8 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             margin_start=12,
             margin_end=12,
         )
-        preview_box.append(preview_picture)
+        preview_box.append(preview_video)
+        preview_box.append(playback_controls)
         preview_box.append(preview_status)
         preview_group.add(preview_box)
 
@@ -3119,7 +3254,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         output_group.add(overlay_row)
 
         preview_button = Gtk.Button(
-            label="Generate preview",
+            label="Refresh preview",
             icon_name="view-refresh-symbolic",
             sensitive=False,
         )
@@ -3150,6 +3285,9 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             "probe_generation": 0,
             "preview_generation": 0,
             "preview_path": None,
+            "preview_debounce_id": 0,
+            "timeline_timer_id": 0,
+            "updating_timeline": False,
             "closed": False,
             "busy": False,
         }
@@ -3243,7 +3381,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 output_name_row.set_text(
                     prepared_output_path(cache_directory(), media.filename).name
                 )
-            queue_preview()
+            schedule_preview()
             return False
 
         def start_probe(path):
@@ -3290,6 +3428,78 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
 
         choose_source.connect("clicked", choose_local_source)
 
+        def format_media_time(seconds):
+            seconds = max(0, int(seconds or 0))
+            minutes, seconds = divmod(seconds, 60)
+            hours, minutes = divmod(minutes, 60)
+            if hours:
+                return f"{hours:d}:{minutes:02d}:{seconds:02d}"
+            return f"{minutes:02d}:{seconds:02d}"
+
+        def playback_stream():
+            return preview_video.get_media_stream()
+
+        def update_playback_controls():
+            if state["closed"]:
+                return False
+            stream = playback_stream()
+            if stream is None:
+                return True
+            duration_us = max(0, int(stream.get_duration()))
+            timestamp_us = max(0, int(stream.get_timestamp()))
+            duration = duration_us / 1_000_000
+            timestamp = timestamp_us / 1_000_000
+            state["updating_timeline"] = True
+            try:
+                timeline.set_range(0.0, max(duration, 0.01))
+                timeline.set_value(min(timestamp, max(duration, 0.01)))
+            finally:
+                state["updating_timeline"] = False
+            time_label.set_label(
+                f"{format_media_time(timestamp)} / {format_media_time(duration)}"
+            )
+            play_pause_button.set_icon_name(
+                "media-playback-pause-symbolic"
+                if stream.get_playing()
+                else "media-playback-start-symbolic"
+            )
+            return True
+
+        def seek_preview(scale):
+            if state["updating_timeline"]:
+                return
+            stream = playback_stream()
+            if stream is not None and stream.get_seekable():
+                stream.seek(int(scale.get_value() * 1_000_000))
+
+        timeline.connect("value-changed", seek_preview)
+
+        def toggle_playback(*_args):
+            stream = playback_stream()
+            if stream is None:
+                return
+            if stream.get_playing():
+                stream.pause()
+            else:
+                stream.play()
+            update_playback_controls()
+
+        def restart_playback(*_args):
+            stream = playback_stream()
+            if stream is None:
+                return
+            if stream.get_seekable():
+                stream.seek(0)
+            stream.play()
+            update_playback_controls()
+
+        def update_loop(*_args):
+            preview_video.set_loop(loop_toggle.get_active())
+
+        play_pause_button.connect("clicked", toggle_playback)
+        restart_button.connect("clicked", restart_playback)
+        loop_toggle.connect("toggled", update_loop)
+
         def finish_preview(generation, output, error):
             if state["closed"] or generation != state["preview_generation"]:
                 Path(output).unlink(missing_ok=True)
@@ -3298,47 +3508,120 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             if error:
                 preview_status.set_label(error)
                 return False
-            try:
-                texture = Gdk.Texture.new_from_filename(str(output))
-                preview_picture.set_paintable(texture)
-                preview_status.set_label(str(output))
-                old_output = state.get("preview_path")
-                state["preview_path"] = Path(output)
-                if old_output is not None and Path(old_output) != Path(output):
-                    Path(old_output).unlink(missing_ok=True)
-            except GLib.Error as exc:
-                preview_status.set_label(str(exc))
+            previous_stream = playback_stream()
+            resume_timestamp = 0
+            if previous_stream is not None:
+                resume_timestamp = max(0, int(previous_stream.get_timestamp()))
+            old_output = state.get("preview_path")
+            state["preview_path"] = Path(output)
+            preview_video.set_file(Gio.File.new_for_path(str(output)))
+            preview_video.set_loop(loop_toggle.get_active())
+            preview_video.set_autoplay(True)
+            play_pause_button.set_sensitive(True)
+            restart_button.set_sensitive(True)
+            timeline.set_sensitive(True)
+            preview_status.set_label(
+                "Playing an automatic 8-second transformed preview. "
+                "Controls update it after a short pause."
+            )
+
+            def resume_playback():
+                stream = playback_stream()
+                if stream is None:
+                    return False
+                duration = max(0, int(stream.get_duration()))
+                target = resume_timestamp
+                if duration > 0:
+                    target %= duration
+                if target > 0 and stream.get_seekable():
+                    stream.seek(target)
+                stream.play()
+                update_playback_controls()
+                return False
+
+            GLib.timeout_add(150, resume_playback)
+            if old_output is not None and Path(old_output) != Path(output):
+                GLib.timeout_add(
+                    1000,
+                    lambda path=Path(old_output): (
+                        path.unlink(missing_ok=True),
+                        False,
+                    )[1],
+                )
             return False
 
         def queue_preview(*_args):
             source = state["source_path"]
-            if source is None or state["source_media"] is None:
-                return
+            media = state["source_media"]
+            if source is None or media is None:
+                return False
             try:
-                settings = selected_settings()
+                settings = live_preview_settings(
+                    selected_settings(),
+                    media.duration,
+                )
             except Exception as exc:
                 preview_status.set_label(str(exc))
-                return
+                return False
             state["preview_generation"] += 1
             generation = state["preview_generation"]
             output = (
                 cache_directory()
-                / f"theme-editor-video-preview-{os.getpid()}-{generation}.png"
+                / f"theme-editor-live-preview-{os.getpid()}-{generation}.mp4"
             )
             set_busy(True)
-            preview_status.set_label("Generating preview…")
+            preview_status.set_label("Updating the live preview…")
 
             def worker():
                 try:
-                    create_preview(source, output, settings)
+                    convert_media_atomic(source, output, settings)
                     error = None
                 except Exception as exc:
                     error = str(exc)
                 GLib.idle_add(finish_preview, generation, output, error)
 
             threading.Thread(target=worker, daemon=True).start()
+            return False
+
+        def schedule_preview(*_args):
+            if state["source_media"] is None:
+                return
+            debounce_id = state.get("preview_debounce_id", 0)
+            if debounce_id:
+                GLib.source_remove(debounce_id)
+            preview_status.set_label("Settings changed — preview update queued…")
+
+            def run_preview():
+                state["preview_debounce_id"] = 0
+                return queue_preview()
+
+            state["preview_debounce_id"] = GLib.timeout_add(450, run_preview)
 
         preview_button.connect("clicked", queue_preview)
+        for spin in (
+            zoom_spin,
+            custom_width_spin,
+            custom_height_spin,
+            crop_left_spin,
+            crop_right_spin,
+            crop_top_spin,
+            crop_bottom_spin,
+            crf_spin,
+        ):
+            spin.connect("value-changed", schedule_preview)
+        for combo in (
+            mode_row,
+            align_x_row,
+            align_y_row,
+            rotation_row,
+            fps_row,
+        ):
+            combo.connect("notify::selected", schedule_preview)
+
+        state["timeline_timer_id"] = GLib.timeout_add(
+            200,
+            update_playback_controls,
+        )
 
         def finish_conversion(output, preview_destination, update, error):
             if state["closed"]:
@@ -3451,6 +3734,13 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             state["closed"] = True
             state["probe_generation"] += 1
             state["preview_generation"] += 1
+            debounce_id = state.get("preview_debounce_id", 0)
+            if debounce_id:
+                GLib.source_remove(debounce_id)
+            timer_id = state.get("timeline_timer_id", 0)
+            if timer_id:
+                GLib.source_remove(timer_id)
+            preview_video.set_file(None)
             preview_path = state.get("preview_path")
             if preview_path is not None:
                 Path(preview_path).unlink(missing_ok=True)

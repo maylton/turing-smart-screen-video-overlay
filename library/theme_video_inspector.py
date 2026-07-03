@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import copy
+import math
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -64,6 +65,31 @@ class VideoThemeUpdate:
         object.__setattr__(self, "preview_background", preview_background)
         object.__setattr__(self, "background_frame_time", frame_time)
         object.__setattr__(self, "overlay", bool(self.overlay))
+
+
+def live_preview_settings(
+    settings: ConversionSettings,
+    duration: float,
+    *,
+    max_duration: float = 8.0,
+) -> ConversionSettings:
+    """Return fast, bounded settings for the reactive inspector preview."""
+    duration = float(duration)
+    max_duration = float(max_duration)
+    if not math.isfinite(duration) or duration <= 0:
+        raise ThemeVideoInspectorError("Preview duration must be positive.")
+    if not math.isfinite(max_duration) or max_duration <= 0:
+        raise ThemeVideoInspectorError("Maximum preview duration must be positive.")
+
+    preview_end = min(duration, max_duration)
+    return replace(
+        settings,
+        start=0.0,
+        end=preview_end,
+        fps=24,
+        crf=max(28, int(settings.crf)),
+        loop_count=0,
+    ).validated(duration=duration)
 
 
 def resolve_local_video_source(

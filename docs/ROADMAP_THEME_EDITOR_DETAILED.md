@@ -233,27 +233,31 @@ Still possible later:
 - multi-select cleanup after broader field testing.
 
 ### 2.5. Video inspector
-**Status:** V1 foundation implemented; pending visual validation
+**Status:** V1 implemented with reactive playback preview
 
-Delivered in V1:
+Delivered:
 - local GIF/video selection and FFprobe metadata;
 - Fit, Fill, Stretch, Original, and Custom framing;
 - zoom and horizontal/vertical alignment;
 - numeric crop and 0/90/180/270 rotation;
 - 24/30 FPS and CRF controls;
-- asynchronous FFmpeg preview;
+- automatic looping video preview after source selection;
+- 450 ms debounced preview regeneration after control changes;
+- bounded eight-second H.264 proxy generation outside the GTK thread;
+- Play/Pause, Restart, timeline seeking, elapsed time, and Loop controls;
 - atomic H.264/yuv420p conversion in the media-preparation cache;
 - atomic theme preview background generation;
 - SD/internal remote path selection;
 - Apply flow with Undo/Redo and atomic YAML save;
 - overwrite confirmation for prepared videos;
+- simplified header with Tools and overflow menus;
+- contextual video actions in the properties panel;
 - pure helpers and unit tests.
 
 Still planned:
 - mirror;
 - visual crop handles;
-- trim timeline;
-- speed and loop controls;
+- configurable trim, speed, and source loop controls;
 - solid/blur/image background controls;
 - direct upload and remote playback management inside the inspector.
 
