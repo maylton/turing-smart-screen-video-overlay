@@ -369,6 +369,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.preview_file = self.theme_dir / "preview.png"
 
         self.theme_data = load_yaml(self.theme_file)
+        self.theme_file_signature = self.current_theme_file_signature()
         self.session_original = copy.deepcopy(self.theme_data)
         self.undo_stack = []
         self.redo_stack = []
@@ -1440,7 +1441,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.drag_history_pushed = False
             return
 
-        save_yaml_atomic(self.theme_file, self.theme_data)
+        if not self.save_theme_data():
+            return
         self.refresh_preview()
         self.drag_dirty = False
         self.drag_history_pushed = False
@@ -1604,6 +1606,43 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.set_color_selector_value(widget, value)
         elif hasattr(widget, "set_text"):
             widget.set_text(self.value_to_text(value))
+
+    def current_theme_file_signature(self):
+        try:
+            stat = self.theme_file.stat()
+        except FileNotFoundError:
+            return None
+        return stat.st_mtime_ns, stat.st_size
+
+    def mark_theme_file_saved(self):
+        self.theme_file_signature = self.current_theme_file_signature()
+
+    def theme_file_changed_on_disk(self):
+        return self.current_theme_file_signature() != self.theme_file_signature
+
+    def show_external_theme_change_error(self):
+        self.error_dialog(
+            "Theme changed outside the editor",
+            (
+                f"{self.theme_file} was modified after this editor loaded it.\\n\\n"
+                "To avoid overwriting external edits, close and reopen the theme "
+                "before saving from the GTK editor."
+            ),
+        )
+
+    def save_theme_data(self):
+        if self.theme_file_changed_on_disk():
+            self.show_external_theme_change_error()
+            return False
+
+        try:
+            save_yaml_atomic(self.theme_file, self.theme_data)
+        except Exception as exc:
+            self.error_dialog("Could not save theme", str(exc))
+            return False
+
+        self.mark_theme_file_saved()
+        return True
 
     def property_preset_options(self, key, current_value):
         return property_preset_options(
@@ -2019,7 +2058,11 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.theme_data = copy.deepcopy(state["theme_data"])
             self.selected_path = target_path
 
-            save_yaml_atomic(self.theme_file, self.theme_data)
+            if not self.save_theme_data():
+                self.theme_data = load_yaml(self.theme_file)
+                self.mark_theme_file_saved()
+                self.populate_elements()
+                return
             self.populate_elements()
 
             # Re-assert the restored logical selection after rebuilding the
@@ -2174,7 +2217,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         for key, value in updates.items():
             node[key] = value
 
-        save_yaml_atomic(self.theme_file, self.theme_data)
+        if not self.save_theme_data():
+            return False
         self.populate_elements()
         GLib.idle_add(self.restore_tree_selection, self.selected_path)
         self.build_property_rows()
@@ -2200,7 +2244,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             parent = parent[part]
         parent[self.selected_path[-1]] = copy.deepcopy(original)
 
-        save_yaml_atomic(self.theme_file, self.theme_data)
+        if not self.save_theme_data():
+            return
         self.populate_elements()
         GLib.idle_add(self.restore_tree_selection, self.selected_path)
         self.build_property_rows()
@@ -2288,7 +2333,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 return
 
             try:
-                save_yaml_atomic(self.theme_file, self.theme_data)
+                if not self.save_theme_data():
+                    return
                 shutil.copytree(self.theme_dir, destination)
                 save_yaml_atomic(
                     destination / self.theme_file.name,
@@ -2367,7 +2413,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             old_dir = self.theme_dir
             old_file_name = self.theme_file.name
             try:
-                save_yaml_atomic(self.theme_file, self.theme_data)
+                if not self.save_theme_data():
+                    return
                 old_dir.rename(destination)
                 write_current_theme(name)
             except Exception as exc:
@@ -2595,8 +2642,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def save(self):
-        save_yaml_atomic(self.theme_file, self.theme_data)
-        self.toast("Theme saved")
+        if self.save_theme_data():
+            self.toast("Theme saved")
 
     def refresh_preview(self):
         self.preview_generation += 1
