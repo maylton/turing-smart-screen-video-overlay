@@ -3214,6 +3214,20 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         rotation_row.set_selected(0)
         crop_group.add(rotation_row)
 
+        mirror_h_row = Adw.SwitchRow(
+            title="Mirror horizontally",
+            subtitle="Flip the foreground video left-to-right before scaling.",
+        )
+        mirror_h_row.set_active(False)
+        crop_group.add(mirror_h_row)
+
+        mirror_v_row = Adw.SwitchRow(
+            title="Mirror vertically",
+            subtitle="Flip the foreground video top-to-bottom before scaling.",
+        )
+        mirror_v_row.set_active(False)
+        crop_group.add(mirror_v_row)
+
         crop_left_spin = add_spin(crop_group, "Crop left", 0, 0, 4096)
         crop_right_spin = add_spin(crop_group, "Crop right", 0, 0, 4096)
         crop_top_spin = add_spin(crop_group, "Crop top", 0, 0, 4096)
@@ -3328,6 +3342,8 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 "rotation": rotation_ids[rotation_index]
                 if rotation_index < len(rotation_ids)
                 else 0,
+                "flip_horizontal": mirror_h_row.get_active(),
+                "flip_vertical": mirror_v_row.get_active(),
                 "fps": fps_ids[fps_index] if fps_index < len(fps_ids) else 30,
                 "crf": int(crf_spin.get_value()),
             }
@@ -3617,6 +3633,9 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             fps_row,
         ):
             combo.connect("notify::selected", schedule_preview)
+
+        for switch in (mirror_h_row, mirror_v_row):
+            switch.connect("notify::active", schedule_preview)
 
         state["timeline_timer_id"] = GLib.timeout_add(
             200,
