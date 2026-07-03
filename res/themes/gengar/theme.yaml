@@ -764,3 +764,11 @@ static_text:
     BACKGROUND_IMAGE: background.png
     ALIGN: center
     ANCHOR: mm
+static_images:
+  custom_image:
+    SHOW: true
+    PATH: Anime_04.jpeg
+    X: -144
+    Y: 0
+    WIDTH: 768
+    HEIGHT: 480
