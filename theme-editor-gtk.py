@@ -83,6 +83,11 @@ from library.theme_media_layout import (
     resolve_theme_image_path,
     theme_canvas_dimensions,
 )
+from library.theme_generated_media import (
+    GeneratedMediaStatus,
+    inspect_generated_media,
+    remove_unused_managed_asset,
+)
 from library.theme_media_transform import (
     ROTATION_0,
     ROTATION_90,
@@ -416,6 +421,15 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         rename_btn.connect("clicked", lambda *_: self.rename_theme())
         header.pack_end(rename_btn)
+
+        generated_media_btn = Gtk.Button(
+            icon_name="folder-pictures-symbolic",
+            tooltip_text="Inspect generated media",
+        )
+        generated_media_btn.connect(
+            "clicked", lambda *_: self.open_generated_media_manager()
+        )
+        header.pack_end(generated_media_btn)
 
         refresh_btn = Gtk.Button(
             icon_name="view-refresh-symbolic",
@@ -2192,6 +2206,199 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.toast(f"Theme renamed to {name}")
 
         dialog.connect("response", response)
+        dialog.present(self)
+
+    def reveal_generated_media(self, path: Path):
+        target = path if path.exists() else path.parent
+        directory = target.parent if target.is_file() else target
+        try:
+            subprocess.Popen(
+                ["gio", "open", str(directory)],
+                start_new_session=True,
+            )
+        except Exception as exc:
+            self.error_dialog("Could not open file manager", str(exc))
+
+    def open_generated_media_manager(self):
+        dialog = Adw.PreferencesDialog()
+        dialog.set_title("Generated Media")
+        dialog.set_content_width(820)
+        dialog.set_content_height(680)
+
+        page = Adw.PreferencesPage(
+            title="Generated Media",
+            icon_name="folder-pictures-symbolic",
+        )
+        dialog.add(page)
+
+        summary_group = Adw.PreferencesGroup(title="Manifest")
+        assets_group = Adw.PreferencesGroup(title="Assets")
+        page.add(summary_group)
+        page.add(assets_group)
+        visible_rows = {"summary": [], "assets": []}
+
+        def replace_rows(group, key, rows):
+            for previous in visible_rows[key]:
+                group.remove(previous)
+            visible_rows[key] = list(rows)
+            for row in visible_rows[key]:
+                group.add(row)
+
+        def status_label(status):
+            return {
+                GeneratedMediaStatus.IN_USE: "In use",
+                GeneratedMediaStatus.UNUSED: "Unused",
+                GeneratedMediaStatus.ORPHANED: "Orphaned",
+                GeneratedMediaStatus.UNMANAGED: "Unmanaged",
+            }[status]
+
+        def transform_summary(record):
+            settings = record.settings
+            if settings is None:
+                return "Transform unavailable"
+            parts = [f"rotation {settings.rotation}°"]
+            if settings.flip_horizontal:
+                parts.append("horizontal flip")
+            if settings.flip_vertical:
+                parts.append("vertical flip")
+            if settings.crop_box is not None:
+                x, y, width, height = settings.crop_box
+                parts.append(f"crop {width}×{height} at {x},{y}")
+            else:
+                parts.append("no crop")
+            return " · ".join(parts)
+
+        def confirm_remove(record):
+            confirm = Adw.AlertDialog(
+                heading="Remove unused generated asset?",
+                body=(
+                    f"{record.reference}\n\n"
+                    "Only the generated file and its manifest entry will be removed."
+                ),
+            )
+            confirm.add_response("cancel", "Cancel")
+            confirm.add_response("remove", "Remove")
+            confirm.set_response_appearance(
+                "remove", Adw.ResponseAppearance.DESTRUCTIVE
+            )
+            confirm.set_close_response("cancel")
+
+            def response(_dialog, response_id):
+                if response_id != "remove":
+                    return
+                try:
+                    remove_unused_managed_asset(
+                        self.theme_dir,
+                        self.theme_data,
+                        record.reference,
+                    )
+                except Exception as exc:
+                    self.error_dialog("Could not remove generated asset", str(exc))
+                    return
+                self.toast(f"Removed {Path(record.reference).name}")
+                populate()
+
+            confirm.connect("response", response)
+            confirm.present(dialog)
+
+        def populate():
+            report = inspect_generated_media(self.theme_dir, self.theme_data)
+            summary_rows = []
+            asset_rows = []
+
+            manifest_row = Adw.ActionRow(
+                title="transform-manifest.json",
+                subtitle=(
+                    str(report.manifest_path)
+                    if report.manifest_valid
+                    else report.manifest_error or "Invalid manifest"
+                ),
+            )
+            manifest_row.add_prefix(
+                Gtk.Image.new_from_icon_name(
+                    "emblem-ok-symbolic"
+                    if report.manifest_valid
+                    else "dialog-error-symbolic"
+                )
+            )
+            reveal_manifest = Gtk.Button(
+                icon_name="folder-open-symbolic",
+                tooltip_text="Open manifest location",
+                valign=Gtk.Align.CENTER,
+            )
+            reveal_manifest.connect(
+                "clicked",
+                lambda *_: self.reveal_generated_media(report.manifest_path),
+            )
+            manifest_row.add_suffix(reveal_manifest)
+            summary_rows.append(manifest_row)
+
+            if report.manifest_valid and not report.records:
+                asset_rows.append(
+                    Adw.ActionRow(
+                        title="No generated assets",
+                        subtitle="The manifest and generated-media directory are empty.",
+                    )
+                )
+
+            if report.manifest_valid:
+                for record in report.records:
+                    details = [status_label(record.status)]
+                    if record.source_reference:
+                        details.append(f"source: {record.source_reference}")
+                    details.append(transform_summary(record))
+                    if record.issues:
+                        details.append("; ".join(record.issues))
+                    row = Adw.ActionRow(
+                        title=Path(record.reference).name,
+                        subtitle="\n".join(details),
+                    )
+
+                    if record.exists:
+                        preview = Gtk.Picture.new_for_filename(str(record.path))
+                        preview.set_size_request(96, 64)
+                        preview.set_content_fit(Gtk.ContentFit.CONTAIN)
+                        row.add_prefix(preview)
+                    else:
+                        row.add_prefix(
+                            Gtk.Image.new_from_icon_name("image-missing-symbolic")
+                        )
+
+                    reveal = Gtk.Button(
+                        icon_name="folder-open-symbolic",
+                        tooltip_text="Reveal in file manager",
+                        valign=Gtk.Align.CENTER,
+                    )
+                    reveal.connect(
+                        "clicked",
+                        lambda _button, item=record: self.reveal_generated_media(
+                            item.path
+                        ),
+                    )
+                    row.add_suffix(reveal)
+
+                    remove = Gtk.Button(
+                        icon_name="user-trash-symbolic",
+                        tooltip_text=(
+                            "Remove unused managed asset"
+                            if record.removable
+                            else "This asset cannot be safely removed"
+                        ),
+                        valign=Gtk.Align.CENTER,
+                        sensitive=record.removable,
+                    )
+                    remove.add_css_class("destructive-action")
+                    remove.connect(
+                        "clicked",
+                        lambda _button, item=record: confirm_remove(item),
+                    )
+                    row.add_suffix(remove)
+                    asset_rows.append(row)
+
+            replace_rows(summary_group, "summary", summary_rows)
+            replace_rows(assets_group, "assets", asset_rows)
+
+        populate()
         dialog.present(self)
 
     def save(self):

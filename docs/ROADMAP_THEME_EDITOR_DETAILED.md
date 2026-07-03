@@ -215,13 +215,22 @@ Still possible later:
 - resize handles on the preview.
 
 ### 2.4. Generated media management
-**Status:** Planned
+**Status:** Implemented; pending visual validation
 
-Target:
-- inspect generated assets;
-- show provenance;
-- show usage;
-- remove safe unused assets.
+Delivered:
+- pure inventory and safety policy module;
+- manifest validation;
+- classification as in-use, unused, orphaned, or unmanaged;
+- origin, transform, crop, integrity issues, and preview in GTK;
+- reveal/open location action;
+- deletion restricted to registered, existing, unreferenced assets;
+- manifest rollback when file deletion fails;
+- no deletion of referenced or unregistered files;
+- no mutation of theme YAML or Undo/Redo history;
+- unit tests for classification, integrity, deletion guards, and rollback.
+
+Still possible later:
+- multi-select cleanup after broader field testing.
 
 ### 2.5. Video inspector
 **Status:** Planned
