@@ -76,9 +76,6 @@ def render_theme_preview_frame(
     frame = _cover_canvas(background, canvas_width, canvas_height)
     video_overlay = _video_overlay_enabled(theme_doc)
 
-    # In video-overlay themes, the current video frame is already the preview
-    # background. Full-canvas static backgrounds and per-widget background images
-    # would hide the video, so only foreground/decorative overlays are composited.
     draw_static_images(
         frame,
         theme_dir,
@@ -94,7 +91,6 @@ def render_theme_preview_frame(
         context,
         transparent_background=video_overlay,
     )
-
     draw_dynamic_widgets(
         frame,
         root,
@@ -361,6 +357,17 @@ def draw_text_node(
     fallback_label: str | None = None,
     transparent_background: bool = False,
 ) -> None:
+    if _is_compound_datetime_preset(path, node):
+        _draw_compound_datetime_preset(
+            frame,
+            root,
+            theme_dir,
+            node,
+            context,
+            transparent_background=transparent_background,
+        )
+        return
+
     text = _format_node_text(path, node, context, fallback_label=fallback_label)
     if not text:
         return
@@ -386,9 +393,6 @@ def draw_text_node(
     inner_width = configured_width if has_configured_width else measured_width + padding_x * 2
     inner_height = configured_height if has_configured_height else measured_height + padding_y * 2
 
-    # Preserve the theme's real X/Y/W/H layout box.  Add an invisible guard band
-    # around the layer so glyph ascenders/descenders and left bearings are not
-    # clipped by Pillow even when the configured box is tight.
     glyph_margin_x = max(4, font_size // 5)
     glyph_margin_y = max(4, font_size // 4)
     layer_width = max(1, inner_width + glyph_margin_x * 2)
@@ -431,6 +435,92 @@ def draw_text_node(
         fill=fill,
         spacing=2,
         align=align if align in {"left", "center", "right"} else "left",
+    )
+    _paste_clipped(frame, layer, x - glyph_margin_x, y - glyph_margin_y)
+
+
+def _draw_compound_datetime_preset(
+    frame: Image.Image,
+    root: Path,
+    theme_dir: Path,
+    node: Mapping[str, Any],
+    context: Mapping[str, Any],
+    *,
+    transparent_background: bool = False,
+) -> None:
+    """Render the editor's compound DATE/HOUR preset as time + date."""
+    x = _safe_int(node.get("X"))
+    y = _safe_int(node.get("Y"))
+    width = max(1, _safe_int(node.get("WIDTH"), 300))
+    height = max(1, _safe_int(node.get("HEIGHT"), 130))
+    base_font_size = max(1, _safe_int(node.get("FONT_SIZE"), 80))
+    date_font_size = max(10, round(base_font_size * 0.30))
+
+    time_text = str(context.get("TIME", "22:48"))
+    date_text = str(context.get("DATE", "Fri 04 Jul"))
+    time_font = _load_font(root, theme_dir, node.get("FONT"), base_font_size)
+    date_font = _load_font(root, theme_dir, node.get("FONT"), date_font_size)
+    fill = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
+    align = str(node.get("ALIGN", "left")).lower()
+    anchor = str(node.get("ANCHOR", "mm")).lower()
+
+    glyph_margin_x = max(4, base_font_size // 5)
+    glyph_margin_y = max(4, base_font_size // 4)
+    layer = Image.new(
+        "RGBA",
+        (width + glyph_margin_x * 2, height + glyph_margin_y * 2),
+        (0, 0, 0, 0),
+    )
+    draw = ImageDraw.Draw(layer)
+
+    if not transparent_background:
+        background_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        background_draw = ImageDraw.Draw(background_layer)
+        _draw_node_background(background_draw, background_layer, theme_dir, node, width, height)
+        layer.alpha_composite(background_layer, (glyph_margin_x, glyph_margin_y))
+
+    time_bbox = draw.textbbox((0, 0), time_text, font=time_font)
+    date_bbox = draw.textbbox((0, 0), date_text, font=date_font)
+    time_w = time_bbox[2] - time_bbox[0]
+    time_h = time_bbox[3] - time_bbox[1]
+    date_w = date_bbox[2] - date_bbox[0]
+    date_h = date_bbox[3] - date_bbox[1]
+    gap = max(2, round(base_font_size * 0.03))
+    block_w = max(time_w, date_w)
+    block_h = time_h + gap + date_h
+
+    content_x = glyph_margin_x
+    content_y = glyph_margin_y
+    if align in {"center", "middle"}:
+        block_x = content_x + max(0, (width - block_w) // 2)
+    elif align in {"right", "end"}:
+        block_x = content_x + max(0, width - block_w)
+    else:
+        block_x = content_x + max(0, round(base_font_size * 0.18))
+
+    if "m" in anchor or "c" in anchor:
+        block_y = content_y + max(0, (height - block_h) // 2)
+    elif "b" in anchor:
+        block_y = content_y + max(0, height - block_h)
+    else:
+        block_y = content_y
+
+    time_x = block_x
+    date_x = block_x + max(0, round(base_font_size * 0.06))
+    time_y = block_y
+    date_y = block_y + time_h + gap
+
+    draw.text(
+        (time_x - time_bbox[0], time_y - time_bbox[1]),
+        time_text,
+        font=time_font,
+        fill=fill,
+    )
+    draw.text(
+        (date_x - date_bbox[0], date_y - date_bbox[1]),
+        date_text,
+        font=date_font,
+        fill=fill,
     )
     _paste_clipped(frame, layer, x - glyph_margin_x, y - glyph_margin_y)
 
@@ -499,6 +589,24 @@ def _format_date_time_preset(path: tuple[Any, ...], text: str, context: Mapping[
     if _looks_like_date_path(path):
         return str(context.get("DATE", "Fri 04 Jul"))
     return None
+
+
+def _node_format_value(node: Mapping[str, Any]) -> str:
+    raw = node.get("FORMAT")
+    if raw is None:
+        raw = node.get("TEXT")
+    return str(raw or "").strip().strip('"\'').lower()
+
+
+def _looks_like_compound_datetime_path(path: tuple[Any, ...]) -> bool:
+    label = "_".join(str(part).upper() for part in path if not isinstance(part, int))
+    has_date = "DATE" in label or "DAY" in label
+    has_time = "HOUR" in label or "TIME" in label or "CLOCK" in label
+    return has_date and has_time
+
+
+def _is_compound_datetime_preset(path: tuple[Any, ...], node: Mapping[str, Any]) -> bool:
+    return _looks_like_compound_datetime_path(path) and _node_format_value(node) in DATE_TIME_FORMAT_PRESETS
 
 
 def _looks_like_time_path(path: tuple[Any, ...]) -> bool:
