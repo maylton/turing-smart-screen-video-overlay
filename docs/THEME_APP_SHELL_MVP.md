@@ -40,6 +40,8 @@ Included so far:
 - copyable gallery-level diagnostics report;
 - guarded `Use` action to set a theme as current;
 - atomic `config.yaml` update for `config.THEME`;
+- installer guard so local `configure-gtk-final.py` leftovers cannot override the branch's `configure-gtk.py` during installed-app tests;
+- installed syntax validation for `library/theme_gallery.py`, `theme-gallery-gtk.py`, and `turing-smart-screen-gtk.py`;
 - no theme file writes from browsing, filtering, or diagnostics.
 
 Not included yet:
@@ -70,6 +72,14 @@ configure-gtk.py / turing-smart-screen     # existing installed app
 .venv/bin/python -m py_compile theme-editor-gtk.py
 .venv/bin/python -m unittest discover -s tests -t . -v
 git diff --check
+```
+
+Installed-app validation:
+
+```bash
+./install.sh --no-deps
+grep -n "ThemeGalleryPane" ~/.local/share/turing-smart-screen/configure-gtk.py
+turing-smart-screen
 ```
 
 Manual validation:
@@ -103,6 +113,7 @@ Completed in this branch so far:
 - Phase 4 — gallery diagnostics action.
 - Phase 5 — set active/current theme from the gallery.
 - Phase 6 — integrate the gallery into the existing main app `Themes` page.
+- Phase 7 — fix installer path so stale `configure-gtk-final.py` cannot mask this branch.
 
 Next phase:
 
