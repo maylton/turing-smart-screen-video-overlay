@@ -14,6 +14,16 @@ This slice provides three pieces:
 
 The temporary standalone scripts are not the final product architecture. The normal user-facing direction is the existing installed GTK configuration app, launched by `turing-smart-screen`.
 
+## Installed-app guard
+
+Older local checkouts may contain an untracked `configure-gtk-final.py`. The installer previously preferred that file over the branch's `configure-gtk.py`, which could make a fresh install still open the old `Themes` page.
+
+This stack removes that override. Installed validation should check that the installed launcher file contains the gallery integration:
+
+```bash
+grep -n "ThemeGalleryPane" ~/.local/share/turing-smart-screen/configure-gtk.py
+```
+
 ## Scope
 
 The MVP is now a mostly read-oriented theme management surface, with one guarded write action for selecting the current theme.
@@ -75,6 +85,7 @@ The MVP is accepted when:
 
 - the reusable gallery module imports successfully;
 - the existing main app opens and embeds the gallery on the `Themes` page;
+- the installed `configure-gtk.py` contains the `ThemeGalleryPane` integration;
 - the old split list/preview `Themes` page is replaced by gallery cards;
 - the developer gallery still opens independently;
 - themes from `res/themes` are listed;
@@ -140,6 +151,7 @@ Completed in this branch so far:
 4. Gallery diagnostics action.
 5. Set active/current theme from the gallery.
 6. Integrate gallery into the existing main app `Themes` page.
+7. Fix installer validation path so stale local `configure-gtk-final.py` cannot mask this branch.
 
 Follow-up stack:
 
