@@ -30,6 +30,8 @@ from library.theme_gallery import (
     ThemeRecord,
     launch_theme_editor,
     open_theme_folder,
+    set_current_theme,
+    show_set_current_theme_dialog,
     show_theme_gallery_diagnostics_dialog,
 )
 
@@ -101,6 +103,7 @@ class TuringSmartScreenWindow(Adw.ApplicationWindow):
             on_open_theme=self.open_theme_editor,
             on_open_folder=self.open_folder,
             on_theme_diagnostics=self.show_theme_diagnostics,
+            on_set_current_theme=self.confirm_set_current_theme,
             on_records_changed=self.update_theme_state,
         )
         self.stack.add_named(self.gallery, "themes")
@@ -250,6 +253,21 @@ class TuringSmartScreenWindow(Adw.ApplicationWindow):
 
     def show_theme_diagnostics(self, record: ThemeRecord) -> None:
         show_theme_gallery_diagnostics_dialog(self, record, self.toast)
+
+    def confirm_set_current_theme(self, record: ThemeRecord) -> None:
+        show_set_current_theme_dialog(self, record, self.apply_set_current_theme)
+
+    def apply_set_current_theme(self, record: ThemeRecord) -> None:
+        try:
+            old_theme, new_theme = set_current_theme(record)
+        except Exception as exc:
+            self.error_dialog("Could not set current theme", str(exc))
+            return
+        self.gallery.reload_themes()
+        if old_theme and old_theme != new_theme:
+            self.toast(f"Current theme changed: {old_theme} → {new_theme}")
+        else:
+            self.toast(f"Current theme set to {new_theme}")
 
 
 class TuringSmartScreenApplication(Adw.Application):
