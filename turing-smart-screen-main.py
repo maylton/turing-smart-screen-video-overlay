@@ -31,8 +31,10 @@ def main() -> int:
     launcher.install_runtime_patches(app)
 
     from library.embedded_theme_editor_runtime import install_embedded_theme_editor_patches
+    from library.embedded_video_manager_runtime import install_embedded_video_manager_patches
 
     install_embedded_theme_editor_patches(app, root=ROOT)
+    install_embedded_video_manager_patches(app, root=ROOT)
     return app.main()
 
 
