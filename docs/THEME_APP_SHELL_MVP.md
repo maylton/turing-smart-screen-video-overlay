@@ -1,6 +1,6 @@
 # Theme App Shell MVP
 
-This document describes stack phase 2 from `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md` and the follow-up gallery filtering phase.
+This document describes stack phase 2 from `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md` and the follow-up gallery filtering/diagnostics phases.
 
 The app shell establishes one user-facing GTK/Libadwaita launcher for future surfaces instead of letting each roadmap feature become a separate standalone app.
 
@@ -23,11 +23,12 @@ Included so far:
 - reusable gallery search/filter by theme name, path, YAML filename, or status;
 - result count for filtered searches;
 - filtered empty state when no theme matches;
-- no theme file writes from browsing or filtering the shell.
+- per-theme gallery diagnostics action;
+- copyable gallery-level diagnostics report;
+- no theme file writes from browsing, filtering, or diagnostics.
 
 Not included yet:
 
-- diagnostics action from the gallery;
 - setting the active/current theme from gallery;
 - import/export/duplicate/delete management actions;
 - real Device Manager implementation.
@@ -67,10 +68,12 @@ Manual validation later in the stack:
 8. Clear search and confirm all themes return.
 9. Confirm `Open Current` opens the GTK Theme Editor even when the current theme is filtered out.
 10. Confirm per-theme `Edit` opens the selected theme.
-11. Confirm per-theme folder button opens the theme folder.
-12. Confirm refresh updates the card list and preserves the current search query.
-13. Confirm disabled sidebar rows do not open separate apps.
-14. Confirm browsing/searching does not modify tracked theme files.
+11. Confirm per-theme diagnostics opens a report dialog.
+12. Confirm `Copy Report` copies the diagnostics report.
+13. Confirm per-theme folder button opens the theme folder.
+14. Confirm refresh updates the card list and preserves the current search query.
+15. Confirm disabled sidebar rows do not open separate apps.
+16. Confirm browsing/searching/diagnostics do not modify tracked theme files.
 
 ## Stack status
 
@@ -79,7 +82,8 @@ Completed in this branch so far:
 - Phase 1 — reusable Theme Gallery module.
 - Phase 2 — main GTK app shell with Theme Gallery embedded.
 - Phase 3 — gallery search/filter inside the shell.
+- Phase 4 — gallery diagnostics action.
 
 Next phase:
 
-- Phase 4 — gallery diagnostics action.
+- Phase 5 — set active/current theme from the gallery.
