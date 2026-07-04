@@ -2,8 +2,9 @@
 """Reusable GTK theme gallery components.
 
 This module is shared by the temporary gallery developer entry point and the
-future main GTK app shell. It intentionally keeps theme discovery/model logic in
-one place so the project does not grow a separate app for every feature.
+main GTK configuration application. It intentionally keeps theme discovery,
+model logic, and gallery widgets in one place so the project does not grow a
+separate app for every feature.
 """
 
 from __future__ import annotations
@@ -89,7 +90,10 @@ def read_current_theme(config_file: Path = CONFIG_FILE) -> str | None:
     return match.group(1).strip()
 
 
-def set_current_theme(record: ThemeRecord, config_file: Path = CONFIG_FILE) -> tuple[str | None, str]:
+def set_current_theme(
+    record: ThemeRecord,
+    config_file: Path = CONFIG_FILE,
+) -> tuple[str | None, str]:
     """Set the active theme in config.yaml and return (old_theme, new_theme)."""
     if not record.editable:
         raise RuntimeError(
@@ -330,6 +334,8 @@ class ThemeGalleryPane(Gtk.Box):
         on_records_changed: Callable[[list[ThemeRecord]], None] | None = None,
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_hexpand(True)
+        self.set_vexpand(True)
         self.on_open_theme = on_open_theme
         self.on_open_folder = on_open_folder
         self.on_theme_diagnostics = on_theme_diagnostics
@@ -347,6 +353,7 @@ class ThemeGalleryPane(Gtk.Box):
             margin_start=24,
             margin_end=24,
         )
+        controls.set_hexpand(True)
         self.append(controls)
 
         self.search_entry = Gtk.SearchEntry()
@@ -360,6 +367,8 @@ class ThemeGalleryPane(Gtk.Box):
         controls.append(self.result_label)
 
         self.scrolled = Gtk.ScrolledWindow()
+        self.scrolled.set_hexpand(True)
+        self.scrolled.set_vexpand(True)
         self.scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.append(self.scrolled)
 
@@ -371,6 +380,9 @@ class ThemeGalleryPane(Gtk.Box):
             margin_start=24,
             margin_end=24,
         )
+        self.flow_box.set_hexpand(True)
+        self.flow_box.set_vexpand(True)
+        self.flow_box.set_valign(Gtk.Align.START)
         self.flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self.flow_box.set_homogeneous(False)
         self.flow_box.set_min_children_per_line(2)
@@ -434,6 +446,7 @@ class ThemeGalleryPane(Gtk.Box):
             margin_start=80,
             margin_end=80,
         )
+        box.set_size_request(320, 260)
         icon_name = "edit-find-symbolic" if self.filter_query else "folder-symbolic"
         icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(64)
@@ -491,9 +504,11 @@ class ThemeGalleryPane(Gtk.Box):
             margin_end=12,
         )
         card.add_css_class("card")
-        card.set_size_request(292, -1)
+        card.set_size_request(292, 280)
+        card.set_valign(Gtk.Align.START)
 
         preview_frame = Gtk.Frame()
+        preview_frame.set_size_request(256, 144)
         preview_frame.set_child(self.preview_widget(record))
         card.append(preview_frame)
 
