@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Renderer used by the main app Overview animated theme preview.
 
-The Overview preview is generated off-screen from the real theme YAML.  Keep
-this renderer conservative: the video frame is the background for video-overlay
+The Overview preview is generated off-screen from the real theme YAML. Keep this
+renderer conservative: the video frame is the background for video-overlay
 themes, and YAML overlay nodes are composited on top with deterministic mock
 values.
+
+Text rendering intentionally mirrors library.lcd.lcd_comm.DisplayText so the
+Overview uses the same X/Y/WIDTH/HEIGHT/ANCHOR/EFFECTS semantics as the Theme
+Editor/live runtime instead of a parallel approximation.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from library.theme_preview_mock_data import (
     build_mock_preview_context,
@@ -362,114 +366,261 @@ def draw_text_node(
     if not text:
         return
 
+    x = _safe_int(node.get("X"))
+    y = _safe_int(node.get("Y"))
     width = _safe_int(node.get("WIDTH"), 0)
     height = _safe_int(node.get("HEIGHT"), 0)
-    if width > 0 or height > 0:
-        _draw_box_text_node(
-            frame,
-            root,
-            theme_dir,
-            node,
-            text,
-            transparent_background=transparent_background,
-        )
-    else:
-        _draw_free_text_node(frame, root, theme_dir, node, text)
-
-
-def _draw_box_text_node(
-    frame: Image.Image,
-    root: Path,
-    theme_dir: Path,
-    node: Mapping[str, Any],
-    text: str,
-    *,
-    transparent_background: bool = False,
-) -> None:
-    x = _safe_int(node.get("X"))
-    y = _safe_int(node.get("Y"))
-    width = max(1, _safe_int(node.get("WIDTH"), 160))
-    height = max(1, _safe_int(node.get("HEIGHT"), 40))
     font_size = max(1, _safe_int(node.get("FONT_SIZE"), 16))
     font = _load_font(root, theme_dir, node.get("FONT"), font_size)
-
-    margin_x = max(4, font_size // 5)
-    margin_y = max(4, font_size // 4)
-    layer = Image.new("RGBA", (width + margin_x * 2, height + margin_y * 2), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-
-    if not transparent_background:
-        background_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        background_draw = ImageDraw.Draw(background_layer)
-        _draw_node_background(background_draw, background_layer, theme_dir, node, width, height)
-        layer.alpha_composite(background_layer, (margin_x, margin_y))
-
-    bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=2)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
+    font_color = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
     align = str(node.get("ALIGN", "left")).lower()
-    anchor = str(node.get("ANCHOR", "lt")).lower()
-    fill = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
-
-    tx = margin_x
-    if align in {"center", "middle"}:
-        tx = margin_x + max(0, (width - text_width) // 2)
-    elif align in {"right", "end"}:
-        tx = margin_x + max(0, width - text_width)
-
-    ty = margin_y
-    if "m" in anchor or "c" in anchor:
-        ty = margin_y + max(0, (height - text_height) // 2)
-    elif "b" in anchor:
-        ty = margin_y + max(0, height - text_height)
-
-    draw.multiline_text(
-        (tx - bbox[0], ty - bbox[1]),
-        text,
-        font=font,
-        fill=fill,
-        spacing=2,
-        align=align if align in {"left", "center", "right"} else "left",
-    )
-    _paste_clipped(frame, layer, x - margin_x, y - margin_y)
-
-
-def _draw_free_text_node(
-    frame: Image.Image,
-    root: Path,
-    theme_dir: Path,
-    node: Mapping[str, Any],
-    text: str,
-) -> None:
-    """Draw text nodes without WIDTH/HEIGHT using X/Y as the real text anchor."""
-    x = _safe_int(node.get("X"))
-    y = _safe_int(node.get("Y"))
-    font_size = max(1, _safe_int(node.get("FONT_SIZE"), 16))
-    font = _load_font(root, theme_dir, node.get("FONT"), font_size)
     anchor = str(node.get("ANCHOR", "lt")).lower() or "lt"
     if len(anchor) != 2:
         anchor = "lt"
 
-    probe = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(probe)
+    _draw_lcd_text_semantics(
+        frame=frame,
+        theme_dir=theme_dir,
+        node=node,
+        text=text,
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        font=font,
+        font_size=font_size,
+        font_color=font_color,
+        align=align,
+        anchor=anchor,
+        transparent_background=transparent_background,
+    )
+
+
+def _draw_lcd_text_semantics(
+    *,
+    frame: Image.Image,
+    theme_dir: Path,
+    node: Mapping[str, Any],
+    text: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    font: ImageFont.ImageFont,
+    font_size: int,
+    font_color: tuple[int, int, int, int],
+    align: str,
+    anchor: str,
+    transparent_background: bool,
+) -> None:
+    """Mirror library.lcd.lcd_comm.DisplayText geometry and crop semantics."""
+    if width > 0 and height == 0:
+        height = font_size
+
+    text_image = _make_text_canvas(
+        frame=frame,
+        theme_dir=theme_dir,
+        node=node,
+        transparent_background=transparent_background,
+    )
+    draw = ImageDraw.Draw(text_image)
+
     try:
-        bbox = draw.textbbox((0, 0), text, font=font, anchor=anchor)
+        if width == 0 or height == 0:
+            left, top, right, bottom = draw.textbbox(
+                (x, y),
+                text,
+                font=font,
+                align=align,
+                anchor=anchor,
+            )
+            left, top = math.floor(left), math.floor(top)
+            right, bottom = math.ceil(right), math.ceil(bottom)
+            draw_x, draw_y = x, y
+        else:
+            left, top, right, bottom = x, y, x + width, y + height
+            if anchor.startswith("m"):
+                draw_x = int((right + left) / 2)
+            elif anchor.startswith("r"):
+                draw_x = right
+            else:
+                draw_x = left
+
+            if anchor.endswith("m"):
+                draw_y = int((bottom + top) / 2)
+            elif anchor.endswith("b"):
+                draw_y = bottom
+            else:
+                draw_y = top
     except (TypeError, ValueError):
         anchor = "lt"
-        bbox = draw.textbbox((0, 0), text, font=font, anchor=anchor)
+        if width == 0 or height == 0:
+            left, top, right, bottom = draw.textbbox(
+                (x, y),
+                text,
+                font=font,
+                align=align,
+                anchor=anchor,
+            )
+            left, top = math.floor(left), math.floor(top)
+            right, bottom = math.ceil(right), math.ceil(bottom)
+            draw_x, draw_y = x, y
+        else:
+            left, top, right, bottom = x, y, x + width, y + height
+            draw_x, draw_y = x, y
 
-    margin_x = max(4, font_size // 4)
-    margin_y = max(4, font_size // 3)
-    width = max(1, bbox[2] - bbox[0] + margin_x * 2)
-    height = max(1, bbox[3] - bbox[1] + margin_y * 2)
-    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    layer_draw = ImageDraw.Draw(layer)
-    fill = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
+    effects = node.get("EFFECTS", {})
+    text_image = _draw_preview_text_effects(
+        text_image,
+        (draw_x, draw_y),
+        text,
+        font,
+        font_color,
+        align,
+        anchor,
+        effects,
+    )
 
-    anchor_x = margin_x - bbox[0]
-    anchor_y = margin_y - bbox[1]
-    layer_draw.text((anchor_x, anchor_y), text, font=font, fill=fill, anchor=anchor)
-    _paste_clipped(frame, layer, x + bbox[0] - margin_x, y + bbox[1] - margin_y)
+    effect_padding = _text_effect_padding(effects)
+    left -= effect_padding
+    top -= effect_padding
+    right += effect_padding
+    bottom += effect_padding
+
+    left = max(left, 0)
+    top = max(top, 0)
+    right = min(right, frame.width)
+    bottom = min(bottom, frame.height)
+    if right <= left or bottom <= top:
+        return
+
+    crop = text_image.crop((left, top, right, bottom))
+    frame.alpha_composite(crop, (left, top))
+
+
+def _make_text_canvas(
+    *,
+    frame: Image.Image,
+    theme_dir: Path,
+    node: Mapping[str, Any],
+    transparent_background: bool,
+) -> Image.Image:
+    if transparent_background:
+        return Image.new("RGBA", frame.size, (0, 0, 0, 0))
+
+    background_image = _resolve_theme_asset(theme_dir, node.get("BACKGROUND_IMAGE"))
+    if background_image is not None:
+        try:
+            return _cover_canvas(Image.open(background_image), frame.width, frame.height)
+        except OSError:
+            pass
+
+    color = _color(node.get("BACKGROUND_COLOR"), (0, 0, 0, 0))
+    return Image.new("RGBA", frame.size, color)
+
+
+def _effect_enabled(config: Any) -> bool:
+    return isinstance(config, Mapping) and bool(config.get("ENABLED", False))
+
+
+def _draw_preview_text_effects(
+    image: Image.Image,
+    position: tuple[int, int],
+    text: str,
+    font: ImageFont.ImageFont,
+    font_color: tuple[int, int, int, int],
+    align: str,
+    anchor: str,
+    effects: Any,
+) -> Image.Image:
+    effects = effects if isinstance(effects, Mapping) else {}
+    canvas = image.convert("RGBA")
+    width, height = canvas.size
+
+    shadow = effects.get("SHADOW", {})
+    if _effect_enabled(shadow):
+        dx = int(shadow.get("OFFSET_X", 3))
+        dy = int(shadow.get("OFFSET_Y", 3))
+        blur = max(0.0, float(shadow.get("BLUR_RADIUS", 4)))
+        mask = Image.new("L", (width, height), 0)
+        ImageDraw.Draw(mask).text(
+            (position[0] + dx, position[1] + dy),
+            text,
+            font=font,
+            fill=255,
+            align=align,
+            anchor=anchor,
+        )
+        if blur:
+            mask = mask.filter(ImageFilter.GaussianBlur(blur))
+        color = _color(shadow.get("COLOR"), (0, 0, 0, 180))
+        layer = Image.new("RGBA", (width, height), color)
+        layer.putalpha(mask.point(lambda value: value * color[3] // 255))
+        canvas = Image.alpha_composite(canvas, layer)
+
+    glow = effects.get("GLOW", {})
+    if _effect_enabled(glow):
+        blur = max(0.0, float(glow.get("BLUR_RADIUS", 8)))
+        intensity = max(1, min(4, int(glow.get("INTENSITY", 1))))
+        mask = Image.new("L", (width, height), 0)
+        ImageDraw.Draw(mask).text(
+            position,
+            text,
+            font=font,
+            fill=255,
+            align=align,
+            anchor=anchor,
+        )
+        if blur:
+            mask = mask.filter(ImageFilter.GaussianBlur(blur))
+        color = _color(glow.get("COLOR"), (255, 255, 255, 160))
+        for _ in range(intensity):
+            layer = Image.new("RGBA", (width, height), color)
+            layer.putalpha(mask.point(lambda value: value * color[3] // 255))
+            canvas = Image.alpha_composite(canvas, layer)
+
+    outline = effects.get("OUTLINE", {})
+    stroke_width = 0
+    stroke_fill = None
+    if _effect_enabled(outline):
+        stroke_width = max(0, min(20, int(outline.get("WIDTH", 2))))
+        stroke_fill = _color(outline.get("COLOR"), (0, 0, 0, 255))
+
+    ImageDraw.Draw(canvas).text(
+        position,
+        text,
+        font=font,
+        fill=font_color,
+        align=align,
+        anchor=anchor,
+        stroke_width=stroke_width,
+        stroke_fill=stroke_fill,
+    )
+    return canvas
+
+
+def _text_effect_padding(effects: Any) -> int:
+    effects = effects if isinstance(effects, Mapping) else {}
+    padding = 0
+
+    shadow = effects.get("SHADOW", {})
+    if isinstance(shadow, Mapping) and shadow.get("ENABLED", False):
+        padding = max(
+            padding,
+            abs(int(shadow.get("OFFSET_X", 3)))
+            + abs(int(shadow.get("OFFSET_Y", 3)))
+            + int(float(shadow.get("BLUR_RADIUS", 4))) * 2,
+        )
+
+    glow = effects.get("GLOW", {})
+    if isinstance(glow, Mapping) and glow.get("ENABLED", False):
+        padding = max(padding, int(float(glow.get("BLUR_RADIUS", 8))) * 2)
+
+    outline = effects.get("OUTLINE", {})
+    if isinstance(outline, Mapping) and outline.get("ENABLED", False):
+        padding = max(padding, int(outline.get("WIDTH", 2)) + 2)
+
+    return max(0, min(80, padding))
 
 
 def _draw_node_background(
