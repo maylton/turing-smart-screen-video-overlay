@@ -13,7 +13,10 @@ class PackagingContractTests(unittest.TestCase):
         self.assertGreaterEqual(text.count("-m venv --system-site-packages"), 2)
         self.assertIn('"$PREFIX/venv/bin/python3" -m pip', text)
         self.assertIn("System GTK4 and Libadwaita imports OK", text)
-        self.assertIn("Project venv GTK, Pillow and ruamel.yaml imports OK", text)
+        self.assertIn(
+            "Project venv GTK, Pillow, PyYAML and ruamel.yaml imports OK",
+            text,
+        )
 
     def test_installer_runs_the_installed_checkup(self):
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
