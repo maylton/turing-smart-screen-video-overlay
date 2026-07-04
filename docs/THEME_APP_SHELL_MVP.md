@@ -1,6 +1,6 @@
 # Theme App Shell MVP
 
-This document describes stack phase 2 from `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md`.
+This document describes stack phase 2 from `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md` and the follow-up gallery filtering phase.
 
 The app shell establishes one user-facing GTK/Libadwaita launcher for future surfaces instead of letting each roadmap feature become a separate standalone app.
 
@@ -12,7 +12,7 @@ The app shell establishes one user-facing GTK/Libadwaita launcher for future sur
 
 ## Scope
 
-Included in this slice:
+Included so far:
 
 - new primary app-shell entry point: `turing-smart-screen-gtk.py`;
 - embedded Theme Gallery surface using `library.theme_gallery.ThemeGalleryPane`;
@@ -20,11 +20,13 @@ Included in this slice:
 - `Open Current` action in the shell header;
 - refresh action routed to the current surface;
 - app-level toasts and error dialogs;
-- no theme file writes from browsing the shell.
+- reusable gallery search/filter by theme name, path, YAML filename, or status;
+- result count for filtered searches;
+- filtered empty state when no theme matches;
+- no theme file writes from browsing or filtering the shell.
 
 Not included yet:
 
-- search/filter;
 - diagnostics action from the gallery;
 - setting the active/current theme from gallery;
 - import/export/duplicate/delete management actions;
@@ -59,12 +61,16 @@ Manual validation later in the stack:
 2. Confirm the shell opens with a sidebar.
 3. Confirm `Themes` is selected.
 4. Confirm theme cards render inside the shell.
-5. Confirm `Open Current` opens the GTK Theme Editor.
-6. Confirm per-theme `Edit` opens the selected theme.
-7. Confirm per-theme folder button opens the theme folder.
-8. Confirm refresh updates the card list.
-9. Confirm disabled sidebar rows do not open separate apps.
-10. Confirm browsing does not modify tracked theme files.
+5. Search by part of a theme name and confirm the card list filters.
+6. Search by `missing`, `theme.yaml`, or a path fragment and confirm matching works.
+7. Confirm an unmatched search shows the filtered empty state.
+8. Clear search and confirm all themes return.
+9. Confirm `Open Current` opens the GTK Theme Editor even when the current theme is filtered out.
+10. Confirm per-theme `Edit` opens the selected theme.
+11. Confirm per-theme folder button opens the theme folder.
+12. Confirm refresh updates the card list and preserves the current search query.
+13. Confirm disabled sidebar rows do not open separate apps.
+14. Confirm browsing/searching does not modify tracked theme files.
 
 ## Stack status
 
@@ -72,7 +78,8 @@ Completed in this branch so far:
 
 - Phase 1 — reusable Theme Gallery module.
 - Phase 2 — main GTK app shell with Theme Gallery embedded.
+- Phase 3 — gallery search/filter inside the shell.
 
 Next phase:
 
-- Phase 3 — gallery search/filter inside the shell.
+- Phase 4 — gallery diagnostics action.
