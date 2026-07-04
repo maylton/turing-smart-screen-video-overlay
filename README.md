@@ -1,197 +1,350 @@
-# ![Icon](https://raw.githubusercontent.com/mathoudebine/turing-smart-screen-python/main/res/icons/monitor-icon-17865/24.png) turing-smart-screen-python
+# Turing Smart Screen Linux GTK Fork
 
+<p align="center">
+  <strong>An experimental Linux desktop fork of <code>turing-smart-screen-python</code></strong><br />
+  GTK4/Libadwaita app shell · Theme Gallery · media preparation · Rev. C video/storage experiments
+</p>
 
-<!-- MAYLTON_FORK_OVERVIEW -->
-> [!NOTE]
-> This repository is a Linux-focused fork that adds a GTK4/Libadwaita
-> configuration center, safe single-owner display runtime coordination,
-> and native Rev. C video/storage management. The native video workflow
-> has been physically validated on a Turing Smart Screen Rev. C 2.1-inch
-> display (ROM 88).
+<p align="center">
+  <img alt="Linux" src="https://img.shields.io/badge/Linux-focused-FCC624?style=for-the-badge&logo=linux&logoColor=black" />
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.x-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54" />
+  <img alt="GTK4" src="https://img.shields.io/badge/GTK4%20%2B%20Libadwaita-desktop%20UI-4A86CF?style=for-the-badge" />
+  <img alt="Experimental" src="https://img.shields.io/badge/status-experimental-orange?style=for-the-badge" />
+</p>
 
-## Fork quick start
+---
+
+## What is this?
+
+This repository is a **Linux-focused experimental fork** of
+[`mathoudebine/turing-smart-screen-python`](https://github.com/mathoudebine/turing-smart-screen-python).
+
+The original project is a cross-platform Python system monitor and display
+abstraction library for small USB-C smart screens. This fork explores a more
+integrated **Linux desktop application** experience around that foundation:
+
+- GTK4/Libadwaita app shell;
+- visual Theme Gallery / Theme Manager;
+- embedded Theme Editor;
+- embedded Video Manager;
+- media preparation tools for GIF/video inputs;
+- generated-media tracking;
+- theme import/export with preflight checks;
+- Linux installer readiness diagnostics;
+- experimental native video/storage workflows for tested Rev. C hardware.
+
+This is **not** the official vendor software and it is **not** the upstream
+project. It is a public experimental fork shared so other users and upstream
+maintainers can inspect the direction, reuse ideas, or discuss possible smaller
+contributions later.
+
+---
+
+## Current public app branch
+
+The full GTK app-shell work currently lives on:
+
+```text
+feature/theme-video-inspector-live-preview
+```
+
+Until that work is promoted to `main`, install from the active branch:
 
 ```bash
-git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
+git clone --branch feature/theme-video-inspector-live-preview \
+  https://github.com/maylton/turing-smart-screen-video-overlay.git
+
 cd turing-smart-screen-video-overlay
+./install.sh --check-only
 ./install.sh
 turing-smart-screen
 ```
 
-Use `./install.sh --autostart` to create a desktop autostart entry.
-Running the installer again updates the application while preserving
-`config.yaml`, custom themes, and local video folders by default.
-
-- [Installation and update guide](docs/INSTALLATION.md)
-- [Project roadmap](docs/ROADMAP.md)
-- [Release candidate notes](docs/releases/0.1.0-rc1.md)
-- [Changelog](CHANGELOG.md)
-- [Media preparation editor roadmap](https://github.com/maylton/turing-smart-screen-video-overlay/issues/7)
-
-Current fork highlights:
-
-- GTK4/Libadwaita desktop configuration center;
-- Noctalia-compatible tray integration;
-- exclusive process-wide device ownership and safe shutdown;
-- structured native-video CLI and GTK manager;
-- media compatibility checks using `ffprobe`;
-- profile-aware GIF/video preparation with advanced framing, storage estimates, preview, and guarded upload;
-- safe automatic display detection with compatible revision/theme loading;
-- SD/internal video listing, upload, playback, stop, size, and delete.
-- release-readiness manifest, changelog, candidate notes, and repeatable validation.
+The repository's `main` branch is currently used as the public landing/default
+branch, so this README intentionally points users to the active app branch.
 
 ---
 
-
-## Release candidate status
-
-The fork is prepared for local validation as `0.1.0-rc1`; no tag or GitHub
-Release has been published. Native media upload is hardware-validated only on
-the Turing Rev. C 2.1-inch ROM 88 profile. Other media profiles are available
-for conversion and preview only.
-
-Run the complete release contract from a development checkout with:
-
-```bash
-scripts/verify-release-readiness.sh
-```
-
-See [the candidate release notes](docs/releases/0.1.0-rc1.md) and
-[release manifest](release-manifest.yaml) for platforms, tools, validation
-scope, and known limitations.
+## Important safety notice
 
 > [!WARNING]
-> 
-> This project is **not affiliated, associated, authorized, endorsed by, or in any way officially connected with Turing / XuanFang / Kipye brands**, or any of theirs subsidiaries, affiliates, manufacturers or sellers of their products. All product and company names are the registered trademarks of their original owners.
-> 
-> This project is an open-source alternative software, NOT the original software provided for the smart screens. **Please do not open issues for USBMonitor.exe/ExtendScreen.exe or for the smart screens hardware here**.
-> * for Turing Smart Screen, use the official forum here: http://discuz.turzx.com/
-> * for other smart screens, contact your reseller
+> This fork was developed through a heavily **AI-assisted / vibe-coded**
+> workflow. Many changes were tested in small iterations, but the code has not
+> gone through a traditional upstream maintainer review process. Use it at your
+> own risk.
 
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black) ![Windows](https://img.shields.io/badge/Windows%2010%2F11-0078D6?style=for-the-badge&logoColor=white&logo=data:image/svg%2bxml;base64,PHN2ZyByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+V2luZG93czwvdGl0bGU+PHBhdGggZmlsbCA9ICIjRkZGRkZGIiBkPSJNMCwwSDExLjM3N1YxMS4zNzJIMFpNMTIuNjIzLDBIMjRWMTEuMzcySDEyLjYyM1pNMCwxMi42MjNIMTEuMzc3VjI0SDBabTEyLjYyMywwSDI0VjI0SDEyLjYyMyIvPjwvc3ZnPg==) [![macOS](https://img.shields.io/badge/mac%20os%20(⚠️major%20bug)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mathoudebine/turing-smart-screen-python/issues/7) ![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-A22846?style=for-the-badge&logo=Raspberry%20Pi&logoColor=white) ![Python](https://img.shields.io/badge/Python-3.X-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) [![Licence](https://img.shields.io/github/license/mathoudebine/turing-smart-screen-python?style=for-the-badge)](./LICENSE)
-  
-A Python system monitor program and an abstraction library for **small IPS USB-C displays.**    
+Be especially careful with features that interact with real hardware state:
 
-Supported operating systems : macOS, Windows, Linux (incl. Raspberry Pi), basically all OS that support Python 3.9+  
+- media upload;
+- device-side delete operations;
+- video playback/stop commands;
+- display power/control flows;
+- storage/media management;
+- any command that writes to the connected device.
 
-### ✅ Supported smart screens models:
+Before testing, keep backups of custom themes, configuration files, and local
+media. Read commands before running them.
 
-| ✅ Turing Smart Screen / TURZX                                                                                                                                                                                                                                                                                                                                                                  |
-|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| <img src="res/docs/turing.webp" width="30%" height="30%"/> <img src="res/docs/turing46inch.png" width="30%" height="30%"/> <img src="res/docs/turing5inch.png" width="30%" height="30%"/> <br/> <img src="res/docs/turing2inch.webp" width="30%" height="30%"/> <img src="res/docs/turing8inch.png" width="30%" height="30%"/> <img src="res/docs/turing8inch.webp" width="30%" height="30%"/> |
-| All available sizes and hardware revisions supported for the inherited system-monitor functionality: **2.1" / 2.8" / 3.5" / 4.6" / 5" / 5.2" / 8.0" / 8.8" / 9.2" / 12.3"** <br/>UART and USB protocols are supported. Native video and storage management in this fork is currently validated for the Turing Rev. C 2.1-inch profile; other models remain unverified for those media-specific operations.                                                                                                                                                                                  |
+---
 
-| ✅ XuanFang 3.5"                                   | ✅ [UsbPCMonitor 3.5" / 5"](https://aliexpress.com/item/1005003931363455.html)                       | ✅ Kipye Qiye Smart Display 3.5"                                                  |
-|---------------------------------------------------|-----------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
-| <img src="res/docs/xuanfang.webp"/>               | <img src="res/docs/UsbPCMonitor_5inch.webp" width="60%" height="60%"/>                              | <img src="res/docs/kipye-qiye-35.webp" width="60%" height="60%"/>                |
-| revision B & flagship (with backplate & RGB LEDs) | Unknown manufacturer, visually similar to Turing 3.5" / 5". Original software is `UsbPCMonitor.exe` | Front panel has an engraved inscription "奇叶智显" Qiye Zhixian (Qiye Smart Display) |
+## Validation scope
 
-| ✅ WeAct Studio Display FS V1 0.96"                            | ✅ WeAct Studio Display FS V1 3.5"                            |
-|---------------------------------------------------------------|--------------------------------------------------------------|
-| <img src="res/docs/weact_0.96.jpg" width="60%" height="60%"/> | <img src="res/docs/weact_3.5.png" width="60%" height="60%"/> |
+The inherited monitor/theme functionality comes from the upstream project and may
+work with the same general families of supported devices. The **new fork-specific
+media/video/storage work** is much more limited.
 
-<details>
+| Area | Status |
+| --- | --- |
+| Linux GTK app shell | Implemented in the active app branch |
+| Theme Gallery / Theme Manager | Implemented in the active app branch |
+| Embedded Theme Editor | Implemented in the active app branch |
+| Embedded Video Manager | Implemented in the active app branch |
+| Theme import/export | Implemented in the active app branch |
+| Export preflight | Implemented in the active app branch |
+| Installer `--check-only` diagnostics | Implemented in the active app branch |
+| Native Rev. C video/storage workflow | Experimental; validated on one device profile |
+| Broad hardware validation | Not complete |
+| Broad non-Arch packaging validation | Not complete |
 
-<summary><h3>❌ Not (yet) supported / not tested smart screen models</h3></summary>
+### Tested hardware for fork-specific media features
 
-| ❔ _AIDA64 / AX206 / USB2LCD..._                                                                                                                                                                        | ❔ _[ACEMAGIC S1 Mini PC - integrated 1,9″ display](https://acemagic.com/products/acemagic-s1-12th-alder-laker-n95-mini-pc)_                                  |
-|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| <img src="res/docs/ax206.jpg" width="45%" height="45%" /> <img src="res/docs/geekteches_ad35.jpg" width="45%" height="45%" /> <br/> <img src="res/docs/smartcool_lcd.webp" width="45%" height="45%" /> | <img src="res/docs/acemagic-s1-mini.jpg"/>                                                                                                                   |
-| Not supported for now. Produced by multiple manufacturers, all use the same [Appotech AX206 hacked photo frame firmware](https://github.com/dreamlayers/dpf-ax). Supported by AIDA64 and lcd4linux     | Not supported for now but could be integrated: protocol has been decoded, [see here](https://github.com/mathoudebine/turing-smart-screen-python/issues/677). |
+| Device/profile | Validation |
+| --- | --- |
+| Turing Smart Screen Rev. C 2.1-inch, ROM 88 | Physically validated by the fork author |
+| Native video playback/storage management | Validated on the Rev. C 2.1-inch profile above |
+| Other Turing/TURZX sizes/revisions | Not guaranteed for fork-specific media operations |
+| XuanFang / Kipye / WeAct / other devices | Inherited monitor support may work, but fork-specific media flows are not guaranteed |
 
-| ❔ _NXElec BeadaPanel 3/4/5/6/7_                                                                                                                                                                                                                                                                                           |
-|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| <img src="res/docs/beadapanel-3.jpg" width="30%" height="30%" /> <img src="res/docs/beadapanel-5s.jpg" width="30%" height="30%" /> <img src="res/docs/beadapanel-6.jpg" width="30%" height="30%" />                                                                                                                       |
-| Not supported for now but could be integrated: [Pankel-Link V1.0 Protocol Specification](https://www.nxelec.com/documents/bp/Panel-Link_USB_Media_Stream_Transport_Protocol_Rev10.pdf) / [Status-Link V1.1 Protocol Specification](https://www.nxelec.com/documents/bp/Status-Link_USB_Panel_Control_Protocol_Rev11.pdf). |
+---
 
-| ❌ _Waveshare [2.1inch](https://www.waveshare.com/wiki/2.1inch-USB-Monitor) / [2.8inch](https://www.waveshare.com/wiki/2.8inch-USB-Monitor) / [5inch](https://www.waveshare.com/wiki/5inch-USB-Monitor) / [7inch](https://www.waveshare.com/wiki/7inch-USB-Monitor) USB-Monitor_                                                                                                            | ❌ _[GUITION Smart screen 3.5"](https://aliexpress.com/item/1005006169962183.html)_                                                                                                                                                                                                          |
-|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| <img src="res/docs/waveshare-21inch-28inch.png"/>                                                                                                                                                                                                                                                                                                                                          | <img src="res/docs/guition.webp"/>                                                                                                                                                                                                                                                          |
-| Sold on [Waveshare shop](https://www.waveshare.com/2.8inch-usb-monitor.htm) or [Aliexpress](https://fr.aliexpress.com/item/1005006071685067.html). Managed by [proprietary Windows software "Waveshare PC Monitor"](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Vendor-apps#waveshare-pc-monitor---vendor-app). Cannot be supported by this project: needs a firmware. | Managed by [proprietary Windows software "GUITION Smart screen"](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Vendor-apps#guition---vendor-app). Cannot be supported by this project: [see here](https://github.com/mathoudebine/turing-smart-screen-python/issues/426). |
+## Why this fork exists
 
-| ❌ _[(Fuldho?) 3.5" IPS Screen](https://aliexpress.com/item/1005005632018367.html)_                                                                                                                                                     |
-|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| <img src="res/docs/fuldho_3.5.jpg" width="40%" height="40%" />                                                                                                                                                                         |
-| Managed by [proprietary Windows software `SmartMonitor.exe`](https://smartdisplay.lanzouo.com/b04jvavkb). Cannot be supported by this project: [see here](https://github.com/mathoudebine/turing-smart-screen-python/discussions/298). |
+The upstream project is powerful, cross-platform, and scriptable. This fork asks
+a different question:
 
-</details>
+> What would a Linux-first, GTK-native desktop app for these displays feel like?
 
-### [> What is my smart screen model?](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Hardware-revisions)  
+The answer explored here is an app that keeps the YAML/theme foundations while
+adding a more guided desktop workflow:
 
-**Please note all listed smart screens are different products** designed and produced by different companies, despite having a similar appearance. Their communication protocol is also different.  
-This project offers an abstraction layer to manage all of these products in a unified way, including some product-specific features like backplate RGB LEDs for available models!
+- manage themes visually;
+- edit themes without losing YAML control;
+- prepare images/videos without writing FFmpeg commands manually;
+- track generated media instead of overwriting source files;
+- validate exports before sharing themes;
+- make device access and installer readiness easier to diagnose on Linux.
 
-If you haven't received your screen yet but want to start developing your theme now, you can use the [**"simulated LCD" mode!**](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Simulated-display)
+---
 
-## How to start
+## Feature overview
 
-### [> Follow instructions on the wiki to configure and start this project.](https://github.com/mathoudebine/turing-smart-screen-python/wiki)
+### Linux GTK app shell
 
-There are 2 possible uses of this project Python code:
-* **[as a System Monitor](#system-monitor)**, a standalone program working with themes to display your computer HW info and custom data in an elegant way.
-[Check if your hardware is supported.](https://github.com/mathoudebine/turing-smart-screen-python/wiki/System-monitor-:-hardware-support)
-* **[integrated in your project](#control-the-display-from-your-python-projects)**, to fully control the display from your own Python code.
+The main launcher is:
 
-## System monitor
+```bash
+turing-smart-screen
+```
 
-This project is mainly a complete standalone program to use your screen as a system monitor, like the original vendor app.  
-Some themes are already included for a quick start!  
-### [> Configure and start system monitor](https://github.com/mathoudebine/turing-smart-screen-python/wiki/System-monitor-:-how-to-start)
-<img src="res/docs/config_wizard.png"/>  
+The app shell brings together overview, quick actions, settings, theme
+management, editing, and video/media tools in one GTK4/Libadwaita desktop
+application.
 
-* Fully functional multi-OS code base (operates out of the box, tested on Windows, Linux & MacOS).
-* Display configuration using GUI configuration wizard or `config.yaml` file: no Python code to edit.
-* Compatible with [multiple smart screen models (Turing, XuanFang...)](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Hardware-revisions). Backplate RGB LEDs are also supported for available models!
-* Support [multiple hardware sensors and metrics (CPU/GPU usage, temperatures, memory, disks, etc)](https://github.com/mathoudebine/turing-smart-screen-python/wiki/System-monitor-:-themes#stats-entry) with configurable refresh intervals.
-* Allow [creation of themes (see `res/themes`) with `theme.yaml` files using theme editor](https://github.com/mathoudebine/turing-smart-screen-python/wiki/System-monitor-:-themes) to be [shared with the community!](https://github.com/mathoudebine/turing-smart-screen-python/discussions/categories/themes)
-* Easy to expand: [custom Python data sources](https://github.com/mathoudebine/turing-smart-screen-python/wiki/System-monitor-:-themes#add-custom-stats-to-a-theme) can be written to pull specific information and display it on themes like any other sensor.
-* Auto-detect COM port based on the selected smart screen model.
-* Tray icon with Exit option, useful when the program is running in background.
+### Theme Gallery / Theme Manager
 
-### [> List and preview of included themes](res/themes/themes.md)
-<img src="res/themes/3.5inchTheme2/preview.png" height="150" /> <img src="res/themes/Terminal/preview.png" height="150" /> <img src="res/themes/Cyberpunk-net/preview.png" height="150" /> <img src="res/themes/bash-dark-green-gpu/preview.png" height="150" /> <img src="res/themes/Landscape6Grid/preview.png" width="150" /> <img src="res/themes/LandscapeMagicBlue/preview.png" width="150" /> <img src="res/themes/LandscapeEarth/preview.png" width="150" /> ... [view full list](res/themes/themes.md)
-### [> Themes creation/edition (using theme editor)](https://github.com/mathoudebine/turing-smart-screen-python/wiki/System-monitor-:-themes)
-### [> Themes shared by the community](https://github.com/mathoudebine/turing-smart-screen-python/discussions/categories/themes)
-<img src="https://user-images.githubusercontent.com/79225820/203648707-6f043068-5c9d-454d-9c0a-3d9ea02ece77.jpg" height="150" /> <img src="https://user-images.githubusercontent.com/121983479/210663324-994c987a-6489-4482-8883-db74ef566014.jpg" height="150" />
-<img src="https://user-images.githubusercontent.com/120036534/208128675-897f60cd-5647-40b7-b074-b56b67e775dd.png" height="150" /> <img src="https://user-images.githubusercontent.com/65172896/217549510-149913ac-ef4e-4f61-8f5e-6d768483a02c.png" height="150" /> and more... Share yours!
+The Theme Gallery provides a visual entry point for themes:
 
-## Control the display from your Python projects
+- theme cards and preview thumbnails;
+- active/current theme markers;
+- compatibility and diagnostics indicators;
+- open/edit actions;
+- duplicate, rename, and delete with confirmation;
+- import from folder/archive;
+- export to `.zip` archive;
+- export preflight warnings for missing/generated/outside assets.
 
-If you don't want to use your screen for system monitoring, you can just use this project as a module from any Python code to do some simple operations on the display:
-- **Display custom picture**
-- **Display text**
-- **Display horizontal / radial progress bar**
-- **Screen rotation**
-- Clear the screen (blank)
-- Turn the screen on/off
-- Display soft reset
-- Set brightness
-- Set backplate RGB LEDs color (on supported hardware rev.) 
+### Embedded Theme Editor
 
-This project will act as an abstraction library to handle specific protocols and capabilities of each supported smart screen models in a transparent way for the user.
-Check `simple-program.py` as an example.
+The editor keeps the YAML-first model while adding safer workflows:
 
-### [> Control the display from your code](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Control-screen-from-your-own-code)
+- guarded saves;
+- Undo/Redo-friendly operations;
+- external file change detection;
+- atomic writes;
+- semantic element navigation;
+- layer ordering;
+- image layout/transform/crop inspectors;
+- text/effect presets;
+- generated-media tracking.
 
-## Troubleshooting
-If you have trouble running the program as described in the wiki, please check [open/closed issues](https://github.com/mathoudebine/turing-smart-screen-python/issues) & [the wiki Troubleshooting page](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Troubleshooting)
+### Media preparation
 
-## They're talking about it!
+The media preparation workflow helps convert GIF/video inputs into device-ready
+outputs:
 
-* [Hackaday - Cheap LCD Uses USB Serial](https://hackaday.com/2023/09/11/cheap-lcd-uses-usb-serial/)  
+- source analysis with FFprobe;
+- fit/fill/stretch/original/custom framing;
+- trim controls;
+- rotation/mirroring/crop style workflows;
+- output preview;
+- profile-aware dimensions;
+- guarded upload path for validated hardware.
 
+### Native video/storage experiments
 
-* [CNX Software - Turing Smart Screen – A low-cost 3.5-inch USB Type-C information display](https://www.cnx-software.com/2022/04/29/turing-smart-screen-a-low-cost-3-5-inch-usb-type-c-information-display/)
+For the validated Rev. C 2.1-inch workflow, the fork includes experimental tools
+for:
 
+- listing display-side media;
+- checking size/storage information;
+- uploading prepared media;
+- playing and stopping video;
+- deleting media with guarded flows;
+- rendering transparent overlays above native video backgrounds.
 
-* [Phazer Tech - Turing Smart Screen Python ](https://phazertech.com/tutorials/turing-smart-screen.html)
+This is the most hardware-specific and risky area of the fork.
 
-## Star History
+---
 
-[![Star History Chart](https://api.star-history.com/svg?repos=mathoudebine/turing-smart-screen-python&type=Date)](https://star-history.com/#mathoudebine/turing-smart-screen-python&Date)
+## Installer readiness diagnostics
 
-## Prepare GIFs and videos
+Before installing, run:
 
-Open **Video Manager → Import and prepare media…** to analyze, frame, trim,
-convert, preview, and upload GIF/video files without writing FFmpeg commands.
-See [Media preparation editor MVP](docs/MEDIA_PREPARATION.md).
+```bash
+./install.sh --check-only
+```
+
+This mode is designed to be non-destructive. It reports:
+
+- detected Linux distribution and package manager;
+- dependency hints for common distro families;
+- Python/venv readiness;
+- GTK4/Libadwaita imports;
+- Pillow, PyYAML, and ruamel.yaml availability;
+- installed virtual-environment health when present;
+- whether the launcher directory is in `PATH`;
+- connected serial/USB devices under `/dev/ttyACM*`, `/dev/ttyUSB*`, and
+  `/dev/serial/by-id/*`;
+- real device owner/group/mode;
+- whether the current user belongs to the required access group.
+
+Different distributions use different serial-device groups. For example,
+Arch/CachyOS often uses `uucp`, while Debian/Ubuntu commonly uses `dialout`.
+The readiness check reports the actual group exposed by your connected device.
+
+---
+
+## Relationship with upstream
+
+This fork is based on and deeply indebted to
+[`mathoudebine/turing-smart-screen-python`](https://github.com/mathoudebine/turing-smart-screen-python).
+
+This repository is **not** a request to merge the whole fork upstream as-is. The
+fork is intentionally broad, Linux-first, and experimental. If upstream maintainers
+or users find parts of it useful, those parts can be discussed and split into
+small, focused, upstream-friendly pull requests later.
+
+Likely upstream-friendly areas:
+
+- small bug fixes;
+- pure helper functions;
+- diagnostics improvements;
+- packaging/test improvements;
+- isolated hardware findings;
+- documentation clarifications.
+
+Likely fork-specific areas for now:
+
+- the full GTK4/Libadwaita app shell;
+- Theme Gallery as implemented here;
+- generated-media policy tied to this editor;
+- Linux-only installer workflow;
+- Rev. C native video/storage flows until upstream agrees on scope.
+
+---
+
+## Development process disclosure
+
+This fork was built through iterative, AI-assisted development. In practice, that
+means many changes were designed, generated, tested, reviewed, and refined in
+small loops.
+
+That process helped move quickly, but it does **not** remove the need for careful
+human review. Treat this project as experimental unless you have reviewed and
+tested the pieces you plan to use.
+
+---
+
+## Documentation
+
+Most detailed documentation currently lives on the active app branch:
+
+```text
+feature/theme-video-inspector-live-preview
+```
+
+Useful documents there include:
+
+- `docs/INSTALLATION.md`
+- `docs/ROADMAP_CURRENT_STATUS.md`
+- `docs/ROADMAP.md`
+- `docs/OFFICIAL_WINDOWS_PARITY_ROADMAP.md`
+- `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md`
+- `docs/MEDIA_PREPARATION.md`
+- `docs/UPSTREAM_SHARING.md`
+- `CHANGELOG.md`
+
+---
+
+## Suggested upstream sharing message
+
+If introducing this fork upstream, a good framing is:
+
+```markdown
+Hi! First of all, thank you for turing-smart-screen-python.
+
+I have been working on an experimental Linux-focused fork that builds on top of
+this project and explores a GTK4/Libadwaita desktop workflow.
+
+The fork includes Theme Gallery / Theme Manager, embedded editor/video manager,
+media preparation tools, generated-media tracking, theme import/export with
+preflight validation, installer diagnostics, and experimental Rev. C video/storage
+support validated on my 2.1-inch device.
+
+This is not a request to merge the whole fork as-is. I am sharing it in case any
+ideas, implementation details, or hardware findings are useful for the upstream
+project.
+```
+
+---
+
+## Credits
+
+Original project:
+
+- <https://github.com/mathoudebine/turing-smart-screen-python>
+
+This fork would not exist without the upstream project's Python display
+abstraction, theme model, hardware support, documentation, and community work.
+
+---
+
+## Disclaimer
+
+This project is **not affiliated, associated, authorized, endorsed by, or in any
+way officially connected with Turing / XuanFang / Kipye brands**, or any of their
+subsidiaries, affiliates, manufacturers, or sellers. All product and company
+names are trademarks or registered trademarks of their respective owners.
+
+This project is an open-source alternative software experiment, not the original
+software provided for the smart screens. Do not open issues here for vendor
+applications such as `USBMonitor.exe` or `ExtendScreen.exe`, or for hardware
+warranty support.
+
+For vendor or hardware support, use the manufacturer/reseller channels.
+
+---
+
+## License
+
+This fork follows the license of the upstream project. See [LICENSE](LICENSE).
