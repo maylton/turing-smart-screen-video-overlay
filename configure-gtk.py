@@ -21,7 +21,6 @@ from library.runtime import DeviceBusyError, MonitorController
 from library.theme_gallery import (
     ThemeGalleryPane,
     ThemeRecord,
-    open_theme_folder as gallery_open_theme_folder,
     set_current_theme as gallery_set_current_theme,
     show_set_current_theme_dialog,
     show_theme_gallery_diagnostics_dialog,
@@ -230,7 +229,74 @@ def install_runtime_patches(app):
             use_system_python=True,
         )
 
-    def debug_open_theme_record_folder(self, record: ThemeRecord):
+    def directory_default_app(self) -> str:
+        if shutil.which("xdg-mime") is None:
+            return ""
+        try:
+            result = subprocess.run(
+                ["xdg-mime", "query", "default", "inode/directory"],
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except Exception as exc:
+            theme_gallery_debug(f"xdg-mime query failed: {exc!r}")
+            return ""
+        default_app = result.stdout.strip()
+        theme_gallery_debug(
+            f"xdg-mime default inode/directory={default_app!r} returncode={result.returncode}"
+        )
+        return default_app
+
+    def file_manager_commands_for_default(self, default_app: str, path: Path):
+        default_key = default_app.casefold()
+        commands: list[list[str]] = []
+
+        if "nautilus" in default_key:
+            commands.append(["nautilus", "--new-window", str(path)])
+        elif "dolphin" in default_key:
+            commands.append(["dolphin", str(path)])
+        elif "thunar" in default_key:
+            commands.append(["thunar", str(path)])
+        elif "nemo" in default_key:
+            commands.append(["nemo", str(path)])
+        elif "pcmanfm" in default_key:
+            commands.append(["pcmanfm", str(path)])
+
+        for command in (
+            ["nautilus", "--new-window", str(path)],
+            ["dolphin", str(path)],
+            ["thunar", str(path)],
+            ["nemo", str(path)],
+            ["pcmanfm", str(path)],
+        ):
+            if command not in commands:
+                commands.append(command)
+        return commands
+
+    def launch_file_manager_directly(self, path: Path, default_app: str) -> bool:
+        for command in file_manager_commands_for_default(self, default_app, path):
+            executable = shutil.which(command[0])
+            theme_gallery_debug(f"which {command[0]} -> {executable}")
+            if executable is None:
+                continue
+            theme_gallery_debug(f"launching {' '.join(command)}")
+            try:
+                subprocess.Popen(
+                    command,
+                    cwd=str(ROOT),
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                theme_gallery_debug(f"launched {' '.join(command)}")
+                return True
+            except Exception as exc:
+                theme_gallery_debug(f"{' '.join(command)} failed: {exc!r}")
+        return False
+
+    def open_theme_record_folder_debuggable(self, record: ThemeRecord):
         path = record.directory
         uri = path.resolve().as_uri() if path.exists() else "<missing>"
         theme_gallery_debug("open folder clicked")
@@ -252,14 +318,31 @@ def install_runtime_patches(app):
         if not path.is_dir():
             raise FileNotFoundError(path)
 
-        errors: list[str] = []
+        default_app = directory_default_app(self)
+        known_default = any(
+            token in default_app.casefold()
+            for token in ("nautilus", "dolphin", "thunar", "nemo", "pcmanfm")
+        )
+        running_niri = os.environ.get("XDG_CURRENT_DESKTOP", "").casefold() == "niri"
+        prefer_direct_file_manager = running_niri or not known_default
 
+        if prefer_direct_file_manager:
+            theme_gallery_debug(
+                "preferring direct file manager because "
+                f"running_niri={running_niri} known_default={known_default}"
+            )
+            if launch_file_manager_directly(self, path, default_app):
+                return
+
+        errors: list[str] = []
         try:
             theme_gallery_debug("trying app.Gio.AppInfo.launch_default_for_uri")
             launched = app.Gio.AppInfo.launch_default_for_uri(uri, None)
             theme_gallery_debug(
                 f"app.Gio.AppInfo.launch_default_for_uri returned {launched!r}"
             )
+            if launched and not prefer_direct_file_manager:
+                return
         except Exception as exc:
             errors.append(f"app.Gio launch failed: {exc}")
             theme_gallery_debug(f"app.Gio launch failed: {exc!r}")
@@ -296,46 +379,22 @@ def install_runtime_patches(app):
             theme_gallery_debug(
                 f"{' '.join(command)} returncode={result.returncode} stdout={stdout!r} stderr={stderr!r}"
             )
-            if result.returncode == 0:
+            if result.returncode == 0 and not prefer_direct_file_manager:
                 return
-            errors.append(
-                f"{' '.join(command)} exited {result.returncode}: {stderr or stdout or 'no output'}"
-            )
-
-        for command in (
-            ["dolphin", str(path)],
-            ["nautilus", str(path)],
-            ["thunar", str(path)],
-            ["nemo", str(path)],
-            ["pcmanfm", str(path)],
-        ):
-            executable = shutil.which(command[0])
-            theme_gallery_debug(f"which {command[0]} -> {executable}")
-            if executable is None:
-                continue
-            theme_gallery_debug(f"launching {' '.join(command)}")
-            try:
-                subprocess.Popen(
-                    command,
-                    cwd=str(ROOT),
-                    start_new_session=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+            if result.returncode != 0:
+                errors.append(
+                    f"{' '.join(command)} exited {result.returncode}: {stderr or stdout or 'no output'}"
                 )
-                return
-            except Exception as exc:
-                errors.append(f"{' '.join(command)} failed: {exc}")
-                theme_gallery_debug(f"{' '.join(command)} failed: {exc!r}")
+
+        if launch_file_manager_directly(self, path, default_app):
+            return
 
         raise RuntimeError("Could not open folder. " + " | ".join(errors))
 
     def open_theme_record_folder(self, record: ThemeRecord):
         theme_gallery_debug(f"folder button callback fired for {record.name}")
         try:
-            if theme_gallery_debug_enabled():
-                debug_open_theme_record_folder(self, record)
-            else:
-                gallery_open_theme_folder(record)
+            open_theme_record_folder_debuggable(self, record)
         except Exception as exc:
             theme_gallery_debug(f"open folder failed: {exc!r}")
             self.toast(f"Could not open theme folder: {exc}")
