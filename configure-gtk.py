@@ -17,6 +17,14 @@ import threading
 from pathlib import Path
 
 from library.runtime import DeviceBusyError, MonitorController
+from library.theme_gallery import (
+    ThemeGalleryPane,
+    ThemeRecord,
+    open_theme_folder as gallery_open_theme_folder,
+    set_current_theme as gallery_set_current_theme,
+    show_set_current_theme_dialog,
+    show_theme_gallery_diagnostics_dialog,
+)
 
 ROOT = Path(__file__).resolve().parent
 APP_MODULE = ROOT / "configure_gtk_app.py"
@@ -58,6 +66,7 @@ def load_app_module():
 def install_runtime_patches(app):
     original_init = app.SmartScreenWindow.__init__
     original_refresh_overview = app.SmartScreenWindow.refresh_overview
+    original_refresh_theme_list = app.SmartScreenWindow.refresh_theme_list
 
     def reap_monitor_child(self, timeout=2.0):
         """Collect a monitor process started by this GTK application."""
@@ -118,6 +127,123 @@ def install_runtime_patches(app):
         else:
             self.theme_path_label.set_label("")
         update_runtime_status(self)
+
+    def build_themes_page(self):
+        outer = app.Gtk.Box(
+            orientation=app.Gtk.Orientation.VERTICAL,
+            spacing=14,
+            margin_top=18,
+            margin_bottom=18,
+            margin_start=18,
+            margin_end=18,
+        )
+
+        header = app.Gtk.Box(
+            orientation=app.Gtk.Orientation.HORIZONTAL,
+            spacing=12,
+        )
+        title_box = app.Gtk.Box(
+            orientation=app.Gtk.Orientation.VERTICAL,
+            spacing=4,
+        )
+        title_box.set_hexpand(True)
+        title = app.Gtk.Label(label="Themes", xalign=0)
+        title.add_css_class("title-1")
+        subtitle = app.Gtk.Label(
+            label=(
+                "Browse installed themes, inspect diagnostics, edit a theme, "
+                "or choose the current theme."
+            ),
+            xalign=0,
+            wrap=True,
+        )
+        subtitle.add_css_class("dim-label")
+        title_box.append(title)
+        title_box.append(subtitle)
+        header.append(title_box)
+
+        create_button = app.Gtk.Button(
+            label="Create blank",
+            icon_name="list-add-symbolic",
+            tooltip_text="Create an empty theme for the selected display",
+            valign=app.Gtk.Align.CENTER,
+        )
+        create_button.connect(
+            "clicked",
+            lambda *_: self.show_create_empty_theme_dialog(),
+        )
+        header.append(create_button)
+
+        refresh_button = app.Gtk.Button(
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Refresh theme gallery",
+            valign=app.Gtk.Align.CENTER,
+        )
+        refresh_button.connect("clicked", lambda *_: self.refresh_theme_list())
+        header.append(refresh_button)
+        outer.append(header)
+
+        self.theme_gallery = ThemeGalleryPane(
+            on_open_theme=self.open_theme_record_editor,
+            on_open_folder=self.open_theme_record_folder,
+            on_theme_diagnostics=self.show_theme_record_diagnostics,
+            on_set_current_theme=self.confirm_set_current_theme_from_gallery,
+            on_records_changed=self.on_theme_gallery_records_changed,
+        )
+        self.theme_gallery.set_vexpand(True)
+        self.theme_gallery.set_hexpand(True)
+        outer.append(self.theme_gallery)
+        return outer
+
+    def on_theme_gallery_records_changed(self, records: list[ThemeRecord]):
+        self.current_theme = app.read_current_theme()
+        self.refresh_overview()
+
+    def refresh_theme_list(self):
+        gallery = getattr(self, "theme_gallery", None)
+        if gallery is not None:
+            gallery.reload_themes()
+            return
+        original_refresh_theme_list(self)
+
+    def open_theme_record_editor(self, record: ThemeRecord):
+        self.launch_script(
+            app.THEME_EDITOR,
+            record.name,
+            use_system_python=True,
+        )
+
+    def open_theme_record_folder(self, record: ThemeRecord):
+        try:
+            gallery_open_theme_folder(record)
+        except Exception as exc:
+            self.toast(f"Could not open theme folder: {exc}")
+            return
+        self.toast(f"Opening folder for {record.name}")
+
+    def show_theme_record_diagnostics(self, record: ThemeRecord):
+        show_theme_gallery_diagnostics_dialog(self, record, self.toast)
+
+    def confirm_set_current_theme_from_gallery(self, record: ThemeRecord):
+        show_set_current_theme_dialog(
+            self,
+            record,
+            self.apply_set_current_theme_from_gallery,
+        )
+
+    def apply_set_current_theme_from_gallery(self, record: ThemeRecord):
+        try:
+            old_theme, new_theme = gallery_set_current_theme(record)
+        except Exception as exc:
+            self.toast(f"Could not update config.yaml: {exc}")
+            return
+
+        self.current_theme = new_theme
+        self.refresh_all()
+        if old_theme and old_theme != new_theme:
+            self.toast(f"Active theme changed: {old_theme} → {new_theme}")
+        else:
+            self.toast(f"Active theme set to {new_theme}")
 
     def build_settings_page(self):
         clamp = app.Adw.Clamp(maximum_size=760)
@@ -280,7 +406,6 @@ def install_runtime_patches(app):
         if self.runtime_stop_in_progress:
             self.toast("Monitor stop is already in progress")
             return
-
         state = self.runtime_controller.state()
         if not state.busy:
             self.toast("Monitor is not running")
@@ -368,6 +493,14 @@ def install_runtime_patches(app):
     app.SmartScreenWindow.update_runtime_status = update_runtime_status
     app.SmartScreenWindow.refresh_runtime_status = refresh_runtime_status
     app.SmartScreenWindow.refresh_overview = patched_refresh_overview
+    app.SmartScreenWindow.build_themes_page = build_themes_page
+    app.SmartScreenWindow.refresh_theme_list = refresh_theme_list
+    app.SmartScreenWindow.open_theme_record_editor = open_theme_record_editor
+    app.SmartScreenWindow.open_theme_record_folder = open_theme_record_folder
+    app.SmartScreenWindow.show_theme_record_diagnostics = show_theme_record_diagnostics
+    app.SmartScreenWindow.confirm_set_current_theme_from_gallery = confirm_set_current_theme_from_gallery
+    app.SmartScreenWindow.apply_set_current_theme_from_gallery = apply_set_current_theme_from_gallery
+    app.SmartScreenWindow.on_theme_gallery_records_changed = on_theme_gallery_records_changed
     app.SmartScreenWindow.build_settings_page = build_settings_page
     app.SmartScreenWindow.on_start_monitor_changed = on_start_monitor_changed
     app.SmartScreenWindow.auto_apply_last_theme = auto_apply_last_theme
