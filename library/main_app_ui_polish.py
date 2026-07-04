@@ -10,27 +10,54 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
+from typing import Any, Mapping
+
+from library.theme_video_background import find_prepared_local_video
+from library.theme_video_inspector import resolve_local_video_source
 
 
-def _truthy(value: str) -> bool:
-    return str(value or "").strip().strip('"\'').lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-        "enabled",
-    }
+def _truthy(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().strip('"\'').lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "enabled",
+        }
+    return bool(value)
 
 
-def _unquote(value: str) -> str:
+def _unquote(value: Any) -> str:
     value = str(value or "").strip()
     if "#" in value:
         value = value.split("#", 1)[0].strip()
     return value.strip().strip('"\'')
 
 
-def _read_simple_theme_video_config(theme_yaml: Path) -> dict[str, str]:
-    """Read a simple `video:` block without importing the full YAML stack."""
+def _case_insensitive_get(mapping: Mapping[str, Any], key: str, default=None):
+    key_upper = str(key).upper()
+    for candidate, value in mapping.items():
+        if str(candidate).upper() == key_upper:
+            return value
+    return default
+
+
+def _read_theme_video_config(theme_yaml: Path) -> dict[str, Any]:
+    """Read the theme's video section using ruamel, with a tiny fallback parser."""
+    try:
+        import ruamel.yaml
+
+        yaml = ruamel.yaml.YAML(typ="safe")
+        with theme_yaml.open("r", encoding="utf-8") as stream:
+            document = yaml.load(stream) or {}
+        if isinstance(document, Mapping):
+            for key, value in document.items():
+                if str(key).lower() == "video" and isinstance(value, Mapping):
+                    return {str(item_key).upper(): item_value for item_key, item_value in value.items()}
+    except Exception:
+        pass
+
     try:
         lines = theme_yaml.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -38,7 +65,7 @@ def _read_simple_theme_video_config(theme_yaml: Path) -> dict[str, str]:
 
     in_video = False
     video_indent = 0
-    data: dict[str, str] = {}
+    data: dict[str, Any] = {}
     for line in lines:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
@@ -72,38 +99,61 @@ def _theme_yaml_path(app, theme_name: str) -> Path | None:
 
 
 def _theme_video_path(app, theme_name: str) -> Path | None:
+    theme_name = str(theme_name or "").strip()
+    if not theme_name:
+        return None
+
+    theme_dir = app.THEMES_DIR / theme_name
     theme_yaml = _theme_yaml_path(app, theme_name)
     if theme_yaml is None:
         return None
 
-    config = _read_simple_theme_video_config(theme_yaml)
-    if not _truthy(config.get("ENABLED", "")):
+    config = _read_theme_video_config(theme_yaml)
+    if not _truthy(_case_insensitive_get(config, "ENABLED")):
         return None
 
-    raw_path = _unquote(config.get("PATH", ""))
-    if not raw_path:
-        return None
+    local = resolve_local_video_source(theme_dir, config)
+    if local is not None and local.is_file():
+        return local
 
+    remote_path = _unquote(_case_insensitive_get(config, "PATH", ""))
+    if remote_path:
+        prepared = find_prepared_local_video(remote_path)
+        if prepared is not None and prepared.is_file():
+            return prepared
+
+    local_path = _unquote(_case_insensitive_get(config, "LOCAL_PATH", ""))
+    path_values = [local_path, remote_path]
     candidates: list[Path] = []
-    path = Path(os.path.expanduser(raw_path))
-    if path.is_absolute():
-        candidates.append(path)
-    else:
-        clean = raw_path.lstrip("./")
+    for raw_path in path_values:
+        if not raw_path:
+            continue
+        path = Path(os.path.expanduser(raw_path))
+        if path.is_absolute() and not raw_path.startswith(("/mnt/SDCARD/", "/root/video/")):
+            candidates.append(path)
+            continue
+        filename = Path(raw_path).name
+        if not filename:
+            continue
         candidates.extend([
-            (app.THEMES_DIR / theme_name / clean),
-            (app.ROOT / clean),
-            (app.ROOT / raw_path),
+            theme_dir / filename,
+            theme_dir / raw_path.lstrip("./"),
+            app.ROOT / raw_path.lstrip("./"),
+            app.ROOT / "res" / "video" / filename,
+            app.ROOT / "res" / "videos" / filename,
         ])
 
     for candidate in candidates:
-        if candidate.is_file():
-            return candidate
+        try:
+            if candidate.is_file():
+                return candidate.resolve()
+        except OSError:
+            continue
     return None
 
 
 class OverviewLivePreviewAnimator:
-    """Extract a tiny frame loop from the active theme video and play it in overview."""
+    """Generate a short GIF for video themes and play cached frames in overview."""
 
     def __init__(self, app, window):
         self.app = app
@@ -150,8 +200,8 @@ class OverviewLivePreviewAnimator:
         self.stop()
         self.theme_name = theme_name
         self.worker_key = key
-        self.set_caption("Preparing live preview…")
-        self.prepare_frames_async(theme_name, video_path, key)
+        self.set_caption("Generating theme GIF preview…")
+        self.prepare_preview_async(theme_name, video_path, key)
 
     def cache_key(self, theme_name: str, video_path: Path) -> str:
         try:
@@ -163,69 +213,133 @@ class OverviewLivePreviewAnimator:
         safe_theme = re.sub(r"[^A-Za-z0-9_.-]+", "-", theme_name).strip("-._") or "theme"
         return f"{safe_theme}-{digest}"
 
-    def prepare_frames_async(self, theme_name: str, video_path: Path, key: str) -> None:
+    def prepare_preview_async(self, theme_name: str, video_path: Path, key: str) -> None:
         if self.loading:
             return
         self.loading = True
 
         def worker() -> None:
             frames: list[Path] = []
+            gif_path = ""
             error = ""
             try:
-                frames = self.extract_frames(video_path, key)
+                frames, gif = self.generate_preview_assets(video_path, key)
+                gif_path = str(gif) if gif is not None else ""
             except Exception as exc:  # pragma: no cover - defensive UI guard
                 error = str(exc)
             self.app.GLib.idle_add(
-                self.finish_prepare_frames,
+                self.finish_prepare_preview,
                 theme_name,
                 key,
                 [str(frame) for frame in frames],
+                gif_path,
                 error,
             )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def extract_frames(self, video_path: Path, key: str) -> list[Path]:
+    def generate_preview_assets(self, video_path: Path, key: str) -> tuple[list[Path], Path | None]:
         cache_dir = self.cache_root / key
-        existing = sorted(cache_dir.glob("frame-*.png"))
-        if existing:
-            return existing
+        gif_path = cache_dir / "preview.gif"
+        frames_dir = cache_dir / "frames"
+        existing = sorted(frames_dir.glob("frame-*.png"))
+        if existing and gif_path.is_file():
+            return existing, gif_path
 
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
-            return []
+            return [], None
 
+        frames_dir.mkdir(parents=True, exist_ok=True)
         cache_dir.mkdir(parents=True, exist_ok=True)
-        output_pattern = cache_dir / "frame-%03d.png"
-        command = [
-            ffmpeg,
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            str(video_path),
-            "-vf",
-            "fps=2,scale=360:360:force_original_aspect_ratio=decrease",
-            "-frames:v",
-            "12",
-            str(output_pattern),
-        ]
+        output_pattern = frames_dir / "frame-%03d.png"
+        for old_frame in frames_dir.glob("frame-*.png"):
+            old_frame.unlink(missing_ok=True)
+
+        frame_filter = "fps=8,scale=360:360:force_original_aspect_ratio=decrease"
         subprocess.run(
-            command,
+            [
+                ffmpeg,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-t",
+                "3.5",
+                "-i",
+                str(video_path),
+                "-vf",
+                frame_filter,
+                "-frames:v",
+                "28",
+                str(output_pattern),
+            ],
             cwd=str(self.app.ROOT),
             text=True,
             capture_output=True,
             check=False,
-            timeout=12,
+            timeout=16,
         )
-        return sorted(cache_dir.glob("frame-*.png"))
 
-    def finish_prepare_frames(
+        palette_path = cache_dir / "palette.png"
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-t",
+                "3.5",
+                "-i",
+                str(video_path),
+                "-vf",
+                f"{frame_filter},palettegen",
+                str(palette_path),
+            ],
+            cwd=str(self.app.ROOT),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=16,
+        )
+
+        if palette_path.is_file():
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-t",
+                    "3.5",
+                    "-i",
+                    str(video_path),
+                    "-i",
+                    str(palette_path),
+                    "-lavfi",
+                    f"{frame_filter} [x]; [x][1:v] paletteuse=dither=bayer",
+                    "-loop",
+                    "0",
+                    str(gif_path),
+                ],
+                cwd=str(self.app.ROOT),
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=16,
+            )
+
+        frames = sorted(frames_dir.glob("frame-*.png"))
+        return frames, gif_path if gif_path.is_file() else None
+
+    def finish_prepare_preview(
         self,
         theme_name: str,
         key: str,
         frame_paths: list[str],
+        gif_path: str,
         error: str,
     ) -> bool:
         self.loading = False
@@ -238,14 +352,15 @@ class OverviewLivePreviewAnimator:
             self.set_caption("Static preview — no playable theme video found" if not error else f"Static preview — {error}")
             return False
 
-        self.set_caption("Live theme preview")
+        suffix = f" · {Path(gif_path).name}" if gif_path else ""
+        self.set_caption(f"Animated theme preview{suffix}")
         self.start_loop()
         return False
 
     def start_loop(self) -> None:
         if self.timeout_id:
             self.app.GLib.source_remove(self.timeout_id)
-        self.timeout_id = self.app.GLib.timeout_add(500, self.tick)
+        self.timeout_id = self.app.GLib.timeout_add(125, self.tick)
         self.tick()
 
     def tick(self) -> bool:
@@ -268,7 +383,7 @@ class OverviewLivePreviewAnimator:
 
 
 def install_main_app_ui_polish_patches(app, *, root: Path) -> None:
-    """Improve overview visual hierarchy and add a live video-backed preview."""
+    """Improve overview visual hierarchy and add a GIF-backed video preview."""
 
     original_build_overview_page = app.SmartScreenWindow.build_overview_page
     original_refresh_overview = app.SmartScreenWindow.refresh_overview
