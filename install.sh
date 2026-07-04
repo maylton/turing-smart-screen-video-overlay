@@ -225,6 +225,7 @@ print("Project venv GTK, Pillow and ruamel.yaml imports OK")
 PYTHON_ENTRYPOINTS=(
   sitecustomize.py
   theme_gallery_card_polish.py
+  turing-smart-screen-main.py
   configure-gtk.py
   configure_gtk_app.py
   main.py
@@ -243,6 +244,8 @@ PYTHON_ENTRYPOINTS=(
   gtk-checkup.py
   library/runtime.py
   library/theme_gallery.py
+  library/embedded_theme_editor.py
+  library/embedded_theme_editor_runtime.py
   library/video_media.py
   library/media_preparation.py
   library/media_profiles.py
@@ -270,7 +273,7 @@ set -euo pipefail
 export TURING_SMART_SCREEN_HOME="$PREFIX"
 export PYTHONPATH="$PREFIX\${PYTHONPATH:+:\$PYTHONPATH}"
 cd "$PREFIX"
-exec /usr/bin/python3 "$PREFIX/configure-gtk.py" "\$@"
+exec /usr/bin/python3 "$PREFIX/turing-smart-screen-main.py" "\$@"
 EOF
 chmod +x "$TMP_LAUNCHER"
 $SUDO cp "$TMP_LAUNCHER" "$LAUNCHER"
