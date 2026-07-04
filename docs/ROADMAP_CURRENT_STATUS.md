@@ -1,14 +1,18 @@
 # Current Roadmap Status
 
-This checkpoint summarizes the current project state after the Theme Gallery app-shell stack was merged into `feature/theme-video-inspector-live-preview`.
+This checkpoint summarizes the current project state after the Theme Gallery app
+shell, export preflight, installer readiness diagnostics, and public-facing fork
+documentation work.
 
-It is meant to be the quick operational roadmap: what is done, what is current, and what should come next. Longer design context remains in:
+It is meant to be the quick operational roadmap: what is done, what is current,
+and what should come next. Longer design context remains in:
 
 - `docs/ROADMAP.md`
 - `docs/ROADMAP_THEME_EDITOR_DETAILED.md`
 - `docs/OFFICIAL_WINDOWS_PARITY_ROADMAP.md`
 - `docs/THEME_APP_SHELL_MVP.md`
 - `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md`
+- `docs/UPSTREAM_SHARING.md`
 
 ## Ground rules
 
@@ -19,13 +23,19 @@ Continue using the established roadmap guardrails:
 - no unrelated theme/config/generated-file drift;
 - preserve Undo/Redo and atomic-save behavior;
 - keep device-write flows explicit and guarded;
-- do not bypass the YAML-first architecture.
+- do not bypass the YAML-first architecture;
+- keep public documentation clear about the Linux-focused, experimental,
+  AI-assisted / vibe-coded nature of this fork.
 
 ## Current base
 
 ```text
 base branch: feature/theme-video-inspector-live-preview
-latest merged stack: Theme Gallery app shell stack + post-merge docs cleanup
+latest merged stack:
+  - Theme Gallery app shell stack
+  - post-merge docs cleanup
+  - export completeness preflight
+  - installer readiness check mode
 normal launcher: turing-smart-screen
 integrated dev launcher: .venv/bin/python turing-smart-screen-main.py
 legacy/runtime launcher: .venv/bin/python configure-gtk.py
@@ -42,6 +52,7 @@ legacy/runtime launcher: .venv/bin/python configure-gtk.py
 - [x] Multiple display profiles.
 - [x] Automatic display detection.
 - [x] Release-readiness foundation.
+- [x] Installer `--check-only` readiness diagnostics.
 
 ### Theme editor and media tooling
 
@@ -56,7 +67,7 @@ legacy/runtime launcher: .venv/bin/python configure-gtk.py
 - [x] Static image transform inspector.
 - [x] Static image crop inspector.
 - [x] Generated Media Manager.
-- [x] Video Inspector V1 with reactive playback preview.
+- [x] Video Inspector with reactive playback preview.
 - [x] Theme editor text/effect hardening.
 - [x] True transparent native-video overlays.
 - [x] Text effects over native-video themes.
@@ -72,6 +83,7 @@ legacy/runtime launcher: .venv/bin/python configure-gtk.py
 - [x] Duplicate, rename, delete with confirmation.
 - [x] Import from folder/archive.
 - [x] Export selected theme to `.zip` archive.
+- [x] Export completeness preflight for referenced/generated media.
 - [x] Theme card action polish with overflow menu.
 - [x] Embedded Theme Editor inside the main app stack.
 - [x] Embedded Video Manager inside the main app stack.
@@ -82,102 +94,107 @@ legacy/runtime launcher: .venv/bin/python configure-gtk.py
 - [x] Overview mock values aligned with the Theme Editor `HW_SENSORS=STATIC` preview basis.
 - [x] Post-merge documentation cleanup.
 
+### Public-facing fork readiness
+
+- [x] README reframed as a Linux-focused experimental fork.
+- [x] AI-assisted / vibe-coded development notice added.
+- [x] Hardware validation scope documented.
+- [x] Installation/readiness diagnostics documented.
+- [x] Upstream-sharing posture documented.
+
 ## Current gap
 
-The next useful gap is not another large UI shell change. The integrated shell is now stable enough to resume smaller feature work.
+The app is now stable enough to be presented publicly as an experimental
+Linux-focused fork, but it still needs a final public-readiness pass before the
+repository is made public and shared upstream.
 
-The current exported theme `.zip` flow exists, but it still needs a stronger preflight layer for referenced/generated media.
+The key remaining gap is not another large feature. It is **clarity and trust**:
 
-## Next implementation — Phase 22B: Export completeness preflight
+- make sure public docs match the actual implemented feature set;
+- avoid implying that untested hardware/media workflows are supported;
+- make the AI-assisted / vibe-coded process explicit;
+- make user risk and responsibility clear;
+- provide a clean upstream-sharing note that does not ask the original maintainer
+  to merge the whole fork.
+
+## Current implementation — Phase 23: Public fork readiness
 
 ### Goal
 
-Before exporting a theme, inspect `theme.yaml` plus generated-media metadata and report whether the export will be complete.
-
-### Suggested branch
-
-```text
-feature/theme-export-preflight
-```
+Prepare the repository so it can be made public and shared with the upstream
+author/community as an experimental Linux GTK fork.
 
 ### Target behavior
 
-- [ ] Scan the selected theme before export.
-- [ ] Collect referenced assets from theme YAML:
-  - images;
-  - backgrounds;
-  - fonts when theme-local;
-  - video preview backgrounds;
-  - local video references where applicable;
-  - generated-media outputs.
-- [ ] Cross-check `generated-media/transform-manifest.json` when present.
-- [ ] Classify referenced assets:
-  - present and included;
-  - missing;
-  - outside theme folder;
-  - generated and managed;
-  - generated but missing manifest metadata;
-  - referenced from manifest but not used by theme.
-- [ ] Produce a structured preflight report.
-- [ ] Show warnings before export when assets may be missing from the archive.
-- [ ] Keep export explicit and non-destructive.
-- [ ] Never delete or mutate theme files during export preflight.
+- [x] README clearly explains what the fork is.
+- [x] README clearly explains that the fork is Linux-focused.
+- [x] README clearly credits the upstream project.
+- [x] README warns that the code was developed through an AI-assisted /
+  vibe-coded workflow.
+- [x] README documents user responsibility and hardware risk.
+- [x] README documents validated hardware scope.
+- [x] README links to installation, roadmap, media, and upstream-sharing docs.
+- [x] Installation guide documents `--check-only` and device group diagnostics.
+- [x] Roadmap status reflects the completed export preflight and installer
+  readiness phases.
+- [x] Upstream sharing note explains that this is not a request to merge the
+  entire fork as-is.
 
-### Recommended implementation shape
+### Non-goals for Phase 23
 
-Add pure logic first:
-
-```text
-library/theme_export_preflight.py
-tests/test_theme_export_preflight.py
-```
-
-Then integrate into the existing gallery export action only after the pure preflight is covered by tests.
-
-### Non-goals for Phase 22B
-
-- [ ] No automatic asset repair.
-- [ ] No device sync.
-- [ ] No upload/send-to-display.
-- [ ] No broad Theme Gallery refactor.
-- [ ] No changes to Overview preview rendering.
-- [ ] No deletion or cleanup of generated media.
+- [ ] No new device-write behavior.
+- [ ] No feature refactor.
+- [ ] No broad UI change.
+- [ ] No repository visibility change from code.
+- [ ] No upstream PR yet.
 
 ### Validation
 
 ```bash
-.venv/bin/python -m py_compile library/theme_export_preflight.py
-.venv/bin/python -m py_compile library/theme_gallery.py
-.venv/bin/python -m unittest tests.test_theme_export_preflight -v
-.venv/bin/python -m unittest discover -s tests -t . -v
+python -m py_compile gtk-checkup.py
+bash -n install.sh
+./install.sh --check-only
 git diff --check
 git status --short
 ```
 
-Manual validation after GTK integration:
+Recommended manual checks before making the repository public:
 
-1. Export a complete theme and confirm no warnings appear.
-2. Export a theme with a missing referenced asset and confirm a warning appears before export.
-3. Export a theme with generated-media assets and confirm managed outputs are detected.
-4. Confirm export still refuses to overwrite existing archives.
-5. Confirm no `theme.yaml`, manifest, or generated asset is modified by preflight.
+1. Review the README on GitHub preview.
+2. Confirm no private paths, logs, keys, tokens, personal media, or generated
+   test artifacts are present.
+3. Run `./install.sh --check-only` with the display connected.
+4. Run `./install.sh --no-deps` once from the final branch.
+5. Launch `turing-smart-screen` and verify the app shell opens.
+6. Confirm Theme Gallery, Theme Editor, Video Manager, and export preflight still
+   work.
 
 ## Later roadmap
 
-After export preflight/completeness:
+After public fork readiness:
 
-1. Embedded media-preparation workflow polish.
-2. Device Manager / display-profile integration.
-3. Unified sync/send-to-display plan.
-4. Safe temporary preview-on-display flow.
-5. Data source and visualization catalogs.
-6. Data element creation wizard.
-7. Canvas interaction model.
-8. Canvas direct selection/drag.
-9. Canvas resize/actions.
+1. Repository visibility change to public, done manually in GitHub settings.
+2. Optional upstream issue/discussion introducing the fork.
+3. Installer 1.0 polish:
+   - optional interactive permission helper;
+   - clearer non-Arch dependency install path;
+   - updated docs for each package manager after external testing.
+4. Embedded media-preparation workflow polish.
+5. Device Manager / display-profile integration.
+6. Unified sync/send-to-display plan.
+7. Safe temporary preview-on-display flow.
+8. Data source and visualization catalogs.
+9. Data element creation wizard.
+10. Canvas interaction model.
+11. Canvas direct selection/drag.
+12. Canvas resize/actions.
 
 ## Current decision
 
-Resume with **Phase 22B: Export completeness preflight**.
+Finish **Phase 23: Public fork readiness** before making the repository public or
+opening an upstream discussion.
 
-Reason: the app shell and gallery are now integrated, import/export already exist, and export completeness is the next safest official-app-parity step before any risky device sync or display-write workflow.
+Reason: the fork has grown into a Linux-focused experimental application with
+hardware-specific media functionality. Public documentation must clearly explain
+its scope, risks, upstream relationship, and AI-assisted development process
+before new users or upstream maintainers review it.
