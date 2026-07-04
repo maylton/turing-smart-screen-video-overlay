@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Runtime UI polish hooks for the GTK configuration app.
+"""Runtime UI and monitor safety hooks for installed entry points.
 
 Python imports this module automatically when it is present on sys.path. Keep
-this file narrowly scoped so normal monitor/runtime commands are not affected.
+these hooks narrowly scoped by entry point so normal imports are not affected.
 """
 
 from __future__ import annotations
@@ -11,16 +11,28 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-_TARGET_ENTRY_POINTS = {
+_THEME_GALLERY_ENTRY_POINTS = {
     "configure-gtk.py",
     "theme-gallery-gtk.py",
     "turing-smart-screen-gtk.py",
     "turing-smart-screen-main.py",
 }
 
+_MONITOR_ENTRY_POINTS = {
+    "main.py",
+}
+
+
+def _entry_point_name() -> str:
+    return Path(sys.argv[0]).name
+
 
 def _should_patch_theme_gallery() -> bool:
-    return Path(sys.argv[0]).name in _TARGET_ENTRY_POINTS
+    return _entry_point_name() in _THEME_GALLERY_ENTRY_POINTS
+
+
+def _should_patch_monitor_runtime() -> bool:
+    return _entry_point_name() in _MONITOR_ENTRY_POINTS
 
 
 def _install_theme_gallery_card_polish() -> None:
@@ -252,6 +264,22 @@ def _install_theme_gallery_card_polish() -> None:
     ThemeGalleryPane.preview_widget = compact_preview_widget
     ThemeGalleryPane.theme_card = compact_theme_card
 
+
+def _install_monitor_runtime_guards() -> None:
+    from library.runtime_rev_c_image_guard import install_rev_c_image_bounds_guard
+
+    install_rev_c_image_bounds_guard()
+
+
+if _should_patch_monitor_runtime():
+    try:
+        _install_monitor_runtime_guards()
+    except Exception as exc:
+        print(
+            f"[runtime] could not install monitor safety guards: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 if _should_patch_theme_gallery():
     try:
