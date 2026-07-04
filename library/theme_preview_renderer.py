@@ -74,14 +74,35 @@ def render_theme_preview_frame(
     context = context or build_preview_context(theme_doc)
     canvas_width, canvas_height = theme_canvas_size(theme_doc)
     frame = _cover_canvas(background, canvas_width, canvas_height)
+    video_overlay = _video_overlay_enabled(theme_doc)
 
-    # Static assets normally appear above the video background.
-    draw_static_images(frame, theme_dir, theme_doc)
-    draw_static_text(frame, root, theme_dir, theme_doc, context)
+    # In video-overlay themes, the current video frame is already the preview
+    # background. Full-canvas static backgrounds and per-widget background images
+    # would hide the video, so only foreground/decorative overlays are composited.
+    draw_static_images(
+        frame,
+        theme_dir,
+        theme_doc,
+        canvas_size=(canvas_width, canvas_height),
+        video_overlay=video_overlay,
+    )
+    draw_static_text(
+        frame,
+        root,
+        theme_dir,
+        theme_doc,
+        context,
+        transparent_background=video_overlay,
+    )
 
-    # Then draw a mock snapshot for dynamic/monitor widgets that do not exist in
-    # static_text/static_images but still have X/Y/WIDTH/HEIGHT geometry.
-    draw_dynamic_widgets(frame, root, theme_dir, theme_doc, context)
+    draw_dynamic_widgets(
+        frame,
+        root,
+        theme_dir,
+        theme_doc,
+        context,
+        transparent_background=video_overlay,
+    )
 
     frame.thumbnail(preview_size, Image.Resampling.LANCZOS)
     return frame
@@ -105,7 +126,14 @@ def _truthy(value: Any, default: bool = True) -> bool:
     if value is None:
         return default
     if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on", "enabled", "show"}
+        return value.strip().strip('"\'').lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "enabled",
+            "show",
+        }
     return bool(value)
 
 
@@ -235,14 +263,50 @@ def _node_visible(node: Mapping[str, Any]) -> bool:
     return True
 
 
-def draw_static_images(frame: Image.Image, theme_dir: Path, theme_doc: Mapping[str, Any]) -> None:
+def _video_overlay_enabled(theme_doc: Mapping[str, Any]) -> bool:
+    video = theme_doc.get("video", {}) if isinstance(theme_doc, Mapping) else {}
+    if not isinstance(video, Mapping):
+        return False
+    return _truthy(video.get("ENABLED"), False) and _truthy(video.get("OVERLAY"), True)
+
+
+def draw_static_images(
+    frame: Image.Image,
+    theme_dir: Path,
+    theme_doc: Mapping[str, Any],
+    *,
+    canvas_size: tuple[int, int],
+    video_overlay: bool,
+) -> None:
     images = theme_doc.get("static_images", {}) if isinstance(theme_doc, Mapping) else {}
     if not isinstance(images, Mapping):
         return
-    for item in images.values():
+    for key, item in images.items():
         if not isinstance(item, Mapping) or not _node_visible(item):
             continue
+        if video_overlay and _is_full_canvas_background(("static_images", key), item, canvas_size):
+            continue
         draw_image_node(frame, theme_dir, item)
+
+
+def _is_full_canvas_background(
+    path: tuple[Any, ...],
+    node: Mapping[str, Any],
+    canvas_size: tuple[int, int],
+) -> bool:
+    canvas_width, canvas_height = canvas_size
+    x = _safe_int(node.get("X"), 0)
+    y = _safe_int(node.get("Y"), 0)
+    width = _safe_int(node.get("WIDTH"), 0)
+    height = _safe_int(node.get("HEIGHT"), 0)
+    label = f"{'_'.join(str(part) for part in path)} {_unquote(node.get('PATH'))}".lower()
+    fills_canvas = (
+        x <= 1
+        and y <= 1
+        and width >= canvas_width * 0.95
+        and height >= canvas_height * 0.95
+    )
+    return fills_canvas and "background" in label
 
 
 def draw_image_node(frame: Image.Image, theme_dir: Path, node: Mapping[str, Any]) -> None:
@@ -259,12 +323,15 @@ def draw_image_node(frame: Image.Image, theme_dir: Path, node: Mapping[str, Any]
         overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
     _paste_clipped(frame, overlay, _safe_int(node.get("X")), _safe_int(node.get("Y")))
 
+
 def draw_static_text(
     frame: Image.Image,
     root: Path,
     theme_dir: Path,
     theme_doc: Mapping[str, Any],
     context: Mapping[str, Any],
+    *,
+    transparent_background: bool = False,
 ) -> None:
     texts = theme_doc.get("static_text", {}) if isinstance(theme_doc, Mapping) else {}
     if not isinstance(texts, Mapping):
@@ -272,7 +339,15 @@ def draw_static_text(
     for key, item in texts.items():
         if not isinstance(item, Mapping) or not _node_visible(item):
             continue
-        draw_text_node(frame, root, theme_dir, item, context, path=("static_text", key))
+        draw_text_node(
+            frame,
+            root,
+            theme_dir,
+            item,
+            context,
+            path=("static_text", key),
+            transparent_background=transparent_background,
+        )
 
 
 def draw_text_node(
@@ -284,6 +359,7 @@ def draw_text_node(
     *,
     path: tuple[Any, ...],
     fallback_label: str | None = None,
+    transparent_background: bool = False,
 ) -> None:
     text = _format_node_text(path, node, context, fallback_label=fallback_label)
     if not text:
@@ -302,8 +378,10 @@ def draw_text_node(
     padding_x = max(2, font_size // 8)
     padding_y = max(2, font_size // 8)
 
-    width = max(1, _safe_int(node.get("WIDTH"), measured_width + padding_x * 2))
-    height = max(1, _safe_int(node.get("HEIGHT"), measured_height + padding_y * 2))
+    configured_width = _safe_int(node.get("WIDTH"), 0)
+    configured_height = _safe_int(node.get("HEIGHT"), 0)
+    width = max(configured_width, measured_width + padding_x * 2, 1)
+    height = max(configured_height, measured_height + padding_y * 2, 1)
     if x >= 0:
         width = min(width, max(1, frame.width - x))
     if y >= 0:
@@ -311,7 +389,8 @@ def draw_text_node(
 
     layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    _draw_node_background(draw, layer, theme_dir, node, width, height)
+    if not transparent_background:
+        _draw_node_background(draw, layer, theme_dir, node, width, height)
 
     fill = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
     bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=2)
@@ -320,17 +399,17 @@ def draw_text_node(
     align = str(node.get("ALIGN", "left")).lower()
     anchor = str(node.get("ANCHOR", "lt")).lower()
 
-    tx = padding_x if "WIDTH" not in node else 0
+    tx = padding_x
     if align in {"center", "middle"}:
         tx = max(0, (width - text_width) // 2)
     elif align in {"right", "end"}:
-        tx = max(0, width - text_width)
+        tx = max(0, width - text_width - padding_x)
 
-    ty = padding_y if "HEIGHT" not in node else 0
+    ty = padding_y
     if "m" in anchor or "c" in anchor:
         ty = max(0, (height - text_height) // 2)
     elif "b" in anchor:
-        ty = max(0, height - text_height)
+        ty = max(0, height - text_height - padding_y)
 
     draw.multiline_text(
         (tx, ty),
@@ -433,6 +512,8 @@ def draw_dynamic_widgets(
     theme_dir: Path,
     theme_doc: Mapping[str, Any],
     context: Mapping[str, Any],
+    *,
+    transparent_background: bool = False,
 ) -> None:
     for path, node in _iter_nodes(theme_doc):
         if not path or path[0] in {"display", "video", "static_text", "static_images"}:
@@ -444,7 +525,15 @@ def draw_dynamic_widgets(
             continue
         if not {"X", "Y"}.issubset(node.keys()):
             continue
-        draw_dynamic_node(frame, root, theme_dir, path, node, context)
+        draw_dynamic_node(
+            frame,
+            root,
+            theme_dir,
+            path,
+            node,
+            context,
+            transparent_background=transparent_background,
+        )
 
 
 def draw_dynamic_node(
@@ -454,9 +543,19 @@ def draw_dynamic_node(
     path: tuple[Any, ...],
     node: Mapping[str, Any],
     context: Mapping[str, Any],
+    *,
+    transparent_background: bool = False,
 ) -> None:
     if not _looks_like_chart(path, node) and not _looks_like_bar(node):
-        draw_text_node(frame, root, theme_dir, node, context, path=path)
+        draw_text_node(
+            frame,
+            root,
+            theme_dir,
+            node,
+            context,
+            path=path,
+            transparent_background=transparent_background,
+        )
         return
 
     width = max(1, _safe_int(node.get("WIDTH"), 120))
@@ -465,7 +564,8 @@ def draw_dynamic_node(
     y = _safe_int(node.get("Y"))
     layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    _draw_node_background(draw, layer, theme_dir, node, width, height)
+    if not transparent_background:
+        _draw_node_background(draw, layer, theme_dir, node, width, height)
 
     value = value_for_path(path, node, context)
     percent = numeric_percent(value)
