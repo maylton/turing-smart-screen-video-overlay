@@ -39,6 +39,7 @@ class ThemeRecord:
     preview_file: Path
     current: bool = False
     issue: str | None = None
+    display_size: str = ""
 
     @property
     def editable(self) -> bool:
@@ -52,8 +53,12 @@ class ThemeRecord:
             return "Current theme"
         return "Ready"
 
+    @property
+    def display_label(self) -> str:
+        return f'{self.display_size}" display' if self.display_size else "Unknown display size"
+
     def search_text(self) -> str:
-        parts = [self.name, self.status_label]
+        parts = [self.name, self.status_label, self.display_label]
         try:
             parts.append(os.path.relpath(self.directory, ROOT))
         except ValueError:
@@ -68,6 +73,27 @@ def relative_path_label(path: Path) -> str:
         return os.path.relpath(path, ROOT)
     except ValueError:
         return str(path)
+
+
+def normalize_display_size(value: str) -> str:
+    """Normalize values such as 2.1, 2.1", 2,1 inch, and 5-inch."""
+    value = str(value or "").strip().lower().replace(",", ".")
+    match = re.search(r"(\d+(?:\.\d+)?)", value)
+    return match.group(1) if match else ""
+
+
+def read_scalar_from_yaml_text(path: Path, key: str) -> str:
+    """Read a simple YAML scalar without requiring ruamel in system Python."""
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+    pattern = re.compile(
+        rf'(?m)^\s*{re.escape(key)}\s*:\s*["\']?([^"\'\n#]+)'
+    )
+    match = pattern.search(content)
+    return match.group(1).strip() if match else ""
 
 
 def find_theme_file(theme_dir: Path) -> Path | None:
@@ -88,6 +114,27 @@ def read_current_theme(config_file: Path = CONFIG_FILE) -> str | None:
     if match is None:
         return None
     return match.group(1).strip()
+
+
+def theme_display_size_from_yaml(yaml_file: Path | None) -> str:
+    if yaml_file is None:
+        return ""
+    return normalize_display_size(read_scalar_from_yaml_text(yaml_file, "DISPLAY_SIZE"))
+
+
+def selected_display_size(config_file: Path = CONFIG_FILE) -> str:
+    """Return the configured/detected display size used for compatibility filtering."""
+    for key in ("DISPLAY_SIZE", "SCREEN_SIZE", "SIZE"):
+        value = normalize_display_size(read_scalar_from_yaml_text(config_file, key))
+        if value:
+            return value
+
+    current = read_current_theme(config_file)
+    if not current:
+        return ""
+
+    current_yaml = find_theme_file(THEMES_DIR / current)
+    return theme_display_size_from_yaml(current_yaml)
 
 
 def set_current_theme(
@@ -123,8 +170,11 @@ def set_current_theme(
 def discover_themes(
     themes_dir: Path = THEMES_DIR,
     config_file: Path = CONFIG_FILE,
+    *,
+    only_compatible: bool = True,
 ) -> list[ThemeRecord]:
     current_theme = read_current_theme(config_file)
+    target_display_size = selected_display_size(config_file) if only_compatible else ""
     records: list[ThemeRecord] = []
 
     if not themes_dir.is_dir():
@@ -135,9 +185,17 @@ def discover_themes(
         key=lambda path: path.name.casefold(),
     ):
         yaml_file = find_theme_file(theme_dir)
+        display_size = theme_display_size_from_yaml(yaml_file)
+
+        if only_compatible and target_display_size:
+            if display_size != target_display_size:
+                continue
+
         issue = None
         if yaml_file is None:
             issue = "Missing theme.yaml"
+        elif target_display_size and not display_size:
+            issue = "Missing DISPLAY_SIZE"
 
         records.append(
             ThemeRecord(
@@ -147,6 +205,7 @@ def discover_themes(
                 preview_file=theme_dir / "preview.png",
                 current=theme_dir.name == current_theme,
                 issue=issue,
+                display_size=display_size,
             )
         )
 
@@ -164,7 +223,10 @@ def filter_theme_records(records: list[ThemeRecord], query: str) -> list[ThemeRe
     ]
 
 
-def build_theme_gallery_diagnostics_report(record: ThemeRecord) -> str:
+def build_theme_gallery_diagnostics_report(
+    record: ThemeRecord,
+    target_display_size: str = "",
+) -> str:
     lines: list[str] = [
         "Theme Gallery Diagnostics",
         "=========================",
@@ -172,6 +234,8 @@ def build_theme_gallery_diagnostics_report(record: ThemeRecord) -> str:
         f"Theme: {record.name}",
         f"Status: {record.status_label}",
         f"Current theme: {'yes' if record.current else 'no'}",
+        f"Target display: {target_display_size or 'unknown'}",
+        f"Theme display: {record.display_size or 'unknown'}",
         f"Theme folder: {relative_path_label(record.directory)}",
     ]
 
@@ -215,6 +279,7 @@ def build_theme_gallery_diagnostics_report(record: ThemeRecord) -> str:
         [
             "",
             "Gallery checks:",
+            f"- Compatible with target display: {'yes' if not target_display_size or record.display_size == target_display_size else 'no'}",
             f"- Editable in GTK Theme Editor: {'yes' if record.editable else 'no'}",
             f"- Has preview image: {'yes' if record.preview_file.is_file() else 'no'}",
             f"- Has theme.yaml/theme.yml: {'yes' if record.yaml_file is not None else 'no'}",
@@ -258,8 +323,9 @@ def show_theme_gallery_diagnostics_dialog(
     parent: Gtk.Widget,
     record: ThemeRecord,
     toast: Callable[[str], None] | None = None,
+    target_display_size: str = "",
 ) -> None:
-    report = build_theme_gallery_diagnostics_report(record)
+    report = build_theme_gallery_diagnostics_report(record, target_display_size)
 
     text_view = Gtk.TextView()
     text_view.set_editable(False)
@@ -344,6 +410,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.records: list[ThemeRecord] = []
         self.filtered_records: list[ThemeRecord] = []
         self.filter_query = ""
+        self.target_display_size = ""
 
         controls = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
@@ -358,7 +425,7 @@ class ThemeGalleryPane(Gtk.Box):
 
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_hexpand(True)
-        self.search_entry.set_placeholder_text("Search themes by name, path, or status")
+        self.search_entry.set_placeholder_text("Search compatible themes by name, path, or status")
         self.search_entry.connect("search-changed", self.on_search_changed)
         controls.append(self.search_entry)
 
@@ -404,7 +471,8 @@ class ThemeGalleryPane(Gtk.Box):
 
     def reload_themes(self, show_toast: bool = True) -> None:
         del show_toast  # handled by the containing window/shell
-        self.records = discover_themes()
+        self.target_display_size = selected_display_size()
+        self.records = discover_themes(only_compatible=True)
         self.apply_filter()
         if self.on_records_changed is not None:
             self.on_records_changed(list(self.records))
@@ -418,12 +486,16 @@ class ThemeGalleryPane(Gtk.Box):
         total = len(self.records)
         visible = len(self.filtered_records)
         if not total:
-            self.result_label.set_text("No themes")
+            display = f' for {self.target_display_size}"' if self.target_display_size else ""
+            self.result_label.set_text(f"No compatible themes{display}")
             return
         if self.filter_query:
             self.result_label.set_text(f"{visible} of {total}")
             return
-        self.result_label.set_text(f"{total} theme{'s' if total != 1 else ''}")
+        display = f' · {self.target_display_size}"' if self.target_display_size else ""
+        self.result_label.set_text(
+            f"{total} compatible theme{'s' if total != 1 else ''}{display}"
+        )
 
     def render_records(self, records: list[ThemeRecord]) -> None:
         self.clear_flow_box()
@@ -452,15 +524,20 @@ class ThemeGalleryPane(Gtk.Box):
         icon.set_pixel_size(64)
         box.append(icon)
 
-        title_text = "No matching themes" if self.filter_query else "No themes found"
+        if self.filter_query:
+            title_text = "No matching compatible themes"
+        else:
+            title_text = "No compatible themes found"
         title = Gtk.Label(label=title_text)
         title.add_css_class("title-2")
         box.append(title)
 
         if self.filter_query:
-            subtitle_text = f"No theme matches “{self.filter_query}”."
+            subtitle_text = f"No compatible theme matches “{self.filter_query}”."
+        elif self.target_display_size:
+            subtitle_text = f'No installed theme declares DISPLAY_SIZE {self.target_display_size}".'
         else:
-            subtitle_text = f"Create or copy themes into {THEMES_DIR}"
+            subtitle_text = "Could not detect a display size, so no compatibility filter could be applied."
         subtitle = Gtk.Label(
             label=subtitle_text,
             wrap=True,
@@ -527,6 +604,11 @@ class ThemeGalleryPane(Gtk.Box):
         status = Gtk.Label(label=record.status_label, xalign=0, wrap=True)
         status.add_css_class("dim-label")
         card.append(status)
+
+        display = Gtk.Label(label=record.display_label, xalign=0)
+        display.add_css_class("caption")
+        display.add_css_class("dim-label")
+        card.append(display)
 
         path = Gtk.Label(label=relative_path_label(record.directory), xalign=0)
         path.set_ellipsize(Pango.EllipsizeMode.END)
@@ -596,7 +678,7 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         self.window_title = Adw.WindowTitle(
             title="Theme Gallery",
-            subtitle="Browse and open installed themes",
+            subtitle="Browse compatible themes",
         )
         header.set_title_widget(self.window_title)
         toolbar.add_top_bar(header)
@@ -636,11 +718,16 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def update_records_state(self, records: list[ThemeRecord]) -> None:
-        self.window_title.set_subtitle(
-            f"{len(records)} theme{'s' if len(records) != 1 else ''}"
-            if records
-            else "No themes found"
-        )
+        target = self.gallery.target_display_size
+        if records and target:
+            subtitle = f'{len(records)} compatible theme{"s" if len(records) != 1 else ""} · {target}" display'
+        elif records:
+            subtitle = f'{len(records)} compatible theme{"s" if len(records) != 1 else ""}'
+        elif target:
+            subtitle = f'No compatible themes · {target}" display'
+        else:
+            subtitle = "No compatible themes found"
+        self.window_title.set_subtitle(subtitle)
         self.open_current_button.set_sensitive(any(record.current for record in records))
 
     def reload_themes(self) -> None:
@@ -652,7 +739,7 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         if record is None:
             self.error_dialog(
                 "No current theme",
-                "config.yaml does not point to a theme that exists in res/themes.",
+                "config.yaml does not point to a compatible theme that exists in res/themes.",
             )
             return
         self.open_theme_editor(record)
@@ -674,7 +761,12 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         self.toast(f"Opening folder for {record.name}")
 
     def show_theme_diagnostics(self, record: ThemeRecord) -> None:
-        show_theme_gallery_diagnostics_dialog(self, record, self.toast)
+        show_theme_gallery_diagnostics_dialog(
+            self,
+            record,
+            self.toast,
+            self.gallery.target_display_size,
+        )
 
     def confirm_set_current_theme(self, record: ThemeRecord) -> None:
         show_set_current_theme_dialog(self, record, self.apply_set_current_theme)
