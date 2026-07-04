@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Renderer used by the main app Overview animated theme preview.
 
-This renderer is intentionally independent from the live monitor process.  It
-builds a faithful-enough app preview by compositing a video/static background
-with theme overlays and deterministic mock sensor values.
+The Overview preview is generated off-screen from the real theme YAML.  Keep
+this renderer conservative: the video frame is the background for video-overlay
+themes, and YAML overlay nodes are composited on top with deterministic mock
+values.
 """
 
 from __future__ import annotations
@@ -357,76 +358,70 @@ def draw_text_node(
     fallback_label: str | None = None,
     transparent_background: bool = False,
 ) -> None:
-    if _is_compound_datetime_preset(path, node):
-        _draw_compound_datetime_preset(
-            frame,
-            root,
-            theme_dir,
-            node,
-            context,
-            transparent_background=transparent_background,
-        )
-        return
-
     text = _format_node_text(path, node, context, fallback_label=fallback_label)
     if not text:
         return
 
+    width = _safe_int(node.get("WIDTH"), 0)
+    height = _safe_int(node.get("HEIGHT"), 0)
+    if width > 0 or height > 0:
+        _draw_box_text_node(
+            frame,
+            root,
+            theme_dir,
+            node,
+            text,
+            transparent_background=transparent_background,
+        )
+    else:
+        _draw_free_text_node(frame, root, theme_dir, node, text)
+
+
+def _draw_box_text_node(
+    frame: Image.Image,
+    root: Path,
+    theme_dir: Path,
+    node: Mapping[str, Any],
+    text: str,
+    *,
+    transparent_background: bool = False,
+) -> None:
     x = _safe_int(node.get("X"))
     y = _safe_int(node.get("Y"))
+    width = max(1, _safe_int(node.get("WIDTH"), 160))
+    height = max(1, _safe_int(node.get("HEIGHT"), 40))
     font_size = max(1, _safe_int(node.get("FONT_SIZE"), 16))
     font = _load_font(root, theme_dir, node.get("FONT"), font_size)
 
-    probe = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
-    probe_draw = ImageDraw.Draw(probe)
-    bbox = probe_draw.multiline_textbbox((0, 0), text, font=font, spacing=2)
-    measured_width = max(1, bbox[2] - bbox[0])
-    measured_height = max(1, bbox[3] - bbox[1])
-
-    configured_width = _safe_int(node.get("WIDTH"), 0)
-    configured_height = _safe_int(node.get("HEIGHT"), 0)
-    has_configured_width = "WIDTH" in node and configured_width > 0
-    has_configured_height = "HEIGHT" in node and configured_height > 0
-
-    padding_x = max(2, font_size // 8)
-    padding_y = max(2, font_size // 8)
-    inner_width = configured_width if has_configured_width else measured_width + padding_x * 2
-    inner_height = configured_height if has_configured_height else measured_height + padding_y * 2
-
-    glyph_margin_x = max(4, font_size // 5)
-    glyph_margin_y = max(4, font_size // 4)
-    layer_width = max(1, inner_width + glyph_margin_x * 2)
-    layer_height = max(1, inner_height + glyph_margin_y * 2)
-
-    layer = Image.new("RGBA", (layer_width, layer_height), (0, 0, 0, 0))
+    margin_x = max(4, font_size // 5)
+    margin_y = max(4, font_size // 4)
+    layer = Image.new("RGBA", (width + margin_x * 2, height + margin_y * 2), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
 
     if not transparent_background:
-        background_layer = Image.new("RGBA", (inner_width, inner_height), (0, 0, 0, 0))
+        background_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         background_draw = ImageDraw.Draw(background_layer)
-        _draw_node_background(background_draw, background_layer, theme_dir, node, inner_width, inner_height)
-        layer.alpha_composite(background_layer, (glyph_margin_x, glyph_margin_y))
+        _draw_node_background(background_draw, background_layer, theme_dir, node, width, height)
+        layer.alpha_composite(background_layer, (margin_x, margin_y))
 
-    fill = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
     bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=2)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
     align = str(node.get("ALIGN", "left")).lower()
     anchor = str(node.get("ANCHOR", "lt")).lower()
+    fill = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
 
-    content_x = glyph_margin_x
-    content_y = glyph_margin_y
-    tx = content_x if has_configured_width else content_x + padding_x
+    tx = margin_x
     if align in {"center", "middle"}:
-        tx = content_x + max(0, (inner_width - text_width) // 2)
+        tx = margin_x + max(0, (width - text_width) // 2)
     elif align in {"right", "end"}:
-        tx = content_x + max(0, inner_width - text_width - (0 if has_configured_width else padding_x))
+        tx = margin_x + max(0, width - text_width)
 
-    ty = content_y if has_configured_height else content_y + padding_y
+    ty = margin_y
     if "m" in anchor or "c" in anchor:
-        ty = content_y + max(0, (inner_height - text_height) // 2)
+        ty = margin_y + max(0, (height - text_height) // 2)
     elif "b" in anchor:
-        ty = content_y + max(0, inner_height - text_height - (0 if has_configured_height else padding_y))
+        ty = margin_y + max(0, height - text_height)
 
     draw.multiline_text(
         (tx - bbox[0], ty - bbox[1]),
@@ -436,93 +431,45 @@ def draw_text_node(
         spacing=2,
         align=align if align in {"left", "center", "right"} else "left",
     )
-    _paste_clipped(frame, layer, x - glyph_margin_x, y - glyph_margin_y)
+    _paste_clipped(frame, layer, x - margin_x, y - margin_y)
 
 
-def _draw_compound_datetime_preset(
+def _draw_free_text_node(
     frame: Image.Image,
     root: Path,
     theme_dir: Path,
     node: Mapping[str, Any],
-    context: Mapping[str, Any],
-    *,
-    transparent_background: bool = False,
+    text: str,
 ) -> None:
-    """Render the editor's compound DATE/HOUR preset as time + date."""
+    """Draw text nodes without WIDTH/HEIGHT using X/Y as the real text anchor."""
     x = _safe_int(node.get("X"))
     y = _safe_int(node.get("Y"))
-    width = max(1, _safe_int(node.get("WIDTH"), 300))
-    height = max(1, _safe_int(node.get("HEIGHT"), 130))
-    base_font_size = max(1, _safe_int(node.get("FONT_SIZE"), 80))
-    date_font_size = max(10, round(base_font_size * 0.30))
+    font_size = max(1, _safe_int(node.get("FONT_SIZE"), 16))
+    font = _load_font(root, theme_dir, node.get("FONT"), font_size)
+    anchor = str(node.get("ANCHOR", "lt")).lower() or "lt"
+    if len(anchor) != 2:
+        anchor = "lt"
 
-    time_text = str(context.get("TIME", "22:48"))
-    date_text = str(context.get("DATE", "Fri 04 Jul"))
-    time_font = _load_font(root, theme_dir, node.get("FONT"), base_font_size)
-    date_font = _load_font(root, theme_dir, node.get("FONT"), date_font_size)
+    probe = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(probe)
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font, anchor=anchor)
+    except (TypeError, ValueError):
+        anchor = "lt"
+        bbox = draw.textbbox((0, 0), text, font=font, anchor=anchor)
+
+    margin_x = max(4, font_size // 4)
+    margin_y = max(4, font_size // 3)
+    width = max(1, bbox[2] - bbox[0] + margin_x * 2)
+    height = max(1, bbox[3] - bbox[1] + margin_y * 2)
+    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    layer_draw = ImageDraw.Draw(layer)
     fill = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
-    align = str(node.get("ALIGN", "left")).lower()
-    anchor = str(node.get("ANCHOR", "mm")).lower()
 
-    glyph_margin_x = max(4, base_font_size // 5)
-    glyph_margin_y = max(4, base_font_size // 4)
-    layer = Image.new(
-        "RGBA",
-        (width + glyph_margin_x * 2, height + glyph_margin_y * 2),
-        (0, 0, 0, 0),
-    )
-    draw = ImageDraw.Draw(layer)
-
-    if not transparent_background:
-        background_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        background_draw = ImageDraw.Draw(background_layer)
-        _draw_node_background(background_draw, background_layer, theme_dir, node, width, height)
-        layer.alpha_composite(background_layer, (glyph_margin_x, glyph_margin_y))
-
-    time_bbox = draw.textbbox((0, 0), time_text, font=time_font)
-    date_bbox = draw.textbbox((0, 0), date_text, font=date_font)
-    time_w = time_bbox[2] - time_bbox[0]
-    time_h = time_bbox[3] - time_bbox[1]
-    date_w = date_bbox[2] - date_bbox[0]
-    date_h = date_bbox[3] - date_bbox[1]
-    gap = max(2, round(base_font_size * 0.03))
-    block_w = max(time_w, date_w)
-    block_h = time_h + gap + date_h
-
-    content_x = glyph_margin_x
-    content_y = glyph_margin_y
-    if align in {"center", "middle"}:
-        block_x = content_x + max(0, (width - block_w) // 2)
-    elif align in {"right", "end"}:
-        block_x = content_x + max(0, width - block_w)
-    else:
-        block_x = content_x + max(0, round(base_font_size * 0.18))
-
-    if "m" in anchor or "c" in anchor:
-        block_y = content_y + max(0, (height - block_h) // 2)
-    elif "b" in anchor:
-        block_y = content_y + max(0, height - block_h)
-    else:
-        block_y = content_y
-
-    time_x = block_x
-    date_x = block_x + max(0, round(base_font_size * 0.06))
-    time_y = block_y
-    date_y = block_y + time_h + gap
-
-    draw.text(
-        (time_x - time_bbox[0], time_y - time_bbox[1]),
-        time_text,
-        font=time_font,
-        fill=fill,
-    )
-    draw.text(
-        (date_x - date_bbox[0], date_y - date_bbox[1]),
-        date_text,
-        font=date_font,
-        fill=fill,
-    )
-    _paste_clipped(frame, layer, x - glyph_margin_x, y - glyph_margin_y)
+    anchor_x = margin_x - bbox[0]
+    anchor_y = margin_y - bbox[1]
+    layer_draw.text((anchor_x, anchor_y), text, font=font, fill=fill, anchor=anchor)
+    _paste_clipped(frame, layer, x + bbox[0] - margin_x, y + bbox[1] - margin_y)
 
 
 def _draw_node_background(
@@ -589,24 +536,6 @@ def _format_date_time_preset(path: tuple[Any, ...], text: str, context: Mapping[
     if _looks_like_date_path(path):
         return str(context.get("DATE", "Fri 04 Jul"))
     return None
-
-
-def _node_format_value(node: Mapping[str, Any]) -> str:
-    raw = node.get("FORMAT")
-    if raw is None:
-        raw = node.get("TEXT")
-    return str(raw or "").strip().strip('"\'').lower()
-
-
-def _looks_like_compound_datetime_path(path: tuple[Any, ...]) -> bool:
-    label = "_".join(str(part).upper() for part in path if not isinstance(part, int))
-    has_date = "DATE" in label or "DAY" in label
-    has_time = "HOUR" in label or "TIME" in label or "CLOCK" in label
-    return has_date and has_time
-
-
-def _is_compound_datetime_preset(path: tuple[Any, ...], node: Mapping[str, Any]) -> bool:
-    return _looks_like_compound_datetime_path(path) and _node_format_value(node) in DATE_TIME_FORMAT_PRESETS
 
 
 def _looks_like_time_path(path: tuple[Any, ...]) -> bool:
