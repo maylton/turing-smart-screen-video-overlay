@@ -26,7 +26,7 @@ grep -n "ThemeGalleryPane" ~/.local/share/turing-smart-screen/configure-gtk.py
 
 ## Scope
 
-The MVP is now a theme-management surface with guarded write actions for selecting, duplicating, renaming, deleting, and importing themes.
+The MVP is now a theme-management surface with guarded write actions for selecting, duplicating, renaming, deleting, importing, and exporting themes.
 
 Included:
 
@@ -54,16 +54,18 @@ Included:
 - delete moves the theme folder to Trash and refuses to delete the current theme;
 - import from a theme folder or `.zip` archive;
 - import validates `theme.yaml`/`theme.yml`, rejects unsafe archive paths, and never overwrites existing themes;
+- export selected theme to a `.zip` archive;
+- export includes the theme folder contents under the theme folder name;
+- export skips temporary/editor-backup/cache files and never overwrites an existing archive;
 - robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then direct file-manager fallbacks;
 - per-theme `Edit` action;
 - refresh action.
 
 Not included yet:
 
-- export theme;
 - device sync/send-to-display.
 
-Those actions are intentionally deferred because this stack should introduce the official-style theme-browsing surface without adding risky device-write flows.
+That action is intentionally deferred because this stack should introduce the official-style theme-management surface without adding risky device-write flows.
 
 ## Entry points
 
@@ -116,10 +118,13 @@ The MVP is accepted when:
 - confirmed delete moves the theme folder to Trash and refreshes the gallery;
 - import accepts a folder containing `theme.yaml`/`theme.yml` or a safe `.zip` archive;
 - import never overwrites an existing theme;
+- export creates a `.zip` archive for a selected valid theme;
+- export never overwrites an existing archive;
+- export contains the selected theme folder with `theme.yaml`/`theme.yml` and assets;
 - clicking `Edit` opens the selected theme in `theme-editor-gtk.py`;
 - clicking the folder button opens the theme folder or shows a useful error dialog;
 - clicking refresh reloads the list;
-- only explicit `Use Theme`, `Duplicate`, `Rename`, confirmed `Delete`, or `Import` actions write files.
+- only explicit `Use Theme`, `Duplicate`, `Rename`, confirmed `Delete`, `Import`, or `Export` actions write files.
 
 ## Validation
 
@@ -159,10 +164,12 @@ Manual validation:
 21. Click delete on the duplicated theme, type the exact name, and confirm it moves to Trash.
 22. Confirm the current theme does not show a delete button.
 23. Click Import, paste a valid theme folder or `.zip` path, and confirm it appears without overwriting existing themes.
-24. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
-25. Click the folder button and confirm the file manager opens the theme folder.
-26. Click refresh and confirm the list reloads.
-27. Restore test config/theme changes before final merge if needed.
+24. Click Export on a valid theme and confirm a `.zip` archive is created without overwriting existing files.
+25. Inspect the archive and confirm it contains the selected theme folder, `theme.yaml`/`theme.yml`, and assets.
+26. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
+27. Click the folder button and confirm the file manager opens the theme folder.
+28. Click refresh and confirm the list reloads.
+29. Restore test config/theme changes before final merge if needed.
 
 ## Stack position
 
@@ -182,8 +189,8 @@ Completed in this branch so far:
 12. Fix gallery layout expansion in the main app.
 13. Filter gallery themes to the detected/configured display size.
 14. Fix open theme folder in niri with direct file-manager fallback and debug logs.
+15. Export theme to `.zip` archive.
 
 Follow-up stack:
 
-1. Export theme.
-2. Device Manager / display-profile integration.
+1. Device Manager / display-profile integration.
