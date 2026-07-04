@@ -27,7 +27,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk, Pango
 
 APP_ID = "io.github.turing.SmartScreen.ThemeGallery"
 CONFIG_FILE = ROOT / "config.yaml"
@@ -275,7 +275,8 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
             orientation=Gtk.Orientation.HORIZONTAL,
             spacing=8,
         )
-        name = Gtk.Label(label=record.name, xalign=0, ellipsize=3)
+        name = Gtk.Label(label=record.name, xalign=0)
+        name.set_ellipsize(Pango.EllipsizeMode.END)
         name.add_css_class("heading")
         name.set_hexpand(True)
         name_row.append(name)
@@ -289,11 +290,8 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         status.add_css_class("dim-label")
         card.append(status)
 
-        path = Gtk.Label(
-            label=os.path.relpath(record.directory, ROOT),
-            xalign=0,
-            ellipsize=3,
-        )
+        path = Gtk.Label(label=os.path.relpath(record.directory, ROOT), xalign=0)
+        path.set_ellipsize(Pango.EllipsizeMode.END)
         path.add_css_class("caption")
         path.add_css_class("dim-label")
         card.append(path)
@@ -307,12 +305,18 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         edit_button.add_css_class("suggested-action")
         edit_button.set_hexpand(True)
         edit_button.set_sensitive(record.editable)
-        edit_button.connect("clicked", lambda *_args, theme=record: self.open_theme_editor(theme))
+        edit_button.connect(
+            "clicked",
+            lambda *_args, theme=record: self.open_theme_editor(theme),
+        )
         actions.append(edit_button)
 
         folder_button = Gtk.Button(icon_name="folder-open-symbolic")
         folder_button.set_tooltip_text("Open theme folder")
-        folder_button.connect("clicked", lambda *_args, theme=record: self.open_theme_folder(theme))
+        folder_button.connect(
+            "clicked",
+            lambda *_args, theme=record: self.open_theme_folder(theme),
+        )
         actions.append(folder_button)
         card.append(actions)
 
