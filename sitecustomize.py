@@ -37,12 +37,15 @@ def _should_patch_monitor_runtime() -> bool:
 
 def _install_theme_gallery_card_polish() -> None:
     from library import theme_gallery as gallery
+    from library.theme_export_preflight import inspect_theme_export
 
     Gtk = gallery.Gtk
+    Adw = gallery.Adw
     Pango = gallery.Pango
     ThemeGalleryPane = gallery.ThemeGalleryPane
     ThemeRecord = gallery.ThemeRecord
     relative_path_label = gallery.relative_path_label
+    original_apply_export_theme = ThemeGalleryPane.apply_export_theme
 
     def menu_action_button(
         self: ThemeGalleryPane,
@@ -259,10 +262,86 @@ def _install_theme_gallery_card_polish() -> None:
         card.append(actions)
         return card
 
+    def _preflight_report_widget(report) -> Gtk.Widget:
+        text_view = Gtk.TextView()
+        text_view.set_editable(False)
+        text_view.set_cursor_visible(False)
+        text_view.set_monospace(True)
+        text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        text_view.get_buffer().set_text(report.to_text())
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_min_content_width(560)
+        scrolled.set_min_content_height(360)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_child(text_view)
+        return scrolled
+
+    def _show_blocking_export_preflight(
+        self: ThemeGalleryPane,
+        record: ThemeRecord,
+        report,
+    ) -> None:
+        dialog = Adw.AlertDialog(
+            heading=f"Cannot export {record.name}",
+            body="The export preflight found blocking issues. Review the report below before trying again.",
+        )
+        dialog.set_extra_child(_preflight_report_widget(report))
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.set_close_response("ok")
+        dialog.present(self.root_widget())
+
+    def _show_export_preflight_warning(
+        self: ThemeGalleryPane,
+        record: ThemeRecord,
+        destination_text: str,
+        report,
+    ) -> None:
+        dialog = Adw.AlertDialog(
+            heading=f"Export {record.name} with warnings?",
+            body="Some referenced assets may not be included or may need attention. Review the report before continuing.",
+        )
+        dialog.set_extra_child(_preflight_report_widget(report))
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("export", "Export Anyway")
+        dialog.set_response_appearance("export", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+            if response == "export":
+                original_apply_export_theme(self, record, destination_text)
+
+        dialog.connect("response", on_response)
+        dialog.present(self.root_widget())
+
+    def export_theme_with_preflight(
+        self: ThemeGalleryPane,
+        record: ThemeRecord,
+        destination_text: str,
+    ) -> None:
+        try:
+            report = inspect_theme_export(record.directory)
+        except Exception as exc:
+            self.show_error_dialog("Could not inspect theme export", str(exc))
+            return
+
+        if report.blocking:
+            _show_blocking_export_preflight(self, record, report)
+            return
+
+        if report.warnings:
+            _show_export_preflight_warning(self, record, destination_text, report)
+            return
+
+        original_apply_export_theme(self, record, destination_text)
+
     ThemeGalleryPane._menu_action_button = menu_action_button
     ThemeGalleryPane.theme_actions_popover = theme_actions_popover
     ThemeGalleryPane.preview_widget = compact_preview_widget
     ThemeGalleryPane.theme_card = compact_theme_card
+    ThemeGalleryPane.apply_export_theme = export_theme_with_preflight
 
 
 def _install_monitor_runtime_guards() -> None:
