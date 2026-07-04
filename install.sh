@@ -248,6 +248,7 @@ PYTHON_ENTRYPOINTS=(
   library/embedded_theme_editor_runtime.py
   library/embedded_video_manager.py
   library/embedded_video_manager_runtime.py
+  library/main_app_ui_polish.py
   library/runtime_rev_c_image_guard.py
   library/video_media.py
   library/media_preparation.py
