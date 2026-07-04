@@ -51,6 +51,16 @@ class ThemeRecord:
             return "Current theme"
         return "Ready"
 
+    def search_text(self) -> str:
+        parts = [self.name, self.status_label]
+        try:
+            parts.append(os.path.relpath(self.directory, ROOT))
+        except ValueError:
+            parts.append(str(self.directory))
+        if self.yaml_file is not None:
+            parts.append(self.yaml_file.name)
+        return " ".join(parts).casefold()
+
 
 def find_theme_file(theme_dir: Path) -> Path | None:
     for file_name in ("theme.yaml", "theme.yml"):
@@ -105,6 +115,17 @@ def discover_themes(
     return sorted(records, key=lambda record: (not record.current, record.name.casefold()))
 
 
+def filter_theme_records(records: list[ThemeRecord], query: str) -> list[ThemeRecord]:
+    terms = [term.casefold() for term in query.split() if term.strip()]
+    if not terms:
+        return list(records)
+    return [
+        record
+        for record in records
+        if all(term in record.search_text() for term in terms)
+    ]
+
+
 def launch_theme_editor(record: ThemeRecord, theme_editor: Path = THEME_EDITOR) -> None:
     if not record.editable:
         raise RuntimeError(
@@ -147,6 +168,28 @@ class ThemeGalleryPane(Gtk.Box):
         self.on_open_folder = on_open_folder
         self.on_records_changed = on_records_changed
         self.records: list[ThemeRecord] = []
+        self.filtered_records: list[ThemeRecord] = []
+        self.filter_query = ""
+
+        controls = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=12,
+            margin_top=18,
+            margin_bottom=6,
+            margin_start=24,
+            margin_end=24,
+        )
+        self.append(controls)
+
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_hexpand(True)
+        self.search_entry.set_placeholder_text("Search themes by name, path, or status")
+        self.search_entry.connect("search-changed", self.on_search_changed)
+        controls.append(self.search_entry)
+
+        self.result_label = Gtk.Label(label="", xalign=1)
+        self.result_label.add_css_class("dim-label")
+        controls.append(self.result_label)
 
         self.scrolled = Gtk.ScrolledWindow()
         self.scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -155,7 +198,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.flow_box = Gtk.FlowBox(
             column_spacing=18,
             row_spacing=18,
-            margin_top=24,
+            margin_top=18,
             margin_bottom=24,
             margin_start=24,
             margin_end=24,
@@ -175,12 +218,32 @@ class ThemeGalleryPane(Gtk.Box):
             self.flow_box.remove(child)
             child = next_child
 
+    def on_search_changed(self, entry: Gtk.SearchEntry) -> None:
+        self.filter_query = entry.get_text().strip()
+        self.apply_filter()
+
     def reload_themes(self, show_toast: bool = True) -> None:
         del show_toast  # handled by the containing window/shell
         self.records = discover_themes()
-        self.render_records(self.records)
+        self.apply_filter()
         if self.on_records_changed is not None:
             self.on_records_changed(list(self.records))
+
+    def apply_filter(self) -> None:
+        self.filtered_records = filter_theme_records(self.records, self.filter_query)
+        self.render_records(self.filtered_records)
+        self.update_result_label()
+
+    def update_result_label(self) -> None:
+        total = len(self.records)
+        visible = len(self.filtered_records)
+        if not total:
+            self.result_label.set_text("No themes")
+            return
+        if self.filter_query:
+            self.result_label.set_text(f"{visible} of {total}")
+            return
+        self.result_label.set_text(f"{total} theme{'s' if total != 1 else ''}")
 
     def render_records(self, records: list[ThemeRecord]) -> None:
         self.clear_flow_box()
@@ -203,14 +266,22 @@ class ThemeGalleryPane(Gtk.Box):
             margin_start=80,
             margin_end=80,
         )
-        icon = Gtk.Image.new_from_icon_name("folder-symbolic")
+        icon_name = "edit-find-symbolic" if self.filter_query else "folder-symbolic"
+        icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(64)
         box.append(icon)
-        title = Gtk.Label(label="No themes found")
+
+        title_text = "No matching themes" if self.filter_query else "No themes found"
+        title = Gtk.Label(label=title_text)
         title.add_css_class("title-2")
         box.append(title)
+
+        if self.filter_query:
+            subtitle_text = f"No theme matches “{self.filter_query}”."
+        else:
+            subtitle_text = f"Create or copy themes into {THEMES_DIR}"
         subtitle = Gtk.Label(
-            label=f"Create or copy themes into {THEMES_DIR}",
+            label=subtitle_text,
             wrap=True,
             justify=Gtk.Justification.CENTER,
         )
