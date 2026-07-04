@@ -1,11 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Reusable GTK theme gallery components.
-
-This module is shared by the temporary gallery developer entry point and the
-main GTK configuration application. It intentionally keeps theme discovery,
-model logic, and gallery widgets in one place so the project does not grow a
-separate app for every feature.
-"""
+"""Reusable GTK theme gallery components."""
 
 from __future__ import annotations
 
@@ -36,6 +30,14 @@ DuplicateThemeCallback = Callable[["ThemeRecord", str], None]
 RenameThemeCallback = Callable[["ThemeRecord", str], None]
 DeleteThemeCallback = Callable[["ThemeRecord"], None]
 ImportThemeCallback = Callable[[str], None]
+ExportThemeCallback = Callable[["ThemeRecord", str], None]
+
+IGNORE_PATTERNS = (
+    "*.tmp",
+    "*.editor-backup",
+    "*.before-sequence-repair",
+    "__pycache__",
+)
 
 
 @dataclass(frozen=True)
@@ -83,7 +85,6 @@ def relative_path_label(path: Path) -> str:
 
 
 def normalize_display_size(value: str) -> str:
-    """Normalize values such as 2.1, 2.1", 2,1 inch, and 5-inch."""
     value = str(value or "").strip().lower().replace(",", ".")
     match = re.search(r"(\d+(?:\.\d+)?)", value)
     return match.group(1) if match else ""
@@ -115,16 +116,17 @@ def suggested_duplicate_name(theme_name: str, themes_dir: Path = THEMES_DIR) -> 
     return next_available_theme_name(f"{theme_name}-copy", themes_dir)
 
 
+def default_export_path(theme_name: str) -> Path:
+    return Path.home() / "Downloads" / f"{theme_name}.zip"
+
+
 def read_scalar_from_yaml_text(path: Path, key: str) -> str:
-    """Read a simple YAML scalar without requiring ruamel in system Python."""
     try:
         content = path.read_text(encoding="utf-8")
     except OSError:
         return ""
 
-    pattern = re.compile(
-        rf'(?m)^\s*{re.escape(key)}\s*:\s*["\']?([^"\'\n#]+)'
-    )
+    pattern = re.compile(rf'(?m)^\s*{re.escape(key)}\s*:\s*["\']?([^"\'\n#]+)')
     match = pattern.search(content)
     return match.group(1).strip() if match else ""
 
@@ -166,9 +168,7 @@ def replace_current_theme_name(
 
     configured = match.group(2).strip().strip("'\"")
     if configured != old_name:
-        raise RuntimeError(
-            f"config.yaml THEME is {configured}, expected {old_name}."
-        )
+        raise RuntimeError(f"config.yaml THEME is {configured}, expected {old_name}.")
 
     replacement = f"{match.group(1)}{new_name}{match.group(3)}"
     new_content = content[: match.start()] + replacement + content[match.end() :]
@@ -184,7 +184,6 @@ def theme_display_size_from_yaml(yaml_file: Path | None) -> str:
 
 
 def selected_display_size(config_file: Path = CONFIG_FILE) -> str:
-    """Return the configured/detected display size used for compatibility filtering."""
     for key in ("DISPLAY_SIZE", "SCREEN_SIZE", "SIZE"):
         value = normalize_display_size(read_scalar_from_yaml_text(config_file, key))
         if value:
@@ -198,11 +197,7 @@ def selected_display_size(config_file: Path = CONFIG_FILE) -> str:
     return theme_display_size_from_yaml(current_yaml)
 
 
-def set_current_theme(
-    record: ThemeRecord,
-    config_file: Path = CONFIG_FILE,
-) -> tuple[str | None, str]:
-    """Set the active theme in config.yaml and return (old_theme, new_theme)."""
+def set_current_theme(record: ThemeRecord, config_file: Path = CONFIG_FILE) -> tuple[str | None, str]:
     if not record.editable:
         raise RuntimeError(
             f"{record.name} cannot be set as current because it has no theme.yaml/theme.yml."
@@ -221,7 +216,6 @@ def set_current_theme(
 
     replacement = f"{match.group(1)}{record.name}{match.group(3)}"
     new_content = content[: match.start()] + replacement + content[match.end() :]
-
     tmp_file = config_file.with_name(f"{config_file.name}.tmp")
     tmp_file.write_text(new_content, encoding="utf-8")
     os.replace(tmp_file, config_file)
@@ -247,12 +241,7 @@ def duplicate_theme(record: ThemeRecord, requested_name: str) -> str:
         record.directory,
         target_dir,
         symlinks=False,
-        ignore=shutil.ignore_patterns(
-            "*.tmp",
-            "*.editor-backup",
-            "*.before-sequence-repair",
-            "__pycache__",
-        ),
+        ignore=shutil.ignore_patterns(*IGNORE_PATTERNS),
     )
     return target_name
 
@@ -331,12 +320,7 @@ def copy_imported_theme(source_dir: Path) -> str:
         source_dir,
         target_dir,
         symlinks=False,
-        ignore=shutil.ignore_patterns(
-            "*.tmp",
-            "*.editor-backup",
-            "*.before-sequence-repair",
-            "__pycache__",
-        ),
+        ignore=shutil.ignore_patterns(*IGNORE_PATTERNS),
     )
     return target_name
 
@@ -360,6 +344,66 @@ def import_theme(source_path_text: str) -> str:
     raise RuntimeError("Import expects a theme folder or a .zip archive.")
 
 
+def should_skip_export_path(path: Path) -> bool:
+    name = path.name
+    if name == "__pycache__":
+        return True
+    return any(path.match(pattern) for pattern in IGNORE_PATTERNS)
+
+
+def resolve_export_destination(record: ThemeRecord, destination_text: str) -> Path:
+    value = destination_text.strip()
+    if not value:
+        destination = default_export_path(record.name)
+    else:
+        destination = Path(value).expanduser()
+        if destination.exists() and destination.is_dir():
+            destination = destination / f"{record.name}.zip"
+        elif destination.suffix.casefold() != ".zip":
+            destination = destination.with_suffix(".zip")
+
+    if destination.exists():
+        raise FileExistsError(f"Export already exists: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    return destination
+
+
+def export_theme(record: ThemeRecord, destination_text: str = "") -> Path:
+    if not record.directory.is_dir():
+        raise FileNotFoundError(record.directory)
+    ensure_theme_child(record.directory)
+    if find_theme_file(record.directory) is None:
+        raise RuntimeError("Theme cannot be exported because it has no theme.yaml/theme.yml.")
+
+    destination = resolve_export_destination(record, destination_text)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=str(destination.parent),
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+
+    try:
+        with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(record.directory.rglob("*")):
+                if any(should_skip_export_path(parent) for parent in [path, *path.parents]):
+                    continue
+                if path.is_dir():
+                    continue
+                relative = path.relative_to(record.directory)
+                archive.write(path, Path(record.name) / relative)
+        os.replace(tmp_path, destination)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+    return destination
+
+
 def discover_themes(
     themes_dir: Path = THEMES_DIR,
     config_file: Path = CONFIG_FILE,
@@ -380,9 +424,8 @@ def discover_themes(
         yaml_file = find_theme_file(theme_dir)
         display_size = theme_display_size_from_yaml(yaml_file)
 
-        if only_compatible and target_display_size:
-            if display_size != target_display_size:
-                continue
+        if only_compatible and target_display_size and display_size != target_display_size:
+            continue
 
         issue = None
         if yaml_file is None:
@@ -409,11 +452,7 @@ def filter_theme_records(records: list[ThemeRecord], query: str) -> list[ThemeRe
     terms = [term.casefold() for term in query.split() if term.strip()]
     if not terms:
         return list(records)
-    return [
-        record
-        for record in records
-        if all(term in record.search_text() for term in terms)
-    ]
+    return [record for record in records if all(term in record.search_text() for term in terms)]
 
 
 def build_theme_gallery_diagnostics_report(
@@ -478,10 +517,8 @@ def build_theme_gallery_diagnostics_report(
             f"- Has theme.yaml/theme.yml: {'yes' if record.yaml_file is not None else 'no'}",
         ]
     )
-
     if record.issue:
         lines.append(f"- Blocking issue: {record.issue}")
-
     return "\n".join(lines)
 
 
@@ -516,10 +553,7 @@ def open_path_with_default_app(path: Path) -> None:
     except Exception as exc:
         errors.append(f"Gio launch_default_for_uri failed: {exc}")
 
-    for command in (
-        ["gio", "open", str(path)],
-        ["xdg-open", str(path)],
-    ):
+    for command in (["gio", "open", str(path)], ["xdg-open", str(path)]):
         if shutil.which(command[0]) is None:
             errors.append(f"{command[0]} not found")
             continue
@@ -538,9 +572,7 @@ def open_path_with_default_app(path: Path) -> None:
         if result.returncode == 0:
             return
         stderr = result.stderr.strip() or result.stdout.strip()
-        errors.append(
-            f"{' '.join(command)} exited {result.returncode}: {stderr or 'no output'}"
-        )
+        errors.append(f"{' '.join(command)} exited {result.returncode}: {stderr or 'no output'}")
 
     for command in (
         ["dolphin", str(path)],
@@ -562,7 +594,6 @@ def open_path_with_default_app(path: Path) -> None:
             return
         except Exception as exc:
             errors.append(f"{' '.join(command)} failed: {exc}")
-
     raise RuntimeError("Could not open folder. " + " | ".join(errors))
 
 
@@ -614,17 +645,10 @@ def show_theme_gallery_diagnostics_dialog(
     dialog.present(parent)
 
 
-def show_set_current_theme_dialog(
-    parent: Gtk.Widget,
-    record: ThemeRecord,
-    on_confirm: ThemeCallback,
-) -> None:
+def show_set_current_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm: ThemeCallback) -> None:
     dialog = Adw.AlertDialog(
         heading=f"Use {record.name}?",
-        body=(
-            "This will update config.yaml so this theme becomes the current "
-            "theme used by the app."
-        ),
+        body="This will update config.yaml so this theme becomes the current theme used by the app.",
     )
     dialog.add_response("cancel", "Cancel")
     dialog.add_response("use", "Use Theme")
@@ -640,11 +664,7 @@ def show_set_current_theme_dialog(
     dialog.present(parent)
 
 
-def show_duplicate_theme_dialog(
-    parent: Gtk.Widget,
-    record: ThemeRecord,
-    on_confirm: DuplicateThemeCallback,
-) -> None:
+def show_duplicate_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm: DuplicateThemeCallback) -> None:
     entry = Gtk.Entry()
     entry.set_text(suggested_duplicate_name(record.name))
     entry.set_placeholder_text("new-theme-name")
@@ -654,10 +674,7 @@ def show_duplicate_theme_dialog(
 
     dialog = Adw.AlertDialog(
         heading=f"Duplicate {record.name}",
-        body=(
-            "Create a non-destructive copy of this theme. The copy will not "
-            "become the current theme automatically."
-        ),
+        body="Create a non-destructive copy of this theme. The copy will not become the current theme automatically.",
     )
     dialog.set_extra_child(entry)
     dialog.add_response("cancel", "Cancel")
@@ -674,11 +691,7 @@ def show_duplicate_theme_dialog(
     dialog.present(parent)
 
 
-def show_rename_theme_dialog(
-    parent: Gtk.Widget,
-    record: ThemeRecord,
-    on_confirm: RenameThemeCallback,
-) -> None:
+def show_rename_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm: RenameThemeCallback) -> None:
     entry = Gtk.Entry()
     entry.set_text(record.name)
     entry.set_placeholder_text("theme-name")
@@ -688,10 +701,7 @@ def show_rename_theme_dialog(
 
     dialog = Adw.AlertDialog(
         heading=f"Rename {record.name}",
-        body=(
-            "Rename the theme folder. If this is the current theme, config.yaml "
-            "will be updated automatically."
-        ),
+        body="Rename the theme folder. If this is the current theme, config.yaml will be updated automatically.",
     )
     dialog.set_extra_child(entry)
     dialog.add_response("cancel", "Cancel")
@@ -708,11 +718,7 @@ def show_rename_theme_dialog(
     dialog.present(parent)
 
 
-def show_delete_theme_dialog(
-    parent: Gtk.Widget,
-    record: ThemeRecord,
-    on_confirm: DeleteThemeCallback,
-) -> None:
+def show_delete_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm: DeleteThemeCallback) -> None:
     entry = Gtk.Entry()
     entry.set_placeholder_text(record.name)
     entry.set_activates_default(True)
@@ -721,10 +727,7 @@ def show_delete_theme_dialog(
 
     dialog = Adw.AlertDialog(
         heading=f"Delete {record.name}?",
-        body=(
-            "This will move the theme folder to Trash. To confirm, type the "
-            "theme name exactly."
-        ),
+        body="This will move the theme folder to Trash. To confirm, type the theme name exactly.",
     )
     dialog.set_extra_child(entry)
     dialog.add_response("cancel", "Cancel")
@@ -752,10 +755,7 @@ def show_delete_theme_dialog(
     dialog.present(parent)
 
 
-def show_import_theme_dialog(
-    parent: Gtk.Widget,
-    on_confirm: ImportThemeCallback,
-) -> None:
+def show_import_theme_dialog(parent: Gtk.Widget, on_confirm: ImportThemeCallback) -> None:
     entry = Gtk.Entry()
     entry.set_placeholder_text("/path/to/theme-folder or /path/to/theme.zip")
     entry.set_activates_default(True)
@@ -764,10 +764,7 @@ def show_import_theme_dialog(
 
     dialog = Adw.AlertDialog(
         heading="Import Theme",
-        body=(
-            "Import a theme from a folder or .zip archive. Existing themes are "
-            "never overwritten."
-        ),
+        body="Import a theme from a folder or .zip archive. Existing themes are never overwritten.",
     )
     dialog.set_extra_child(entry)
     dialog.add_response("cancel", "Cancel")
@@ -779,6 +776,33 @@ def show_import_theme_dialog(
     def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
         if response == "import":
             on_confirm(entry.get_text())
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+
+
+def show_export_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm: ExportThemeCallback) -> None:
+    entry = Gtk.Entry()
+    entry.set_text(str(default_export_path(record.name)))
+    entry.set_placeholder_text("/path/to/theme.zip or /path/to/folder")
+    entry.set_activates_default(True)
+    entry.set_margin_top(6)
+    entry.set_margin_bottom(6)
+
+    dialog = Adw.AlertDialog(
+        heading=f"Export {record.name}",
+        body="Export this theme as a .zip archive. Existing files are never overwritten.",
+    )
+    dialog.set_extra_child(entry)
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("export", "Export")
+    dialog.set_response_appearance("export", Adw.ResponseAppearance.SUGGESTED)
+    dialog.set_default_response("export")
+    dialog.set_close_response("cancel")
+
+    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+        if response == "export":
+            on_confirm(record, entry.get_text())
 
     dialog.connect("response", on_response)
     dialog.present(parent)
@@ -798,6 +822,7 @@ class ThemeGalleryPane(Gtk.Box):
         on_rename_theme: RenameThemeCallback | None = None,
         on_delete_theme: DeleteThemeCallback | None = None,
         on_import_theme: ImportThemeCallback | None = None,
+        on_export_theme: ExportThemeCallback | None = None,
         on_records_changed: Callable[[list[ThemeRecord]], None] | None = None,
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -811,6 +836,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.on_rename_theme = on_rename_theme or self.apply_rename_theme
         self.on_delete_theme = on_delete_theme or self.apply_delete_theme
         self.on_import_theme = on_import_theme or self.apply_import_theme
+        self.on_export_theme = on_export_theme or self.apply_export_theme
         self.on_records_changed = on_records_changed
         self.records: list[ThemeRecord] = []
         self.filtered_records: list[ThemeRecord] = []
@@ -880,7 +906,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.apply_filter()
 
     def reload_themes(self, show_toast: bool = True) -> None:
-        del show_toast  # handled by the containing window/shell
+        del show_toast
         self.target_display_size = selected_display_size()
         self.records = discover_themes(only_compatible=True)
         self.apply_filter()
@@ -903,17 +929,13 @@ class ThemeGalleryPane(Gtk.Box):
             self.result_label.set_text(f"{visible} of {total}")
             return
         display = f' · {self.target_display_size}"' if self.target_display_size else ""
-        self.result_label.set_text(
-            f"{total} compatible theme{'s' if total != 1 else ''}{display}"
-        )
+        self.result_label.set_text(f"{total} compatible theme{'s' if total != 1 else ''}{display}")
 
     def render_records(self, records: list[ThemeRecord]) -> None:
         self.clear_flow_box()
-
         if not records:
             self.flow_box.append(self.empty_state())
             return
-
         for record in records:
             self.flow_box.append(self.theme_card(record))
 
@@ -934,10 +956,7 @@ class ThemeGalleryPane(Gtk.Box):
         icon.set_pixel_size(64)
         box.append(icon)
 
-        if self.filter_query:
-            title_text = "No matching compatible themes"
-        else:
-            title_text = "No compatible themes found"
+        title_text = "No matching compatible themes" if self.filter_query else "No compatible themes found"
         title = Gtk.Label(label=title_text)
         title.add_css_class("title-2")
         box.append(title)
@@ -948,11 +967,7 @@ class ThemeGalleryPane(Gtk.Box):
             subtitle_text = f'No installed theme declares DISPLAY_SIZE {self.target_display_size}".'
         else:
             subtitle_text = "Could not detect a display size, so no compatibility filter could be applied."
-        subtitle = Gtk.Label(
-            label=subtitle_text,
-            wrap=True,
-            justify=Gtk.Justification.CENTER,
-        )
+        subtitle = Gtk.Label(label=subtitle_text, wrap=True, justify=Gtk.Justification.CENTER)
         subtitle.add_css_class("dim-label")
         box.append(subtitle)
         return box
@@ -1026,19 +1041,12 @@ class ThemeGalleryPane(Gtk.Box):
         path.add_css_class("dim-label")
         card.append(path)
 
-        actions = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
-            margin_top=4,
-        )
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, margin_top=4)
         if self.on_set_current_theme is not None and not record.current:
             use_button = Gtk.Button(label="Use")
             use_button.set_sensitive(record.editable)
             use_button.set_tooltip_text("Set this theme as current")
-            use_button.connect(
-                "clicked",
-                lambda *_args: self.on_set_current_theme(record),
-            )
+            use_button.connect("clicked", lambda *_args: self.on_set_current_theme(record))
             actions.append(use_button)
 
         edit_button = Gtk.Button(label="Edit")
@@ -1059,6 +1067,12 @@ class ThemeGalleryPane(Gtk.Box):
         rename_button.connect("clicked", lambda *_args: self.confirm_rename_theme(record))
         actions.append(rename_button)
 
+        export_button = Gtk.Button(icon_name="document-save-symbolic")
+        export_button.set_sensitive(record.editable)
+        export_button.set_tooltip_text("Export theme")
+        export_button.connect("clicked", lambda *_args: self.confirm_export_theme(record))
+        actions.append(export_button)
+
         if not record.current:
             delete_button = Gtk.Button(icon_name="user-trash-symbolic")
             delete_button.add_css_class("destructive-action")
@@ -1069,10 +1083,7 @@ class ThemeGalleryPane(Gtk.Box):
         if self.on_theme_diagnostics is not None:
             diagnostics_button = Gtk.Button(icon_name="dialog-information-symbolic")
             diagnostics_button.set_tooltip_text("Show theme diagnostics")
-            diagnostics_button.connect(
-                "clicked",
-                lambda *_args: self.on_theme_diagnostics(record),
-            )
+            diagnostics_button.connect("clicked", lambda *_args: self.on_theme_diagnostics(record))
             actions.append(diagnostics_button)
 
         folder_button = Gtk.Button(icon_name="folder-open-symbolic")
@@ -1080,7 +1091,6 @@ class ThemeGalleryPane(Gtk.Box):
         folder_button.connect("clicked", lambda *_args: self.on_open_folder(record))
         actions.append(folder_button)
         card.append(actions)
-
         return card
 
     def current_theme_record(self) -> ThemeRecord | None:
@@ -1091,6 +1101,13 @@ class ThemeGalleryPane(Gtk.Box):
         return root if isinstance(root, Gtk.Widget) else self
 
     def show_error_dialog(self, heading: str, body: str) -> None:
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("ok", "OK")
+        dialog.set_close_response("ok")
+        dialog.set_default_response("ok")
+        dialog.present(self.root_widget())
+
+    def show_info_dialog(self, heading: str, body: str) -> None:
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response("ok", "OK")
         dialog.set_close_response("ok")
@@ -1141,15 +1158,21 @@ class ThemeGalleryPane(Gtk.Box):
             return
         self.reload_themes()
 
+    def confirm_export_theme(self, record: ThemeRecord) -> None:
+        show_export_theme_dialog(self.root_widget(), record, self.on_export_theme)
+
+    def apply_export_theme(self, record: ThemeRecord, destination_text: str) -> None:
+        try:
+            destination = export_theme(record, destination_text)
+        except Exception as exc:
+            self.show_error_dialog("Could not export theme", str(exc))
+            return
+        self.show_info_dialog("Theme exported", str(destination))
+
 
 class ThemeGalleryWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application):
-        super().__init__(
-            application=app,
-            title="Theme Gallery",
-            default_width=1180,
-            default_height=760,
-        )
+        super().__init__(application=app, title="Theme Gallery", default_width=1180, default_height=760)
         self.set_size_request(860, 560)
 
         self.toast_overlay = Adw.ToastOverlay()
@@ -1159,17 +1182,11 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         self.toast_overlay.set_child(toolbar)
 
         header = Adw.HeaderBar()
-        self.window_title = Adw.WindowTitle(
-            title="Theme Gallery",
-            subtitle="Browse compatible themes",
-        )
+        self.window_title = Adw.WindowTitle(title="Theme Gallery", subtitle="Browse compatible themes")
         header.set_title_widget(self.window_title)
         toolbar.add_top_bar(header)
 
-        refresh_button = Gtk.Button(
-            icon_name="view-refresh-symbolic",
-            tooltip_text="Reload the theme list",
-        )
+        refresh_button = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Reload the theme list")
         refresh_button.connect("clicked", lambda *_: self.reload_themes())
         header.pack_end(refresh_button)
 
@@ -1244,12 +1261,7 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         self.toast(f"Opening folder for {record.name}")
 
     def show_theme_diagnostics(self, record: ThemeRecord) -> None:
-        show_theme_gallery_diagnostics_dialog(
-            self,
-            record,
-            self.toast,
-            self.gallery.target_display_size,
-        )
+        show_theme_gallery_diagnostics_dialog(self, record, self.toast, self.gallery.target_display_size)
 
     def confirm_set_current_theme(self, record: ThemeRecord) -> None:
         show_set_current_theme_dialog(self, record, self.apply_set_current_theme)
