@@ -40,6 +40,23 @@ contributions later.
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/overview.png" alt="Overview page showing active theme, monitor process, connected display, and quick actions" width="48%" />
+  <img src="docs/screenshots/theme-gallery.png" alt="Theme Gallery showing installed compatible themes" width="48%" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/theme-editor.png" alt="Embedded Theme Editor with live preview and theme properties" width="96%" />
+</p>
+
+<p align="center">
+  <em>Overview, Theme Gallery, and embedded Theme Editor running on Linux.</em>
+</p>
+
+---
+
 ## Current public app branch
 
 The full GTK app-shell work currently lives on:
