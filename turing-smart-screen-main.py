@@ -32,9 +32,11 @@ def main() -> int:
 
     from library.embedded_theme_editor_runtime import install_embedded_theme_editor_patches
     from library.embedded_video_manager_runtime import install_embedded_video_manager_patches
+    from library.main_app_ui_polish import install_main_app_ui_polish_patches as install_ui_polish
 
     install_embedded_theme_editor_patches(app, root=ROOT)
     install_embedded_video_manager_patches(app, root=ROOT)
+    install_ui_polish(app, root=ROOT)
     return app.main()
 
 
