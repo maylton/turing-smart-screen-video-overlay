@@ -240,7 +240,7 @@ class OverviewLivePreviewAnimator:
         except OSError:
             video_stamp = str(video_path)
         theme_stamp = _theme_tree_signature(theme_dir)
-        renderer_version = "full-theme-preview-v1-runtime-text-editor-mock-data"
+        renderer_version = "full-theme-preview-v1-runtime-static-bridge"
         digest = hashlib.sha1(
             f"{video_stamp}:{theme_stamp}:{renderer_version}".encode("utf-8")
         ).hexdigest()[:12]
