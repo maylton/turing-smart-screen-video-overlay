@@ -42,17 +42,19 @@ Included so far:
 - guarded `Use` action to set a theme as current;
 - atomic `config.yaml` update for `config.THEME`;
 - non-destructive per-theme duplicate action;
+- rename action with sanitization, overwrite protection, and current-theme config update;
 - guarded delete action that requires typing the exact theme name;
 - delete moves themes to Trash and refuses to delete the current theme;
+- import action for theme folders or safe `.zip` archives;
 - robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then file-manager fallbacks;
+- debug logging for the theme-folder open action with `TURING_THEME_GALLERY_DEBUG=1`;
 - installer guard so local `configure-gtk-final.py` leftovers cannot override the branch's `configure-gtk.py` during installed-app tests;
 - installed syntax validation for `library/theme_gallery.py`, `theme-gallery-gtk.py`, and `turing-smart-screen-gtk.py`;
 - no theme file writes from browsing, filtering, diagnostics, or opening folders.
 
 Not included yet:
 
-- rename theme;
-- import/export theme;
+- export theme;
 - real Device Manager implementation.
 
 ## Architecture decision
@@ -66,6 +68,18 @@ configure-gtk.py / turing-smart-screen     # existing installed app
 ```
 
 `turing-smart-screen-gtk.py` remains a temporary prototype/dev entry point and should not be treated as the real installed app.
+
+## Debugging folder opening
+
+Run the installed app from a terminal with debug logging enabled:
+
+```bash
+TURING_THEME_GALLERY_DEBUG=1 turing-smart-screen 2>&1 | tee /tmp/turing-theme-gallery-debug.log
+```
+
+Then click the folder button in `Themes`. The terminal should print `[theme-gallery]` lines showing whether the callback fired, the target path, desktop/session environment, and the result of each opener attempt.
+
+If there are no `[theme-gallery]` lines after clicking, the button callback is not firing. If there are lines but no file manager opens, use the logged `gio`, `xdg-open`, or file-manager result to decide the next fix.
 
 ## Validation
 
@@ -104,15 +118,16 @@ Manual validation:
 12. Confirm `Copy Report` copies the diagnostics report.
 13. Click `Use` on a non-current valid theme and confirm the dialog appears.
 14. Confirm `Use Theme` updates the current badge and `config.yaml` `THEME` value.
-15. Confirm broken themes cannot be set as current.
-16. Click duplicate on a valid theme and confirm a copy is created with a safe non-conflicting folder name.
-17. Confirm duplicate does not change `config.yaml` automatically.
-18. Click delete on the duplicated theme, type the exact name, and confirm it moves to Trash.
+15. Click duplicate on a valid theme and confirm a copy is created with a safe non-conflicting folder name.
+16. Click rename and confirm the card/folder name changes.
+17. Rename the current theme and confirm `config.yaml` updates to the new name.
+18. Click delete on a duplicated theme, type the exact name, and confirm it moves to Trash.
 19. Confirm the current theme does not show a delete button.
-20. Confirm per-theme folder button opens the theme folder in the file manager or shows a useful error dialog.
-21. Confirm refresh updates the card list and preserves the current search query.
-22. Confirm browsing/searching/diagnostics/folder-open do not modify tracked theme files.
-23. Restore test config/theme changes before final merge if needed.
+20. Click Import, paste a valid theme folder or `.zip` path, and confirm it appears without overwriting existing themes.
+21. Confirm per-theme folder button opens the theme folder in the file manager or produces `[theme-gallery]` debug output.
+22. Confirm refresh updates the card list and preserves the current search query.
+23. Confirm browsing/searching/diagnostics/folder-open do not modify tracked theme files.
+24. Restore test config/theme changes before final merge if needed.
 
 ## Stack status
 
@@ -123,13 +138,16 @@ Completed in this branch so far:
 - Phase 3 — gallery search/filter.
 - Phase 4 — gallery diagnostics action.
 - Phase 5 — set active/current theme from the gallery.
-- Phase 6 — integrate the gallery into the existing main app `Themes` page.
-- Phase 7 — fix installer path so stale `configure-gtk-final.py` cannot mask this branch.
-- Phase 8 — fix gallery layout expansion in the main app.
-- Phase 9 — filter gallery themes to the detected/configured display size.
-- Phase 10 — duplicate theme and fix open theme folder.
-- Phase 11 — delete theme with confirmation and safer folder-opening diagnostics.
+- Phase 6 — duplicate theme.
+- Phase 7 — rename theme.
+- Phase 8 — delete theme with confirmation.
+- Phase 9 — import theme from folder/archive.
+- Phase 10 — integrate the gallery into the existing main app `Themes` page.
+- Phase 11 — fix installer path so stale `configure-gtk-final.py` cannot mask this branch.
+- Phase 12 — fix gallery layout expansion in the main app.
+- Phase 13 — filter gallery themes to the detected/configured display size.
+- Phase 14 — fix open theme folder in niri with direct file-manager fallback and debug logs.
 
 Next phase:
 
-- Rename theme.
+- Export theme.
