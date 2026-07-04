@@ -1,8 +1,17 @@
 # Theme Gallery MVP
 
-This document describes the first implementation slice from `docs/OFFICIAL_WINDOWS_PARITY_ROADMAP.md`.
+This document describes the first implementation slice from `docs/OFFICIAL_WINDOWS_PARITY_ROADMAP.md` and the architecture checkpoint in `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md`.
 
-The Theme Gallery is the Linux/GTK entry point inspired by the official Windows app's theme-selection workflow. It does not replace the GTK Theme Editor; it opens themes into it.
+The Theme Gallery is the future Linux/GTK home surface inspired by the official Windows app's theme-selection workflow. It does not replace the GTK Theme Editor; it opens themes into it.
+
+## Architecture role
+
+This slice now provides two pieces:
+
+- `library/theme_gallery.py` — reusable discovery/model/UI components for the future app shell;
+- `theme-gallery-gtk.py` — temporary developer entry point for testing the gallery independently.
+
+The temporary standalone script is not the final product architecture. Future slices should embed `ThemeGalleryPane` into one main app shell instead of creating a new app for every feature.
 
 ## Scope
 
@@ -10,20 +19,20 @@ The MVP is intentionally read-only for theme management.
 
 Included:
 
-- standalone GTK/Libadwaita window;
-- theme discovery from `res/themes`;
+- reusable theme discovery from `res/themes`;
 - current-theme detection from `config.yaml`;
-- visual card grid;
+- visual card grid component;
 - preview thumbnail when `preview.png` exists;
 - missing-preview placeholder;
 - broken-theme indicator when `theme.yaml`/`theme.yml` is missing;
-- `Open Current` action;
+- `Open Current` action in the developer window;
 - per-theme `Edit` action;
 - per-theme folder-open action;
 - refresh action.
 
 Not included yet:
 
+- main app shell;
 - duplicate theme;
 - rename theme;
 - delete theme;
@@ -34,7 +43,7 @@ Not included yet:
 
 Those actions are intentionally deferred because the first slice should only introduce the official-style theme-browsing surface without adding new destructive or write-capable management flows.
 
-## Entry point
+## Developer entry point
 
 ```bash
 .venv/bin/python theme-gallery-gtk.py
@@ -44,7 +53,8 @@ Those actions are intentionally deferred because the first slice should only int
 
 The MVP is accepted when:
 
-- the gallery opens independently;
+- the reusable gallery module imports successfully;
+- the developer gallery opens independently;
 - themes from `res/themes` are listed;
 - the theme configured in `config.yaml` is marked as current;
 - cards show `preview.png` when available;
@@ -59,6 +69,7 @@ The MVP is accepted when:
 ## Validation
 
 ```bash
+.venv/bin/python -m py_compile library/theme_gallery.py
 .venv/bin/python -m py_compile theme-gallery-gtk.py
 .venv/bin/python -m py_compile theme-editor-gtk.py
 .venv/bin/python -m unittest discover -s tests -t . -v
@@ -78,14 +89,15 @@ Manual validation:
 9. Click refresh and confirm the list reloads.
 10. Confirm `git status --short` shows no theme changes caused by browsing.
 
-## Next slices
+## Stack position
+
+This is stack phase 1.
 
 Recommended follow-up order:
 
-1. Gallery search/filter.
-2. Gallery diagnostics action.
-3. Duplicate theme.
-4. Import/export theme.
-5. Rename/delete with confirmation.
-6. Set active/current theme from the gallery.
-7. Device Manager / display-profile integration.
+1. App shell that embeds the gallery.
+2. Gallery search/filter.
+3. Gallery diagnostics action.
+4. Set active/current theme from the gallery.
+5. Duplicate/import/export/rename/delete in later management slices.
+6. Device Manager / display-profile integration.
