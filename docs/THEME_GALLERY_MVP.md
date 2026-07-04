@@ -15,7 +15,7 @@ The temporary standalone script is not the final product architecture. The norma
 
 ## Scope
 
-The MVP is intentionally read-only for theme management.
+The MVP is now a mostly read-oriented theme management surface, with one guarded write action for selecting the current theme.
 
 Included:
 
@@ -30,6 +30,8 @@ Included:
 - filtered empty state when no theme matches;
 - per-theme gallery diagnostics action;
 - copyable gallery-level diagnostics report;
+- guarded `Use` action for setting a valid theme as current;
+- atomic update of `config.yaml` `THEME` value;
 - `Open Current` action in the developer window and app shell;
 - per-theme `Edit` action;
 - per-theme folder-open action;
@@ -43,7 +45,7 @@ Not included yet:
 - import/export theme;
 - device sync/send-to-display.
 
-Those actions are intentionally deferred because the first slice should only introduce the official-style theme-browsing surface without adding new destructive management flows.
+Those actions are intentionally deferred because this stack should introduce the official-style theme-browsing surface without adding destructive management flows.
 
 ## Entry points
 
@@ -76,11 +78,14 @@ The MVP is accepted when:
 - clearing search restores the full theme list;
 - diagnostics opens a read-only report for a selected theme;
 - Copy Report copies the diagnostics report;
+- `Use` is shown only for non-current themes;
+- `Use` is disabled for broken themes;
+- confirming `Use Theme` updates `config.yaml` and refreshes the current badge;
 - clicking `Edit` opens the selected theme in `theme-editor-gtk.py`;
 - clicking `Open Current` opens the current theme;
 - clicking the folder button opens the theme folder;
 - clicking refresh reloads the list;
-- no theme files are modified by simply opening, browsing, filtering, or viewing diagnostics.
+- only the explicit `Use Theme` action modifies `config.yaml`.
 
 ## Validation
 
@@ -93,7 +98,7 @@ The MVP is accepted when:
 git diff --check
 ```
 
-Manual validation later in the stack:
+Manual validation:
 
 1. Launch the app shell.
 2. Confirm the shell opens with a sidebar.
@@ -107,11 +112,14 @@ Manual validation later in the stack:
 10. Clear search and confirm all themes return.
 11. Open diagnostics for a theme and confirm the report appears.
 12. Click Copy Report and confirm the clipboard contains the report.
-13. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
-14. Click `Open Current` and confirm the current theme opens.
-15. Click the folder button and confirm the file manager opens the theme folder.
-16. Click refresh and confirm the list reloads.
-17. Confirm `git status --short` shows no theme changes caused by browsing/searching/diagnostics.
+13. Click `Use` on a non-current valid theme and confirm the dialog appears.
+14. Confirm `Use Theme` updates the badge and `config.yaml` `THEME` value.
+15. Confirm broken themes cannot be set as current.
+16. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
+17. Click `Open Current` and confirm the current theme opens.
+18. Click the folder button and confirm the file manager opens the theme folder.
+19. Click refresh and confirm the list reloads.
+20. Restore test config changes before final merge if needed: `git restore config.yaml`.
 
 ## Stack position
 
@@ -121,9 +129,10 @@ Completed in this branch so far:
 2. Main app shell that embeds the gallery.
 3. Gallery search/filter.
 4. Gallery diagnostics action.
+5. Set active/current theme from the gallery.
 
 Follow-up stack:
 
-1. Set active/current theme from the gallery.
+1. Integrated local validation.
 2. Duplicate/import/export/rename/delete in later management slices.
 3. Device Manager / display-profile integration.
