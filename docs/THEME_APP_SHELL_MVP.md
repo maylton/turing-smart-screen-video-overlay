@@ -1,8 +1,8 @@
 # Theme App Shell MVP
 
-This document describes the Theme Gallery / Theme Manager stack from `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md`.
+This document describes the integrated Theme Gallery / Theme Manager stack from `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md`.
 
-The implementation now targets the **existing installed GTK configuration app** launched by `turing-smart-screen`, not only a separate prototype shell.
+The implementation targets the **existing installed GTK configuration app** launched by `turing-smart-screen`, not a separate prototype shell.
 
 ## Entry points
 
@@ -24,9 +24,12 @@ Legacy/runtime launcher entry point:
 .venv/bin/python configure-gtk.py
 ```
 
-Temporary standalone prototype entry point:
+Standalone fallback/developer entry points:
 
 ```bash
+.venv/bin/python theme-editor-gtk.py
+.venv/bin/python video-manager-gtk.py
+.venv/bin/python theme-gallery-gtk.py
 .venv/bin/python turing-smart-screen-gtk.py
 ```
 
@@ -35,7 +38,6 @@ Temporary standalone prototype entry point:
 Included so far:
 
 - reusable Theme Gallery model/UI in `library/theme_gallery.py`;
-- temporary standalone shell in `turing-smart-screen-gtk.py` for development experiments;
 - integration into the existing main GTK configuration app via `configure-gtk.py` runtime patches;
 - replacement of the old main-app `Themes` page with the reusable `ThemeGalleryPane`;
 - `Create blank` action retained from the old Themes page;
@@ -56,11 +58,13 @@ Included so far:
 - export skips temporary/editor-backup/cache files and refuses to overwrite existing archives;
 - compact gallery card action layout with secondary actions in an overflow menu;
 - embedded Theme Editor page inside the main app stack for the gallery card `Edit` flow;
-- overview `Edit theme` and Quick Actions `Theme editor` now route to the embedded editor page through `win.open-editor`;
+- Overview `Edit theme` and Quick Actions `Theme editor` route to the embedded editor page through `win.open-editor`;
 - embedded Video Manager page inside the main app stack;
-- overview Quick Actions `Video manager` and Tools `Native video manager` now route to the embedded video manager page through `win.open-videos`;
-- overview preview overlay/caption showing whether the preview is static or live;
-- live overview preview that extracts a tiny frame loop from the active theme video with `ffmpeg` and plays it in the main app preview;
+- Overview Quick Actions `Video manager` and Tools `Native video manager` route to the embedded video manager page through `win.open-videos`;
+- Overview live preview for video themes;
+- Overview preview frames render video plus theme overlays instead of video-only;
+- preview text rendering mirrors Theme Editor/runtime `DisplayText` semantics closely enough for validated theme parity;
+- Overview preview mock values derive from the same static sensor/date basis used by the Theme Editor STATIC preview;
 - standalone `theme-editor-gtk.py` and `video-manager-gtk.py` kept as fallback/dev entry points;
 - Rev. C runtime guard that clips partially offscreen bitmap updates instead of crashing on negative packet addresses;
 - robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then file-manager fallbacks;
@@ -83,10 +87,11 @@ The normal user-facing direction is now:
 turing-smart-screen                         # installed app command
 └─ turing-smart-screen-main.py              # integrated launcher wrapper
    └─ configure-gtk.py runtime patches      # existing app foundation
+      ├─ Overview                           # active theme static/live preview surface
       ├─ Themes page                        # reusable ThemeGalleryPane
       ├─ Embedded Theme Editor page         # existing editor content hosted in app stack
       ├─ Embedded Video Manager page        # existing video manager content hosted in app stack
-      └─ Overview live preview              # active theme static/live preview surface
+      └─ Tools / Quick Actions              # routes into embedded surfaces
 ```
 
 Standalone GTK entry points remain available as fallback/dev tools. Normal app actions that mean “edit theme” or “manage videos” should open inside the main app.
@@ -115,6 +120,8 @@ If there are no `[theme-gallery]` lines after clicking, the button callback is n
 .venv/bin/python -m py_compile library/embedded_video_manager.py
 .venv/bin/python -m py_compile library/embedded_video_manager_runtime.py
 .venv/bin/python -m py_compile library/main_app_ui_polish.py
+.venv/bin/python -m py_compile library/theme_preview_mock_data.py
+.venv/bin/python -m py_compile library/theme_preview_renderer.py
 .venv/bin/python -m py_compile library/runtime_rev_c_image_guard.py
 .venv/bin/python -m py_compile theme-gallery-gtk.py
 .venv/bin/python -m py_compile turing-smart-screen-gtk.py
@@ -135,6 +142,7 @@ grep -n "turing-smart-screen-main.py" ~/.local/bin/turing-smart-screen
 grep -n "EmbeddedThemeEditorPage" ~/.local/share/turing-smart-screen/library/embedded_theme_editor.py
 grep -n "EmbeddedVideoManagerPage" ~/.local/share/turing-smart-screen/library/embedded_video_manager.py
 grep -n "OverviewLivePreviewAnimator" ~/.local/share/turing-smart-screen/library/main_app_ui_polish.py
+grep -n "STATIC_PREVIEW_TIMESTAMP" ~/.local/share/turing-smart-screen/library/theme_preview_mock_data.py
 grep -n "runtime_rev_c_image_guard" ~/.local/share/turing-smart-screen/sitecustomize.py
 turing-smart-screen
 ```
@@ -142,26 +150,28 @@ turing-smart-screen
 Manual validation:
 
 1. Launch the existing main app with the installed `turing-smart-screen` command after reinstalling.
-2. Open Overview and confirm the theme preview has a caption such as `Static theme preview`, `Preparing live preview…`, or `Live theme preview`.
+2. Open Overview.
 3. Use a theme with a configured `video:` block and confirm the Overview preview starts cycling frames from the video.
-4. Open the sidebar `Themes` page.
-5. Confirm only compatible themes are shown for the detected/configured display size.
-6. Confirm each card shows only `Use`, `Edit`, and `⋮` directly.
-7. Open `⋮` and test duplicate, rename, export, open folder, diagnostics, and delete.
-8. Click `Edit` on a theme card and confirm the Theme Editor opens inside the main app window.
-9. Go back to Overview, click `Edit theme`, and confirm it opens the same embedded editor page for the active theme.
-10. Use the Quick Actions row `Theme editor` and confirm it also opens the embedded editor page.
-11. Use the Quick Actions row `Video manager` and confirm it opens the embedded video manager page.
-12. Go to Tools and click `Native video manager`; confirm it opens the embedded video manager page.
-13. Use the embedded video manager's `Overview` back button and confirm it returns to Overview.
-14. Use `Open separate window` in the embedded video manager and confirm the standalone GTK Video Manager still opens as fallback.
-15. Confirm the embedded editor and video manager can render their existing panels/actions.
-16. Start the monitor with a theme containing partially offscreen images and confirm it logs clipping warnings instead of crashing with `OverflowError`.
-17. Restore test config/theme changes before final merge if needed.
+4. Confirm the Overview preview shows the video plus the same visible overlay layout as the Theme Editor preview.
+5. Confirm date/time and static preview values match the Theme Editor STATIC preview.
+6. Open the sidebar `Themes` page.
+7. Confirm only compatible themes are shown for the detected/configured display size.
+8. Confirm each card shows only `Use`, `Edit`, and `⋮` directly.
+9. Open `⋮` and test duplicate, rename, export, open folder, diagnostics, and delete.
+10. Click `Edit` on a theme card and confirm the Theme Editor opens inside the main app window.
+11. Go back to Overview, click `Edit theme`, and confirm it opens the same embedded editor page for the active theme.
+12. Use the Quick Actions row `Theme editor` and confirm it also opens the embedded editor page.
+13. Use the Quick Actions row `Video manager` and confirm it opens the embedded video manager page.
+14. Go to Tools and click `Native video manager`; confirm it opens the embedded video manager page.
+15. Use the embedded video manager's `Overview` back button and confirm it returns to Overview.
+16. Use `Open separate window` in the embedded video manager and confirm the standalone GTK Video Manager still opens as fallback.
+17. Confirm the embedded editor and video manager can render their existing panels/actions.
+18. Start the monitor with a theme containing partially offscreen images and confirm it logs clipping warnings instead of crashing with `OverflowError`.
+19. Restore test config/theme changes before final merge if needed.
 
 ## Stack status
 
-Completed in this branch so far:
+Completed through the merged Theme Gallery app-shell stack:
 
 - Phase 1 — reusable Theme Gallery module.
 - Phase 2 — temporary app shell prototype with Theme Gallery embedded.
@@ -184,7 +194,8 @@ Completed in this branch so far:
 - Phase 19 — route overview and quick-action Theme Editor buttons to the embedded editor.
 - Phase 20 — embed Video Manager and route video-manager actions to the embedded page.
 - Phase 21 — add Overview live preview/caption backed by active theme video frames.
+- Phase 21.3A-K — align Overview animated preview with Theme Editor/runtime rendering and STATIC preview data.
 
 Next phase:
 
-- Export completeness: referenced/generated media preflight and missing-asset warnings.
+- Post-merge polish and export completeness: referenced/generated media preflight and missing-asset warnings.
