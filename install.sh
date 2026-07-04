@@ -88,6 +88,11 @@ if [[ ! -f "$SOURCE_DIR/main.py" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$SOURCE_DIR/configure-gtk.py" ]]; then
+  echo "configure-gtk.py was not found." >&2
+  exit 1
+fi
+
 echo "Installing $APP_NAME in: $PREFIX"
 
 $SUDO mkdir -p \
@@ -139,15 +144,9 @@ else
   rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
 fi
 
-# Install the latest consolidated GTK interface from this installer bundle.
-if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
-elif [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
-  :
-else
-  echo "configure-gtk.py was not found." >&2
-  exit 1
-fi
+# Use the current GTK launcher from the checked-out branch. Do not prefer
+# configure-gtk-final.py here: local leftover files with that name can mask the
+# branch's real configure-gtk.py and make installed smoke tests exercise stale UI.
 
 if [[ -f "$SOURCE_DIR/main-final.py" ]]; then
   $SUDO cp "$SOURCE_DIR/main-final.py" "$PREFIX/main.py"
@@ -229,6 +228,8 @@ PYTHON_ENTRYPOINTS=(
   main.py
   screen-control.py
   theme-editor-gtk.py
+  theme-gallery-gtk.py
+  turing-smart-screen-gtk.py
   video-manager-gtk.py
   video_manager_gtk_app.py
   video_manager.py
@@ -239,6 +240,7 @@ PYTHON_ENTRYPOINTS=(
   display-detection.py
   gtk-checkup.py
   library/runtime.py
+  library/theme_gallery.py
   library/video_media.py
   library/media_preparation.py
   library/media_profiles.py
