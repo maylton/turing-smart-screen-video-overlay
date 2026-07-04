@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk, Pango
+from gi.repository import Adw, Gio, GLib, Gtk, Pango
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILE = ROOT / "config.yaml"
@@ -29,6 +30,7 @@ THEMES_DIR = ROOT / "res" / "themes"
 THEME_EDITOR = ROOT / "theme-editor-gtk.py"
 
 ThemeCallback = Callable[["ThemeRecord"], None]
+DuplicateThemeCallback = Callable[["ThemeRecord", str], None]
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,23 @@ def normalize_display_size(value: str) -> str:
     value = str(value or "").strip().lower().replace(",", ".")
     match = re.search(r"(\d+(?:\.\d+)?)", value)
     return match.group(1) if match else ""
+
+
+def sanitize_theme_folder_name(value: str) -> str:
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9._-]+", "-", value)
+    value = re.sub(r"-{2,}", "-", value).strip("-._")
+    return value
+
+
+def suggested_duplicate_name(theme_name: str, themes_dir: Path = THEMES_DIR) -> str:
+    base = sanitize_theme_folder_name(f"{theme_name}-copy") or "theme-copy"
+    candidate = base
+    index = 2
+    while (themes_dir / candidate).exists():
+        candidate = f"{base}-{index}"
+        index += 1
+    return candidate
 
 
 def read_scalar_from_yaml_text(path: Path, key: str) -> str:
@@ -165,6 +184,34 @@ def set_current_theme(
     tmp_file.write_text(new_content, encoding="utf-8")
     os.replace(tmp_file, config_file)
     return old_theme, record.name
+
+
+def duplicate_theme(record: ThemeRecord, requested_name: str) -> str:
+    if not record.editable:
+        raise RuntimeError(
+            f"{record.name} cannot be duplicated because it has no theme.yaml/theme.yml."
+        )
+
+    target_name = sanitize_theme_folder_name(requested_name)
+    if not target_name:
+        raise ValueError("Choose a valid theme folder name.")
+
+    target_dir = THEMES_DIR / target_name
+    if target_dir.exists():
+        raise FileExistsError(f"A theme named {target_name} already exists.")
+
+    shutil.copytree(
+        record.directory,
+        target_dir,
+        symlinks=False,
+        ignore=shutil.ignore_patterns(
+            "*.tmp",
+            "*.editor-backup",
+            "*.before-sequence-repair",
+            "__pycache__",
+        ),
+    )
+    return target_name
 
 
 def discover_themes(
@@ -310,8 +357,18 @@ def launch_theme_editor(record: ThemeRecord, theme_editor: Path = THEME_EDITOR) 
 
 
 def open_theme_folder(record: ThemeRecord) -> None:
+    if not record.directory.is_dir():
+        raise FileNotFoundError(record.directory)
+
+    uri = record.directory.resolve().as_uri()
+    try:
+        Gio.AppInfo.launch_default_for_uri(uri, None)
+        return
+    except Exception:
+        pass
+
     subprocess.Popen(
-        ["gio", "open", str(record.directory)],
+        ["xdg-open", str(record.directory)],
         cwd=str(ROOT),
         start_new_session=True,
         stdout=subprocess.DEVNULL,
@@ -387,6 +444,40 @@ def show_set_current_theme_dialog(
     dialog.present(parent)
 
 
+def show_duplicate_theme_dialog(
+    parent: Gtk.Widget,
+    record: ThemeRecord,
+    on_confirm: DuplicateThemeCallback,
+) -> None:
+    entry = Gtk.Entry()
+    entry.set_text(suggested_duplicate_name(record.name))
+    entry.set_placeholder_text("new-theme-name")
+    entry.set_activates_default(True)
+    entry.set_margin_top(6)
+    entry.set_margin_bottom(6)
+
+    dialog = Adw.AlertDialog(
+        heading=f"Duplicate {record.name}",
+        body=(
+            "Create a non-destructive copy of this theme. The copy will not "
+            "become the current theme automatically."
+        ),
+    )
+    dialog.set_extra_child(entry)
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("duplicate", "Duplicate")
+    dialog.set_response_appearance("duplicate", Adw.ResponseAppearance.SUGGESTED)
+    dialog.set_default_response("duplicate")
+    dialog.set_close_response("cancel")
+
+    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+        if response == "duplicate":
+            on_confirm(record, entry.get_text())
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+
+
 class ThemeGalleryPane(Gtk.Box):
     """Reusable gallery surface for app shell and developer window."""
 
@@ -397,6 +488,7 @@ class ThemeGalleryPane(Gtk.Box):
         on_open_folder: ThemeCallback,
         on_theme_diagnostics: ThemeCallback | None = None,
         on_set_current_theme: ThemeCallback | None = None,
+        on_duplicate_theme: DuplicateThemeCallback | None = None,
         on_records_changed: Callable[[list[ThemeRecord]], None] | None = None,
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -406,6 +498,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.on_open_folder = on_open_folder
         self.on_theme_diagnostics = on_theme_diagnostics
         self.on_set_current_theme = on_set_current_theme
+        self.on_duplicate_theme = on_duplicate_theme or self.apply_duplicate_theme
         self.on_records_changed = on_records_changed
         self.records: list[ThemeRecord] = []
         self.filtered_records: list[ThemeRecord] = []
@@ -638,6 +731,12 @@ class ThemeGalleryPane(Gtk.Box):
         edit_button.connect("clicked", lambda *_args: self.on_open_theme(record))
         actions.append(edit_button)
 
+        duplicate_button = Gtk.Button(icon_name="edit-copy-symbolic")
+        duplicate_button.set_sensitive(record.editable)
+        duplicate_button.set_tooltip_text("Duplicate theme")
+        duplicate_button.connect("clicked", lambda *_args: self.confirm_duplicate_theme(record))
+        actions.append(duplicate_button)
+
         if self.on_theme_diagnostics is not None:
             diagnostics_button = Gtk.Button(icon_name="dialog-information-symbolic")
             diagnostics_button.set_tooltip_text("Show theme diagnostics")
@@ -657,6 +756,28 @@ class ThemeGalleryPane(Gtk.Box):
 
     def current_theme_record(self) -> ThemeRecord | None:
         return next((record for record in self.records if record.current), None)
+
+    def root_widget(self) -> Gtk.Widget:
+        root = self.get_root()
+        return root if isinstance(root, Gtk.Widget) else self
+
+    def show_error_dialog(self, heading: str, body: str) -> None:
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("ok", "OK")
+        dialog.set_close_response("ok")
+        dialog.set_default_response("ok")
+        dialog.present(self.root_widget())
+
+    def confirm_duplicate_theme(self, record: ThemeRecord) -> None:
+        show_duplicate_theme_dialog(self.root_widget(), record, self.on_duplicate_theme)
+
+    def apply_duplicate_theme(self, record: ThemeRecord, requested_name: str) -> None:
+        try:
+            duplicate_theme(record, requested_name)
+        except Exception as exc:
+            self.show_error_dialog("Could not duplicate theme", str(exc))
+            return
+        self.reload_themes()
 
 
 class ThemeGalleryWindow(Adw.ApplicationWindow):
