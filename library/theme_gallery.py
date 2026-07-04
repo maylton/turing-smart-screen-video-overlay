@@ -14,6 +14,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -31,7 +33,9 @@ THEME_EDITOR = ROOT / "theme-editor-gtk.py"
 
 ThemeCallback = Callable[["ThemeRecord"], None]
 DuplicateThemeCallback = Callable[["ThemeRecord", str], None]
+RenameThemeCallback = Callable[["ThemeRecord", str], None]
 DeleteThemeCallback = Callable[["ThemeRecord"], None]
+ImportThemeCallback = Callable[[str], None]
 
 
 @dataclass(frozen=True)
@@ -92,14 +96,23 @@ def sanitize_theme_folder_name(value: str) -> str:
     return value
 
 
-def suggested_duplicate_name(theme_name: str, themes_dir: Path = THEMES_DIR) -> str:
-    base = sanitize_theme_folder_name(f"{theme_name}-copy") or "theme-copy"
+def ensure_theme_child(path: Path) -> None:
+    if path.resolve().parent != THEMES_DIR.resolve():
+        raise RuntimeError(f"Refusing to modify a folder outside {THEMES_DIR}")
+
+
+def next_available_theme_name(base_name: str, themes_dir: Path = THEMES_DIR) -> str:
+    base = sanitize_theme_folder_name(base_name) or "theme"
     candidate = base
     index = 2
     while (themes_dir / candidate).exists():
         candidate = f"{base}-{index}"
         index += 1
     return candidate
+
+
+def suggested_duplicate_name(theme_name: str, themes_dir: Path = THEMES_DIR) -> str:
+    return next_available_theme_name(f"{theme_name}-copy", themes_dir)
 
 
 def read_scalar_from_yaml_text(path: Path, key: str) -> str:
@@ -134,6 +147,34 @@ def read_current_theme(config_file: Path = CONFIG_FILE) -> str | None:
     if match is None:
         return None
     return match.group(1).strip()
+
+
+def replace_current_theme_name(
+    old_name: str,
+    new_name: str,
+    config_file: Path = CONFIG_FILE,
+) -> None:
+    try:
+        content = config_file.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"Could not find {config_file}") from exc
+
+    pattern = re.compile(r"(?m)^(\s*THEME\s*:\s*)([^#\n]*)(\s*(?:#.*)?)$")
+    match = pattern.search(content)
+    if match is None:
+        raise RuntimeError("Could not find THEME in config.yaml")
+
+    configured = match.group(2).strip().strip("'\"")
+    if configured != old_name:
+        raise RuntimeError(
+            f"config.yaml THEME is {configured}, expected {old_name}."
+        )
+
+    replacement = f"{match.group(1)}{new_name}{match.group(3)}"
+    new_content = content[: match.start()] + replacement + content[match.end() :]
+    tmp_file = config_file.with_name(f"{config_file.name}.tmp")
+    tmp_file.write_text(new_content, encoding="utf-8")
+    os.replace(tmp_file, config_file)
 
 
 def theme_display_size_from_yaml(yaml_file: Path | None) -> str:
@@ -192,6 +233,7 @@ def duplicate_theme(record: ThemeRecord, requested_name: str) -> str:
         raise RuntimeError(
             f"{record.name} cannot be duplicated because it has no theme.yaml/theme.yml."
         )
+    ensure_theme_child(record.directory)
 
     target_name = sanitize_theme_folder_name(requested_name)
     if not target_name:
@@ -215,13 +257,38 @@ def duplicate_theme(record: ThemeRecord, requested_name: str) -> str:
     return target_name
 
 
+def rename_theme(record: ThemeRecord, requested_name: str) -> str:
+    if not record.directory.is_dir():
+        raise FileNotFoundError(record.directory)
+    ensure_theme_child(record.directory)
+
+    target_name = sanitize_theme_folder_name(requested_name)
+    if not target_name:
+        raise ValueError("Choose a valid theme folder name.")
+    if target_name == record.name:
+        raise ValueError("Choose a different theme name.")
+
+    target_dir = THEMES_DIR / target_name
+    if target_dir.exists():
+        raise FileExistsError(f"A theme named {target_name} already exists.")
+
+    record.directory.rename(target_dir)
+    if record.current:
+        try:
+            replace_current_theme_name(record.name, target_name)
+        except Exception:
+            if target_dir.exists() and not record.directory.exists():
+                target_dir.rename(record.directory)
+            raise
+    return target_name
+
+
 def delete_theme(record: ThemeRecord) -> None:
     if record.current:
         raise RuntimeError("The current theme cannot be deleted. Choose another theme first.")
     if not record.directory.is_dir():
         raise FileNotFoundError(record.directory)
-    if record.directory.parent.resolve() != THEMES_DIR.resolve():
-        raise RuntimeError(f"Refusing to delete a folder outside {THEMES_DIR}")
+    ensure_theme_child(record.directory)
 
     theme_file = Gio.File.new_for_path(str(record.directory))
     try:
@@ -231,6 +298,66 @@ def delete_theme(record: ThemeRecord) -> None:
         raise RuntimeError(f"Could not move theme to Trash: {exc}") from exc
 
     raise RuntimeError("Could not move theme to Trash.")
+
+
+def validate_zip_members(zip_file: zipfile.ZipFile) -> None:
+    for member in zip_file.infolist():
+        member_path = Path(member.filename)
+        if member_path.is_absolute() or ".." in member_path.parts:
+            raise RuntimeError(f"Unsafe archive path: {member.filename}")
+
+
+def resolve_import_theme_source(path: Path) -> Path:
+    if find_theme_file(path) is not None:
+        return path
+
+    directories = [child for child in path.iterdir() if child.is_dir()]
+    theme_directories = [child for child in directories if find_theme_file(child) is not None]
+    if len(theme_directories) == 1:
+        return theme_directories[0]
+    if not theme_directories:
+        raise RuntimeError("Imported folder/archive does not contain theme.yaml/theme.yml.")
+    raise RuntimeError("Imported folder/archive contains multiple themes. Import one at a time.")
+
+
+def copy_imported_theme(source_dir: Path) -> str:
+    yaml_file = find_theme_file(source_dir)
+    if yaml_file is None:
+        raise RuntimeError("Imported theme does not contain theme.yaml/theme.yml.")
+
+    target_name = next_available_theme_name(source_dir.name)
+    target_dir = THEMES_DIR / target_name
+    shutil.copytree(
+        source_dir,
+        target_dir,
+        symlinks=False,
+        ignore=shutil.ignore_patterns(
+            "*.tmp",
+            "*.editor-backup",
+            "*.before-sequence-repair",
+            "__pycache__",
+        ),
+    )
+    return target_name
+
+
+def import_theme(source_path_text: str) -> str:
+    source_path = Path(source_path_text).expanduser()
+    if not source_path.exists():
+        raise FileNotFoundError(source_path)
+
+    if source_path.is_dir():
+        return copy_imported_theme(resolve_import_theme_source(source_path))
+
+    if source_path.is_file() and source_path.suffix.casefold() == ".zip":
+        with tempfile.TemporaryDirectory(prefix="turing-theme-import-") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            with zipfile.ZipFile(source_path) as archive:
+                validate_zip_members(archive)
+                archive.extractall(tmp_path)
+            return copy_imported_theme(resolve_import_theme_source(tmp_path))
+
+    raise RuntimeError("Import expects a theme folder or a .zip archive.")
 
 
 def discover_themes(
@@ -547,6 +674,40 @@ def show_duplicate_theme_dialog(
     dialog.present(parent)
 
 
+def show_rename_theme_dialog(
+    parent: Gtk.Widget,
+    record: ThemeRecord,
+    on_confirm: RenameThemeCallback,
+) -> None:
+    entry = Gtk.Entry()
+    entry.set_text(record.name)
+    entry.set_placeholder_text("theme-name")
+    entry.set_activates_default(True)
+    entry.set_margin_top(6)
+    entry.set_margin_bottom(6)
+
+    dialog = Adw.AlertDialog(
+        heading=f"Rename {record.name}",
+        body=(
+            "Rename the theme folder. If this is the current theme, config.yaml "
+            "will be updated automatically."
+        ),
+    )
+    dialog.set_extra_child(entry)
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("rename", "Rename")
+    dialog.set_response_appearance("rename", Adw.ResponseAppearance.SUGGESTED)
+    dialog.set_default_response("rename")
+    dialog.set_close_response("cancel")
+
+    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+        if response == "rename":
+            on_confirm(record, entry.get_text())
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+
+
 def show_delete_theme_dialog(
     parent: Gtk.Widget,
     record: ThemeRecord,
@@ -591,6 +752,38 @@ def show_delete_theme_dialog(
     dialog.present(parent)
 
 
+def show_import_theme_dialog(
+    parent: Gtk.Widget,
+    on_confirm: ImportThemeCallback,
+) -> None:
+    entry = Gtk.Entry()
+    entry.set_placeholder_text("/path/to/theme-folder or /path/to/theme.zip")
+    entry.set_activates_default(True)
+    entry.set_margin_top(6)
+    entry.set_margin_bottom(6)
+
+    dialog = Adw.AlertDialog(
+        heading="Import Theme",
+        body=(
+            "Import a theme from a folder or .zip archive. Existing themes are "
+            "never overwritten."
+        ),
+    )
+    dialog.set_extra_child(entry)
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("import", "Import")
+    dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
+    dialog.set_default_response("import")
+    dialog.set_close_response("cancel")
+
+    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+        if response == "import":
+            on_confirm(entry.get_text())
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+
+
 class ThemeGalleryPane(Gtk.Box):
     """Reusable gallery surface for app shell and developer window."""
 
@@ -602,7 +795,9 @@ class ThemeGalleryPane(Gtk.Box):
         on_theme_diagnostics: ThemeCallback | None = None,
         on_set_current_theme: ThemeCallback | None = None,
         on_duplicate_theme: DuplicateThemeCallback | None = None,
+        on_rename_theme: RenameThemeCallback | None = None,
         on_delete_theme: DeleteThemeCallback | None = None,
+        on_import_theme: ImportThemeCallback | None = None,
         on_records_changed: Callable[[list[ThemeRecord]], None] | None = None,
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -613,7 +808,9 @@ class ThemeGalleryPane(Gtk.Box):
         self.on_theme_diagnostics = on_theme_diagnostics
         self.on_set_current_theme = on_set_current_theme
         self.on_duplicate_theme = on_duplicate_theme or self.apply_duplicate_theme
+        self.on_rename_theme = on_rename_theme or self.apply_rename_theme
         self.on_delete_theme = on_delete_theme or self.apply_delete_theme
+        self.on_import_theme = on_import_theme or self.apply_import_theme
         self.on_records_changed = on_records_changed
         self.records: list[ThemeRecord] = []
         self.filtered_records: list[ThemeRecord] = []
@@ -636,6 +833,11 @@ class ThemeGalleryPane(Gtk.Box):
         self.search_entry.set_placeholder_text("Search compatible themes by name, path, or status")
         self.search_entry.connect("search-changed", self.on_search_changed)
         controls.append(self.search_entry)
+
+        import_button = Gtk.Button(label="Import")
+        import_button.set_tooltip_text("Import a theme folder or .zip archive")
+        import_button.connect("clicked", lambda *_args: self.confirm_import_theme())
+        controls.append(import_button)
 
         self.result_label = Gtk.Label(label="", xalign=1)
         self.result_label.add_css_class("dim-label")
@@ -852,6 +1054,11 @@ class ThemeGalleryPane(Gtk.Box):
         duplicate_button.connect("clicked", lambda *_args: self.confirm_duplicate_theme(record))
         actions.append(duplicate_button)
 
+        rename_button = Gtk.Button(icon_name="document-edit-symbolic")
+        rename_button.set_tooltip_text("Rename theme")
+        rename_button.connect("clicked", lambda *_args: self.confirm_rename_theme(record))
+        actions.append(rename_button)
+
         if not record.current:
             delete_button = Gtk.Button(icon_name="user-trash-symbolic")
             delete_button.add_css_class("destructive-action")
@@ -901,6 +1108,17 @@ class ThemeGalleryPane(Gtk.Box):
             return
         self.reload_themes()
 
+    def confirm_rename_theme(self, record: ThemeRecord) -> None:
+        show_rename_theme_dialog(self.root_widget(), record, self.on_rename_theme)
+
+    def apply_rename_theme(self, record: ThemeRecord, requested_name: str) -> None:
+        try:
+            rename_theme(record, requested_name)
+        except Exception as exc:
+            self.show_error_dialog("Could not rename theme", str(exc))
+            return
+        self.reload_themes()
+
     def confirm_delete_theme(self, record: ThemeRecord) -> None:
         show_delete_theme_dialog(self.root_widget(), record, self.on_delete_theme)
 
@@ -909,6 +1127,17 @@ class ThemeGalleryPane(Gtk.Box):
             delete_theme(record)
         except Exception as exc:
             self.show_error_dialog("Could not delete theme", str(exc))
+            return
+        self.reload_themes()
+
+    def confirm_import_theme(self) -> None:
+        show_import_theme_dialog(self.root_widget(), self.on_import_theme)
+
+    def apply_import_theme(self, source_path_text: str) -> None:
+        try:
+            import_theme(source_path_text)
+        except Exception as exc:
+            self.show_error_dialog("Could not import theme", str(exc))
             return
         self.reload_themes()
 
