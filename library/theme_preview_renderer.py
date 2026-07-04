@@ -291,10 +291,23 @@ def draw_text_node(
 
     x = _safe_int(node.get("X"))
     y = _safe_int(node.get("Y"))
-    width = max(1, _safe_int(node.get("WIDTH"), 160))
-    height = max(1, _safe_int(node.get("HEIGHT"), _safe_int(node.get("FONT_SIZE"), 16) + 8))
     font_size = max(1, _safe_int(node.get("FONT_SIZE"), 16))
     font = _load_font(root, theme_dir, node.get("FONT"), font_size)
+
+    probe = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    probe_draw = ImageDraw.Draw(probe)
+    bbox = probe_draw.multiline_textbbox((0, 0), text, font=font, spacing=2)
+    measured_width = max(1, bbox[2] - bbox[0])
+    measured_height = max(1, bbox[3] - bbox[1])
+    padding_x = max(2, font_size // 8)
+    padding_y = max(2, font_size // 8)
+
+    width = max(1, _safe_int(node.get("WIDTH"), measured_width + padding_x * 2))
+    height = max(1, _safe_int(node.get("HEIGHT"), measured_height + padding_y * 2))
+    if x >= 0:
+        width = min(width, max(1, frame.width - x))
+    if y >= 0:
+        height = min(height, max(1, frame.height - y))
 
     layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
@@ -307,13 +320,13 @@ def draw_text_node(
     align = str(node.get("ALIGN", "left")).lower()
     anchor = str(node.get("ANCHOR", "lt")).lower()
 
-    tx = 0
+    tx = padding_x if "WIDTH" not in node else 0
     if align in {"center", "middle"}:
         tx = max(0, (width - text_width) // 2)
     elif align in {"right", "end"}:
         tx = max(0, width - text_width)
 
-    ty = 0
+    ty = padding_y if "HEIGHT" not in node else 0
     if "m" in anchor or "c" in anchor:
         ty = max(0, (height - text_height) // 2)
     elif "b" in anchor:
@@ -442,6 +455,10 @@ def draw_dynamic_node(
     node: Mapping[str, Any],
     context: Mapping[str, Any],
 ) -> None:
+    if not _looks_like_chart(path, node) and not _looks_like_bar(node):
+        draw_text_node(frame, root, theme_dir, node, context, path=path)
+        return
+
     width = max(1, _safe_int(node.get("WIDTH"), 120))
     height = max(1, _safe_int(node.get("HEIGHT"), 34))
     x = _safe_int(node.get("X"))
@@ -454,10 +471,8 @@ def draw_dynamic_node(
     percent = numeric_percent(value)
     if _looks_like_chart(path, node):
         draw_chart_node(draw, node, width, height, percent)
-    elif _looks_like_bar(node):
-        draw_bar_node(draw, node, width, height, percent)
     else:
-        draw_metric_text_node(draw, root, theme_dir, path, node, context, width, height)
+        draw_bar_node(draw, node, width, height, percent)
 
     _paste_clipped(frame, layer, x, y)
 
