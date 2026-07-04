@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -34,6 +35,22 @@ START_MONITOR_FILE = (
     / "turing-smart-screen"
     / "start-monitor.conf"
 )
+THEME_GALLERY_DEBUG_ENV = "TURING_THEME_GALLERY_DEBUG"
+
+
+def theme_gallery_debug_enabled() -> bool:
+    return os.environ.get(THEME_GALLERY_DEBUG_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "debug",
+    }
+
+
+def theme_gallery_debug(message: str) -> None:
+    if theme_gallery_debug_enabled():
+        print(f"[theme-gallery] {message}", file=sys.stderr, flush=True)
 
 
 def load_boolean(path: Path, default: bool = False) -> bool:
@@ -213,12 +230,117 @@ def install_runtime_patches(app):
             use_system_python=True,
         )
 
-    def open_theme_record_folder(self, record: ThemeRecord):
+    def debug_open_theme_record_folder(self, record: ThemeRecord):
+        path = record.directory
+        uri = path.resolve().as_uri() if path.exists() else "<missing>"
+        theme_gallery_debug("open folder clicked")
+        theme_gallery_debug(f"theme={record.name}")
+        theme_gallery_debug(f"path={path}")
+        theme_gallery_debug(f"resolved={path.resolve() if path.exists() else '<missing>'}")
+        theme_gallery_debug(f"exists={path.exists()} is_dir={path.is_dir()}")
+        theme_gallery_debug(f"uri={uri}")
+        theme_gallery_debug(f"cwd={Path.cwd()}")
+        for key in (
+            "XDG_CURRENT_DESKTOP",
+            "DESKTOP_SESSION",
+            "WAYLAND_DISPLAY",
+            "DISPLAY",
+            "PATH",
+        ):
+            theme_gallery_debug(f"env {key}={os.environ.get(key, '<unset>')}")
+
+        if not path.is_dir():
+            raise FileNotFoundError(path)
+
+        errors: list[str] = []
+
         try:
-            gallery_open_theme_folder(record)
+            theme_gallery_debug("trying app.Gio.AppInfo.launch_default_for_uri")
+            launched = app.Gio.AppInfo.launch_default_for_uri(uri, None)
+            theme_gallery_debug(
+                f"app.Gio.AppInfo.launch_default_for_uri returned {launched!r}"
+            )
         except Exception as exc:
+            errors.append(f"app.Gio launch failed: {exc}")
+            theme_gallery_debug(f"app.Gio launch failed: {exc!r}")
+
+        for command in (
+            ["gio", "open", str(path)],
+            ["xdg-open", str(path)],
+        ):
+            executable = shutil.which(command[0])
+            theme_gallery_debug(f"which {command[0]} -> {executable}")
+            if executable is None:
+                errors.append(f"{command[0]} not found")
+                continue
+            theme_gallery_debug(f"running {' '.join(command)}")
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=str(ROOT),
+                    text=True,
+                    capture_output=True,
+                    timeout=5,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                errors.append(f"{' '.join(command)} timed out: {exc}")
+                theme_gallery_debug(f"{' '.join(command)} timed out")
+                continue
+            except Exception as exc:
+                errors.append(f"{' '.join(command)} failed: {exc}")
+                theme_gallery_debug(f"{' '.join(command)} failed: {exc!r}")
+                continue
+            stdout = result.stdout.strip()
+            stderr = result.stderr.strip()
+            theme_gallery_debug(
+                f"{' '.join(command)} returncode={result.returncode} stdout={stdout!r} stderr={stderr!r}"
+            )
+            if result.returncode == 0:
+                return
+            errors.append(
+                f"{' '.join(command)} exited {result.returncode}: {stderr or stdout or 'no output'}"
+            )
+
+        for command in (
+            ["dolphin", str(path)],
+            ["nautilus", str(path)],
+            ["thunar", str(path)],
+            ["nemo", str(path)],
+            ["pcmanfm", str(path)],
+        ):
+            executable = shutil.which(command[0])
+            theme_gallery_debug(f"which {command[0]} -> {executable}")
+            if executable is None:
+                continue
+            theme_gallery_debug(f"launching {' '.join(command)}")
+            try:
+                subprocess.Popen(
+                    command,
+                    cwd=str(ROOT),
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return
+            except Exception as exc:
+                errors.append(f"{' '.join(command)} failed: {exc}")
+                theme_gallery_debug(f"{' '.join(command)} failed: {exc!r}")
+
+        raise RuntimeError("Could not open folder. " + " | ".join(errors))
+
+    def open_theme_record_folder(self, record: ThemeRecord):
+        theme_gallery_debug(f"folder button callback fired for {record.name}")
+        try:
+            if theme_gallery_debug_enabled():
+                debug_open_theme_record_folder(self, record)
+            else:
+                gallery_open_theme_folder(record)
+        except Exception as exc:
+            theme_gallery_debug(f"open folder failed: {exc!r}")
             self.toast(f"Could not open theme folder: {exc}")
             return
+        theme_gallery_debug(f"open folder finished for {record.name}")
         self.toast(f"Opening folder for {record.name}")
 
     def show_theme_record_diagnostics(self, record: ThemeRecord):
