@@ -281,6 +281,7 @@ def install_main_app_ui_polish_patches(app, *, root: Path) -> None:
             picture.add_css_class("device-live-preview")
             parent = picture.get_parent()
             if parent is not None and hasattr(parent, "set_child"):
+                parent.set_child(None)
                 overlay = app.Gtk.Overlay()
                 overlay.set_child(picture)
 
