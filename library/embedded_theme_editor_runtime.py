@@ -10,7 +10,7 @@ from library.theme_gallery import ThemeRecord
 
 
 def install_embedded_theme_editor_patches(app, *, root: Path) -> None:
-    """Patch SmartScreenWindow so gallery Edit opens an embedded editor page."""
+    """Patch SmartScreenWindow so every Theme Editor entry opens in-app."""
 
     original_init = app.SmartScreenWindow.__init__
     original_open_theme_record_editor = getattr(
@@ -43,6 +43,11 @@ def install_embedded_theme_editor_patches(app, *, root: Path) -> None:
         )
 
     def open_embedded_theme_editor(self, theme_name: str) -> None:
+        theme_name = str(theme_name or "").strip()
+        if not theme_name:
+            self.toast("No active theme configured")
+            return
+
         page = getattr(self, "embedded_theme_editor_page", None)
         if page is None:
             if original_open_theme_record_editor is None:
@@ -67,6 +72,10 @@ def install_embedded_theme_editor_patches(app, *, root: Path) -> None:
     def open_theme_record_editor(self, record: ThemeRecord) -> None:
         open_embedded_theme_editor(self, record.name)
 
+    def open_theme_editor(self, *_args) -> None:
+        """Handle win.open-editor from Overview and Quick Actions in-app."""
+        open_embedded_theme_editor(self, app.read_current_theme())
+
     def patched_init(self, application):
         original_init(self, application)
         self.embedded_theme_editor_page = EmbeddedThemeEditorPage(
@@ -85,3 +94,4 @@ def install_embedded_theme_editor_patches(app, *, root: Path) -> None:
     app.SmartScreenWindow.open_embedded_theme_editor = open_embedded_theme_editor
     app.SmartScreenWindow.open_external_theme_editor = open_external_theme_editor
     app.SmartScreenWindow.open_theme_record_editor = open_theme_record_editor
+    app.SmartScreenWindow.open_theme_editor = open_theme_editor
