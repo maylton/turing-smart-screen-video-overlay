@@ -6,12 +6,12 @@ The Theme Gallery is the future Linux/GTK home surface inspired by the official 
 
 ## Architecture role
 
-This slice now provides two pieces:
+This slice provides two pieces:
 
 - `library/theme_gallery.py` — reusable discovery/model/UI components for the future app shell;
 - `theme-gallery-gtk.py` — temporary developer entry point for testing the gallery independently.
 
-The temporary standalone script is not the final product architecture. Future slices should embed `ThemeGalleryPane` into one main app shell instead of creating a new app for every feature.
+The temporary standalone script is not the final product architecture. Future slices embed `ThemeGalleryPane` into one main app shell instead of creating a new app for every feature.
 
 ## Scope
 
@@ -32,16 +32,13 @@ Included:
 
 Not included yet:
 
-- main app shell;
 - duplicate theme;
 - rename theme;
 - delete theme;
 - import/export theme;
-- set active/current theme from gallery;
-- diagnostics action from gallery;
 - device sync/send-to-display.
 
-Those actions are intentionally deferred because the first slice should only introduce the official-style theme-browsing surface without adding new destructive or write-capable management flows.
+Those actions are intentionally deferred because the first slice should only introduce the official-style theme-browsing surface without adding new destructive management flows.
 
 ## Developer entry point
 
@@ -93,7 +90,7 @@ Manual validation:
 
 This is stack phase 1.
 
-Recommended follow-up order:
+Follow-up stack:
 
 1. App shell that embeds the gallery.
 2. Gallery search/filter.
