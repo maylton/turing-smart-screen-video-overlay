@@ -62,6 +62,13 @@ class ThemeRecord:
         return " ".join(parts).casefold()
 
 
+def relative_path_label(path: Path) -> str:
+    try:
+        return os.path.relpath(path, ROOT)
+    except ValueError:
+        return str(path)
+
+
 def find_theme_file(theme_dir: Path) -> Path | None:
     for file_name in ("theme.yaml", "theme.yml"):
         candidate = theme_dir / file_name
@@ -126,6 +133,69 @@ def filter_theme_records(records: list[ThemeRecord], query: str) -> list[ThemeRe
     ]
 
 
+def build_theme_gallery_diagnostics_report(record: ThemeRecord) -> str:
+    lines: list[str] = [
+        "Theme Gallery Diagnostics",
+        "=========================",
+        "",
+        f"Theme: {record.name}",
+        f"Status: {record.status_label}",
+        f"Current theme: {'yes' if record.current else 'no'}",
+        f"Theme folder: {relative_path_label(record.directory)}",
+    ]
+
+    if record.yaml_file is not None:
+        lines.append(f"Theme YAML: {relative_path_label(record.yaml_file)}")
+        try:
+            stat = record.yaml_file.stat()
+            lines.append(f"Theme YAML size: {stat.st_size} bytes")
+        except OSError as exc:
+            lines.append(f"Theme YAML status: stat failed: {exc}")
+        try:
+            yaml_text = record.yaml_file.read_text(encoding="utf-8")
+            lines.append(f"Theme YAML lines: {len(yaml_text.splitlines())}")
+        except OSError as exc:
+            lines.append(f"Theme YAML status: read failed: {exc}")
+        except UnicodeDecodeError as exc:
+            lines.append(f"Theme YAML status: decode failed: {exc}")
+    else:
+        lines.append("Theme YAML: missing")
+
+    if record.preview_file.is_file():
+        lines.append(f"Preview: {relative_path_label(record.preview_file)}")
+        try:
+            stat = record.preview_file.stat()
+            lines.append(f"Preview size: {stat.st_size} bytes")
+        except OSError as exc:
+            lines.append(f"Preview status: stat failed: {exc}")
+    else:
+        lines.append("Preview: missing")
+
+    try:
+        children = list(record.directory.iterdir())
+        file_count = sum(1 for child in children if child.is_file())
+        dir_count = sum(1 for child in children if child.is_dir())
+        lines.append(f"Top-level files: {file_count}")
+        lines.append(f"Top-level folders: {dir_count}")
+    except OSError as exc:
+        lines.append(f"Theme folder status: list failed: {exc}")
+
+    lines.extend(
+        [
+            "",
+            "Gallery checks:",
+            f"- Editable in GTK Theme Editor: {'yes' if record.editable else 'no'}",
+            f"- Has preview image: {'yes' if record.preview_file.is_file() else 'no'}",
+            f"- Has theme.yaml/theme.yml: {'yes' if record.yaml_file is not None else 'no'}",
+        ]
+    )
+
+    if record.issue:
+        lines.append(f"- Blocking issue: {record.issue}")
+
+    return "\n".join(lines)
+
+
 def launch_theme_editor(record: ThemeRecord, theme_editor: Path = THEME_EDITOR) -> None:
     if not record.editable:
         raise RuntimeError(
@@ -153,6 +223,47 @@ def open_theme_folder(record: ThemeRecord) -> None:
     )
 
 
+def show_theme_gallery_diagnostics_dialog(
+    parent: Gtk.Widget,
+    record: ThemeRecord,
+    toast: Callable[[str], None] | None = None,
+) -> None:
+    report = build_theme_gallery_diagnostics_report(record)
+
+    text_view = Gtk.TextView()
+    text_view.set_editable(False)
+    text_view.set_cursor_visible(False)
+    text_view.set_monospace(True)
+    text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+    text_view.get_buffer().set_text(report)
+
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_min_content_width(520)
+    scrolled.set_min_content_height(360)
+    scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    scrolled.set_child(text_view)
+
+    dialog = Adw.AlertDialog(
+        heading=f"Diagnostics — {record.name}",
+        body="Review the gallery-level theme report below.",
+    )
+    dialog.set_extra_child(scrolled)
+    dialog.add_response("copy", "Copy Report")
+    dialog.add_response("ok", "OK")
+    dialog.set_default_response("ok")
+    dialog.set_close_response("ok")
+
+    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+        if response != "copy":
+            return
+        parent.get_clipboard().set(report)
+        if toast is not None:
+            toast("Diagnostics report copied")
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+
+
 class ThemeGalleryPane(Gtk.Box):
     """Reusable gallery surface for app shell and developer window."""
 
@@ -161,11 +272,13 @@ class ThemeGalleryPane(Gtk.Box):
         *,
         on_open_theme: ThemeCallback,
         on_open_folder: ThemeCallback,
+        on_theme_diagnostics: ThemeCallback | None = None,
         on_records_changed: Callable[[list[ThemeRecord]], None] | None = None,
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.on_open_theme = on_open_theme
         self.on_open_folder = on_open_folder
+        self.on_theme_diagnostics = on_theme_diagnostics
         self.on_records_changed = on_records_changed
         self.records: list[ThemeRecord] = []
         self.filtered_records: list[ThemeRecord] = []
@@ -345,7 +458,7 @@ class ThemeGalleryPane(Gtk.Box):
         status.add_css_class("dim-label")
         card.append(status)
 
-        path = Gtk.Label(label=os.path.relpath(record.directory, ROOT), xalign=0)
+        path = Gtk.Label(label=relative_path_label(record.directory), xalign=0)
         path.set_ellipsize(Pango.EllipsizeMode.END)
         path.add_css_class("caption")
         path.add_css_class("dim-label")
@@ -362,6 +475,15 @@ class ThemeGalleryPane(Gtk.Box):
         edit_button.set_sensitive(record.editable)
         edit_button.connect("clicked", lambda *_args: self.on_open_theme(record))
         actions.append(edit_button)
+
+        if self.on_theme_diagnostics is not None:
+            diagnostics_button = Gtk.Button(icon_name="dialog-information-symbolic")
+            diagnostics_button.set_tooltip_text("Show theme diagnostics")
+            diagnostics_button.connect(
+                "clicked",
+                lambda *_args: self.on_theme_diagnostics(record),
+            )
+            actions.append(diagnostics_button)
 
         folder_button = Gtk.Button(icon_name="folder-open-symbolic")
         folder_button.set_tooltip_text("Open theme folder")
@@ -417,6 +539,7 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         self.gallery = ThemeGalleryPane(
             on_open_theme=self.open_theme_editor,
             on_open_folder=self.open_theme_folder,
+            on_theme_diagnostics=self.show_theme_diagnostics,
             on_records_changed=self.update_records_state,
         )
         toolbar.set_content(self.gallery)
@@ -468,6 +591,9 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
             self.error_dialog("Could not open theme folder", str(exc))
             return
         self.toast(f"Opening folder for {record.name}")
+
+    def show_theme_diagnostics(self, record: ThemeRecord) -> None:
+        show_theme_gallery_diagnostics_dialog(self, record, self.toast)
 
 
 class ThemeGalleryApplication(Adw.Application):
