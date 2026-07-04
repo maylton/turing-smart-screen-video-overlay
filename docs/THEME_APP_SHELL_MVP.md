@@ -12,7 +12,13 @@ Normal installed app entry point:
 turing-smart-screen
 ```
 
-Development checkout entry point for the same main app:
+Development checkout entry point for the integrated installed-app launcher:
+
+```bash
+.venv/bin/python turing-smart-screen-main.py
+```
+
+Legacy/runtime launcher entry point:
 
 ```bash
 .venv/bin/python configure-gtk.py
@@ -48,14 +54,18 @@ Included so far:
 - import action for theme folders or safe `.zip` archives;
 - export action for selected themes as `.zip` archives;
 - export skips temporary/editor-backup/cache files and refuses to overwrite existing archives;
+- compact gallery card action layout with secondary actions in an overflow menu;
+- embedded Theme Editor page inside the main app stack for the normal gallery `Edit` flow;
+- standalone `theme-editor-gtk.py` kept as the fallback/dev entry point;
 - robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then file-manager fallbacks;
 - debug logging for the theme-folder open action with `TURING_THEME_GALLERY_DEBUG=1`;
 - installer guard so local `configure-gtk-final.py` leftovers cannot override the branch's `configure-gtk.py` during installed-app tests;
-- installed syntax validation for `library/theme_gallery.py`, `theme-gallery-gtk.py`, and `turing-smart-screen-gtk.py`;
+- installed syntax validation for the integrated launcher, embedded editor helpers, and gallery/runtime modules;
 - no theme file writes from browsing, filtering, diagnostics, or opening folders.
 
 Not included yet:
 
+- full export preflight for referenced/generated media;
 - real Device Manager implementation.
 
 ## Architecture decision
@@ -63,12 +73,14 @@ Not included yet:
 The normal user-facing direction is now:
 
 ```text
-configure-gtk.py / turing-smart-screen     # existing installed app
-└─ Themes page                             # reusable ThemeGalleryPane
-   └─ theme-editor-gtk.py                  # editor launched for a selected theme
+turing-smart-screen                         # installed app command
+└─ turing-smart-screen-main.py              # integrated launcher wrapper
+   └─ configure-gtk.py runtime patches      # existing app foundation
+      ├─ Themes page                        # reusable ThemeGalleryPane
+      └─ Embedded Theme Editor page         # existing editor content hosted in app stack
 ```
 
-`turing-smart-screen-gtk.py` remains a temporary prototype/dev entry point and should not be treated as the real installed app.
+`theme-editor-gtk.py` remains available as a standalone fallback/dev entry point, but the normal gallery `Edit` path should open the editor inside the main app.
 
 ## Debugging folder opening
 
@@ -85,7 +97,12 @@ If there are no `[theme-gallery]` lines after clicking, the button callback is n
 ## Validation
 
 ```bash
+.venv/bin/python -m py_compile sitecustomize.py
+.venv/bin/python -m py_compile theme_gallery_card_polish.py
+.venv/bin/python -m py_compile turing-smart-screen-main.py
 .venv/bin/python -m py_compile library/theme_gallery.py
+.venv/bin/python -m py_compile library/embedded_theme_editor.py
+.venv/bin/python -m py_compile library/embedded_theme_editor_runtime.py
 .venv/bin/python -m py_compile theme-gallery-gtk.py
 .venv/bin/python -m py_compile turing-smart-screen-gtk.py
 .venv/bin/python -m py_compile configure-gtk.py
@@ -99,37 +116,25 @@ Installed-app validation:
 
 ```bash
 ./install.sh --no-deps
-grep -n "ThemeGalleryPane" ~/.local/share/turing-smart-screen/configure-gtk.py
+grep -n "turing-smart-screen-main.py" ~/.local/bin/turing-smart-screen
+grep -n "EmbeddedThemeEditorPage" ~/.local/share/turing-smart-screen/library/embedded_theme_editor.py
 turing-smart-screen
 ```
 
 Manual validation:
 
-1. Launch the existing main app with `.venv/bin/python configure-gtk.py` or the installed `turing-smart-screen` command after reinstalling.
+1. Launch the existing main app with the installed `turing-smart-screen` command after reinstalling.
 2. Open the sidebar `Themes` page.
 3. Confirm the old split list/preview view is replaced by the gallery cards.
 4. Confirm only compatible themes are shown for the detected/configured display size.
 5. Confirm the `Create blank` button is still available at the top of the page.
-6. Search by part of a theme name and confirm the card list filters.
-7. Search by `missing`, `theme.yaml`, display size, or a path fragment and confirm matching works.
-8. Confirm an unmatched search shows the filtered empty state.
-9. Clear search and confirm all compatible themes return.
-10. Confirm per-theme `Edit` opens the selected theme.
-11. Confirm per-theme diagnostics opens a report dialog.
-12. Confirm `Copy Report` copies the diagnostics report.
-13. Click `Use` on a non-current valid theme and confirm the dialog appears.
-14. Confirm `Use Theme` updates the current badge and `config.yaml` `THEME` value.
-15. Click duplicate on a valid theme and confirm a copy is created with a safe non-conflicting folder name.
-16. Click rename and confirm the card/folder name changes.
-17. Rename the current theme and confirm `config.yaml` updates to the new name.
-18. Click delete on a duplicated theme, type the exact name, and confirm it moves to Trash.
-19. Confirm the current theme does not show a delete button.
-20. Click Import, paste a valid theme folder or `.zip` path, and confirm it appears without overwriting existing themes.
-21. Click Export on a valid theme and confirm a `.zip` archive is created without overwriting existing files.
-22. Confirm per-theme folder button opens the theme folder in the file manager or produces `[theme-gallery]` debug output.
-23. Confirm refresh updates the card list and preserves the current search query.
-24. Confirm browsing/searching/diagnostics/folder-open do not modify tracked theme files.
-25. Restore test config/theme changes before final merge if needed.
+6. Confirm each card shows only `Use`, `Edit`, and `⋮` directly.
+7. Open `⋮` and test duplicate, rename, export, open folder, diagnostics, and delete.
+8. Click `Edit` on a theme and confirm the Theme Editor opens inside the main app window.
+9. Confirm the embedded editor can render the preview and expose the existing editor panels/actions.
+10. Use the embedded editor's `Themes` back button and confirm it returns to the gallery.
+11. Use `Open separate window` and confirm the standalone GTK Theme Editor still opens as fallback.
+12. Restore test config/theme changes before final merge if needed.
 
 ## Stack status
 
@@ -150,7 +155,9 @@ Completed in this branch so far:
 - Phase 13 — filter gallery themes to the detected/configured display size.
 - Phase 14 — fix open theme folder in niri with direct file-manager fallback and debug logs.
 - Phase 15 — export theme to `.zip` archive.
+- Phase 16 — polish Theme Gallery card actions into an overflow menu.
+- Phase 17 — embed Theme Editor into the main app stack.
 
 Next phase:
 
-- Device Manager / display-profile integration.
+- Export completeness: referenced/generated media preflight and missing-asset warnings.
