@@ -26,32 +26,34 @@ grep -n "ThemeGalleryPane" ~/.local/share/turing-smart-screen/configure-gtk.py
 
 ## Scope
 
-The MVP is now a mostly read-oriented theme management surface, with one guarded write action for selecting the current theme.
+The MVP is now a mostly read-oriented theme management surface, with guarded write actions for selecting or duplicating a theme.
 
 Included:
 
 - reusable theme discovery from `res/themes`;
 - current-theme detection from `config.yaml`;
+- detected/configured display-size detection from `config.yaml` (`DISPLAY_SIZE`, `SCREEN_SIZE`, or `SIZE`), falling back to the current theme metadata;
+- compatibility filtering so the gallery only shows themes whose `DISPLAY_SIZE` matches the detected/configured display size;
 - visual card grid component;
 - integration into the existing main app `Themes` page;
 - retained `Create blank` action from the old main-app Themes page;
 - preview thumbnail when `preview.png` exists;
 - missing-preview placeholder;
-- broken-theme indicator when `theme.yaml`/`theme.yml` is missing;
-- search/filter by name, path, YAML filename, or status;
+- search/filter by name, path, YAML filename, display size, or status;
 - result count for filtered searches;
-- filtered empty state when no theme matches;
+- filtered empty state when no compatible theme matches;
 - per-theme gallery diagnostics action;
-- copyable gallery-level diagnostics report;
-- guarded `Use` action for setting a valid theme as current;
+- copyable gallery-level diagnostics report with target/theme display sizes;
+- guarded `Use` action for setting a valid compatible theme as current;
 - atomic update of `config.yaml` `THEME` value;
+- non-destructive per-theme duplicate action;
+- safe non-conflicting folder-name suggestion for duplicates;
+- GTK/GIO-backed theme folder opening, with `xdg-open` fallback;
 - per-theme `Edit` action;
-- per-theme folder-open action;
 - refresh action.
 
 Not included yet:
 
-- duplicate theme;
 - rename theme;
 - delete theme;
 - import/export theme;
@@ -88,23 +90,25 @@ The MVP is accepted when:
 - the installed `configure-gtk.py` contains the `ThemeGalleryPane` integration;
 - the old split list/preview `Themes` page is replaced by gallery cards;
 - the developer gallery still opens independently;
-- themes from `res/themes` are listed;
-- the theme configured in `config.yaml` is marked as current;
+- only themes compatible with the detected/configured display size are listed;
+- the result counter shows the compatible-theme count and target display size when available;
+- incompatible themes are hidden from the card grid;
+- the theme configured in `config.yaml` is marked as current when it is compatible;
 - cards show `preview.png` when available;
 - cards show a clear placeholder when no preview exists;
-- broken theme folders are visible but cannot be opened in the editor;
-- search filters themes by name/path/status/YAML filename;
+- search filters compatible themes by name/path/status/YAML filename/display size;
 - unmatched search shows a filtered empty state;
-- clearing search restores the full theme list;
+- clearing search restores the compatible theme list;
 - diagnostics opens a read-only report for a selected theme;
 - Copy Report copies the diagnostics report;
-- `Use` is shown only for non-current themes;
-- `Use` is disabled for broken themes;
+- `Use` is shown only for non-current compatible themes;
 - confirming `Use Theme` updates `config.yaml` and refreshes the current badge;
+- duplicate creates a non-destructive copy with a safe non-conflicting folder name;
+- duplicate does not change `config.yaml` automatically;
 - clicking `Edit` opens the selected theme in `theme-editor-gtk.py`;
 - clicking the folder button opens the theme folder;
 - clicking refresh reloads the list;
-- only the explicit `Use Theme` action modifies `config.yaml`.
+- only explicit `Use Theme` or `Duplicate` actions write files.
 
 ## Validation
 
@@ -124,22 +128,25 @@ Manual validation:
 1. Launch the existing main app with `.venv/bin/python configure-gtk.py`.
 2. Open the sidebar `Themes` page.
 3. Confirm the Theme Gallery cards are displayed in the main app.
-4. Confirm the current theme badge appears on the theme from `config.yaml`.
-5. Confirm previews load where `preview.png` exists.
-6. Confirm missing previews show a placeholder.
-7. Search by theme name and confirm only matching cards remain.
-8. Search by status/path/YAML filename and confirm matching cards remain.
-9. Search for a non-existing term and confirm the filtered empty state appears.
-10. Clear search and confirm all themes return.
-11. Open diagnostics for a theme and confirm the report appears.
-12. Click Copy Report and confirm the clipboard contains the report.
-13. Click `Use` on a non-current valid theme and confirm the dialog appears.
-14. Confirm `Use Theme` updates the badge and `config.yaml` `THEME` value.
-15. Confirm broken themes cannot be set as current.
-16. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
-17. Click the folder button and confirm the file manager opens the theme folder.
-18. Click refresh and confirm the list reloads.
-19. Restore test config changes before final merge if needed: `git restore config.yaml`.
+4. Confirm the counter shows only compatible themes, such as `compatible themes · 2.1"`.
+5. Confirm themes with a different `DISPLAY_SIZE` are not shown.
+6. Confirm the current theme badge appears on the theme from `config.yaml` when compatible.
+7. Confirm previews load where `preview.png` exists.
+8. Confirm missing previews show a placeholder.
+9. Search by theme name and confirm only matching compatible cards remain.
+10. Search by status/path/YAML filename/display size and confirm matching compatible cards remain.
+11. Search for a non-existing term and confirm the filtered empty state appears.
+12. Clear search and confirm the compatible theme list returns.
+13. Open diagnostics for a theme and confirm the report includes target/theme display sizes.
+14. Click Copy Report and confirm the clipboard contains the report.
+15. Click `Use` on a non-current compatible theme and confirm the dialog appears.
+16. Confirm `Use Theme` updates the badge and `config.yaml` `THEME` value.
+17. Click duplicate on a valid theme and confirm the dialog suggests a safe copy name.
+18. Confirm duplicating creates a new compatible card after refresh without changing `config.yaml`.
+19. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
+20. Click the folder button and confirm the file manager opens the theme folder.
+21. Click refresh and confirm the list reloads.
+22. Restore test config/theme changes before final merge if needed.
 
 ## Stack position
 
@@ -152,9 +159,13 @@ Completed in this branch so far:
 5. Set active/current theme from the gallery.
 6. Integrate gallery into the existing main app `Themes` page.
 7. Fix installer validation path so stale local `configure-gtk-final.py` cannot mask this branch.
+8. Fix gallery layout expansion in the main app.
+9. Filter gallery themes to the detected/configured display size.
+10. Duplicate theme and fix open theme folder.
 
 Follow-up stack:
 
-1. Integrated local validation.
-2. Duplicate/import/export/rename/delete in later management slices.
-3. Device Manager / display-profile integration.
+1. Rename theme.
+2. Delete theme with confirmation.
+3. Import/export theme.
+4. Device Manager / display-profile integration.
