@@ -30,6 +30,7 @@ from library.theme_gallery import (
     ThemeRecord,
     launch_theme_editor,
     open_theme_folder,
+    show_theme_gallery_diagnostics_dialog,
 )
 
 APP_ID = "io.github.turing.SmartScreen"
@@ -99,6 +100,7 @@ class TuringSmartScreenWindow(Adw.ApplicationWindow):
         self.gallery = ThemeGalleryPane(
             on_open_theme=self.open_theme_editor,
             on_open_folder=self.open_folder,
+            on_theme_diagnostics=self.show_theme_diagnostics,
             on_records_changed=self.update_theme_state,
         )
         self.stack.add_named(self.gallery, "themes")
@@ -142,7 +144,7 @@ class TuringSmartScreenWindow(Adw.ApplicationWindow):
 
         diagnostics_row = self.nav_row(
             "Diagnostics",
-            "Coming soon from the gallery",
+            "Available per theme from the gallery",
             "dialog-information-symbolic",
         )
         diagnostics_row.set_sensitive(False)
@@ -245,6 +247,9 @@ class TuringSmartScreenWindow(Adw.ApplicationWindow):
             self.error_dialog("Could not open theme folder", str(exc))
             return
         self.toast(f"Opening folder for {record.name}")
+
+    def show_theme_diagnostics(self, record: ThemeRecord) -> None:
+        show_theme_gallery_diagnostics_dialog(self, record, self.toast)
 
 
 class TuringSmartScreenApplication(Adw.Application):
