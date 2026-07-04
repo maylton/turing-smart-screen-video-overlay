@@ -88,6 +88,11 @@ if [[ ! -f "$SOURCE_DIR/main.py" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$SOURCE_DIR/configure-gtk.py" ]]; then
+  echo "configure-gtk.py was not found." >&2
+  exit 1
+fi
+
 echo "Installing $APP_NAME in: $PREFIX"
 
 $SUDO mkdir -p \
@@ -139,15 +144,9 @@ else
   rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
 fi
 
-# Install the latest consolidated GTK interface from this installer bundle.
-if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
-elif [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
-  :
-else
-  echo "configure-gtk.py was not found." >&2
-  exit 1
-fi
+# Use the current GTK launcher from the checked-out branch. Do not prefer
+# configure-gtk-final.py here: local leftover files with that name can mask the
+# branch's real configure-gtk.py and make installed smoke tests exercise stale UI.
 
 if [[ -f "$SOURCE_DIR/main-final.py" ]]; then
   $SUDO cp "$SOURCE_DIR/main-final.py" "$PREFIX/main.py"
@@ -224,11 +223,16 @@ print("Project venv GTK, Pillow and ruamel.yaml imports OK")
 '
 
 PYTHON_ENTRYPOINTS=(
+  sitecustomize.py
+  theme_gallery_card_polish.py
+  turing-smart-screen-main.py
   configure-gtk.py
   configure_gtk_app.py
   main.py
   screen-control.py
   theme-editor-gtk.py
+  theme-gallery-gtk.py
+  turing-smart-screen-gtk.py
   video-manager-gtk.py
   video_manager_gtk_app.py
   video_manager.py
@@ -239,6 +243,15 @@ PYTHON_ENTRYPOINTS=(
   display-detection.py
   gtk-checkup.py
   library/runtime.py
+  library/theme_gallery.py
+  library/embedded_theme_editor.py
+  library/embedded_theme_editor_runtime.py
+  library/embedded_video_manager.py
+  library/embedded_video_manager_runtime.py
+  library/main_app_ui_polish.py
+  library/theme_preview_mock_data.py
+  library/theme_preview_renderer.py
+  library/runtime_rev_c_image_guard.py
   library/video_media.py
   library/media_preparation.py
   library/media_profiles.py
@@ -264,8 +277,9 @@ cat > "$TMP_LAUNCHER" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 export TURING_SMART_SCREEN_HOME="$PREFIX"
+export PYTHONPATH="$PREFIX\${PYTHONPATH:+:\$PYTHONPATH}"
 cd "$PREFIX"
-exec /usr/bin/python3 "$PREFIX/configure-gtk.py" "\$@"
+exec /usr/bin/python3 "$PREFIX/turing-smart-screen-main.py" "\$@"
 EOF
 chmod +x "$TMP_LAUNCHER"
 $SUDO cp "$TMP_LAUNCHER" "$LAUNCHER"
@@ -319,65 +333,25 @@ else
   echo "Warning: application icon source was not found." >&2
 fi
 
-# Optional desktop autostart.
-if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
-  AUTOSTART_DIR="$HOME/.config/autostart"
-  mkdir -p "$AUTOSTART_DIR"
-
-  cat > "$AUTOSTART_DIR/$APP_ID.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=$APP_NAME
-Comment=Start Turing Smart Screen after login
-Exec=$LAUNCHER
-Icon=$APP_ID
-Terminal=false
-X-GNOME-Autostart-enabled=true
-StartupNotify=false
-EOF
-  echo "Autostart enabled."
-fi
-
-# Report optional udev rules. They remain project-specific and should not be
-# installed blindly without confirming the target USB IDs.
-for rule in "$PREFIX"/udev/*.rules "$PREFIX"/*.rules; do
-  [[ -f "$rule" ]] || continue
-  echo "Available udev rule: $rule"
-done
-
 if command -v desktop-file-validate >/dev/null 2>&1; then
   desktop-file-validate "$DESKTOP_FILE" || true
 fi
 
 if command -v update-desktop-database >/dev/null 2>&1; then
-  $SUDO update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+  update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
 fi
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-  $SUDO gtk-update-icon-cache -f "$ICON_BASE" >/dev/null 2>&1 || true
+  gtk-update-icon-cache -q "$ICON_BASE" >/dev/null 2>&1 || true
 fi
 
-echo
-echo "$APP_NAME installation completed."
-echo
-echo "Application: $PREFIX"
-echo "Launcher:    $LAUNCHER"
-echo "Desktop:     $DESKTOP_FILE"
-echo "App ID:      $APP_ID"
-echo
-echo "Included features:"
-echo "  - GTK4/Libadwaita interface"
-echo "  - Noctalia-compatible StatusNotifierItem tray"
-echo "  - Compatible-theme filtering and blank-theme creation"
-echo "  - Automatic restoration of the last selected theme"
-echo "  - Native video management and media preparation editor"
-echo "  - Display power-off control"
-echo
-echo "Close any older instance and launch:"
-echo "  $COMMAND_NAME"
-echo
-
-if [[ "$MODE" == "user" ]] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-  echo "Note: add ~/.local/bin to PATH to use the terminal command."
+if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
+  AUTOSTART_DIR="$HOME/.config/autostart"
+  AUTOSTART_FILE="$AUTOSTART_DIR/$APP_ID.desktop"
+  mkdir -p "$AUTOSTART_DIR"
+  cp "$DESKTOP_FILE" "$AUTOSTART_FILE"
+  echo "Autostart enabled: $AUTOSTART_FILE"
 fi
+
+echo "Installed successfully."
+echo "Run: $COMMAND_NAME"

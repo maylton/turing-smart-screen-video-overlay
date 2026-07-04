@@ -11,12 +11,20 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
 from library.runtime import DeviceBusyError, MonitorController
+from library.theme_gallery import (
+    ThemeGalleryPane,
+    ThemeRecord,
+    set_current_theme as gallery_set_current_theme,
+    show_set_current_theme_dialog,
+    show_theme_gallery_diagnostics_dialog,
+)
 
 ROOT = Path(__file__).resolve().parent
 APP_MODULE = ROOT / "configure_gtk_app.py"
@@ -26,6 +34,22 @@ START_MONITOR_FILE = (
     / "turing-smart-screen"
     / "start-monitor.conf"
 )
+THEME_GALLERY_DEBUG_ENV = "TURING_THEME_GALLERY_DEBUG"
+
+
+def theme_gallery_debug_enabled() -> bool:
+    return os.environ.get(THEME_GALLERY_DEBUG_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "debug",
+    }
+
+
+def theme_gallery_debug(message: str) -> None:
+    if theme_gallery_debug_enabled():
+        print(f"[theme-gallery] {message}", file=sys.stderr, flush=True)
 
 
 def load_boolean(path: Path, default: bool = False) -> bool:
@@ -58,6 +82,7 @@ def load_app_module():
 def install_runtime_patches(app):
     original_init = app.SmartScreenWindow.__init__
     original_refresh_overview = app.SmartScreenWindow.refresh_overview
+    original_refresh_theme_list = app.SmartScreenWindow.refresh_theme_list
 
     def reap_monitor_child(self, timeout=2.0):
         """Collect a monitor process started by this GTK application."""
@@ -118,6 +143,288 @@ def install_runtime_patches(app):
         else:
             self.theme_path_label.set_label("")
         update_runtime_status(self)
+
+    def build_themes_page(self):
+        outer = app.Gtk.Box(
+            orientation=app.Gtk.Orientation.VERTICAL,
+            spacing=14,
+            margin_top=18,
+            margin_bottom=18,
+            margin_start=18,
+            margin_end=18,
+        )
+
+        header = app.Gtk.Box(
+            orientation=app.Gtk.Orientation.HORIZONTAL,
+            spacing=12,
+        )
+        title_box = app.Gtk.Box(
+            orientation=app.Gtk.Orientation.VERTICAL,
+            spacing=4,
+        )
+        title_box.set_hexpand(True)
+        title = app.Gtk.Label(label="Themes", xalign=0)
+        title.add_css_class("title-1")
+        subtitle = app.Gtk.Label(
+            label=(
+                "Browse installed themes, inspect diagnostics, edit a theme, "
+                "or choose the current theme."
+            ),
+            xalign=0,
+            wrap=True,
+        )
+        subtitle.add_css_class("dim-label")
+        title_box.append(title)
+        title_box.append(subtitle)
+        header.append(title_box)
+
+        create_button = app.Gtk.Button(
+            label="Create blank",
+            icon_name="list-add-symbolic",
+            tooltip_text="Create an empty theme for the selected display",
+            valign=app.Gtk.Align.CENTER,
+        )
+        create_button.connect(
+            "clicked",
+            lambda *_: self.show_create_empty_theme_dialog(),
+        )
+        header.append(create_button)
+
+        refresh_button = app.Gtk.Button(
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Refresh theme gallery",
+            valign=app.Gtk.Align.CENTER,
+        )
+        refresh_button.connect("clicked", lambda *_: self.refresh_theme_list())
+        header.append(refresh_button)
+        outer.append(header)
+
+        self.theme_gallery = ThemeGalleryPane(
+            on_open_theme=self.open_theme_record_editor,
+            on_open_folder=self.open_theme_record_folder,
+            on_theme_diagnostics=self.show_theme_record_diagnostics,
+            on_set_current_theme=self.confirm_set_current_theme_from_gallery,
+            on_records_changed=self.on_theme_gallery_records_changed,
+        )
+        self.theme_gallery.set_vexpand(True)
+        self.theme_gallery.set_hexpand(True)
+        outer.append(self.theme_gallery)
+        return outer
+
+    def on_theme_gallery_records_changed(self, records: list[ThemeRecord]):
+        self.current_theme = app.read_current_theme()
+        self.refresh_overview()
+
+    def refresh_theme_list(self):
+        gallery = getattr(self, "theme_gallery", None)
+        if gallery is not None:
+            gallery.reload_themes()
+            return
+        original_refresh_theme_list(self)
+
+    def open_theme_record_editor(self, record: ThemeRecord):
+        self.launch_script(
+            app.THEME_EDITOR,
+            record.name,
+            use_system_python=True,
+        )
+
+    def directory_default_app(self) -> str:
+        if shutil.which("xdg-mime") is None:
+            return ""
+        try:
+            result = subprocess.run(
+                ["xdg-mime", "query", "default", "inode/directory"],
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except Exception as exc:
+            theme_gallery_debug(f"xdg-mime query failed: {exc!r}")
+            return ""
+        default_app = result.stdout.strip()
+        theme_gallery_debug(
+            f"xdg-mime default inode/directory={default_app!r} returncode={result.returncode}"
+        )
+        return default_app
+
+    def file_manager_commands_for_default(self, default_app: str, path: Path):
+        default_key = default_app.casefold()
+        commands: list[list[str]] = []
+
+        if "nautilus" in default_key:
+            commands.append(["nautilus", "--new-window", str(path)])
+        elif "dolphin" in default_key:
+            commands.append(["dolphin", str(path)])
+        elif "thunar" in default_key:
+            commands.append(["thunar", str(path)])
+        elif "nemo" in default_key:
+            commands.append(["nemo", str(path)])
+        elif "pcmanfm" in default_key:
+            commands.append(["pcmanfm", str(path)])
+
+        for command in (
+            ["nautilus", "--new-window", str(path)],
+            ["dolphin", str(path)],
+            ["thunar", str(path)],
+            ["nemo", str(path)],
+            ["pcmanfm", str(path)],
+        ):
+            if command not in commands:
+                commands.append(command)
+        return commands
+
+    def launch_file_manager_directly(self, path: Path, default_app: str) -> bool:
+        for command in file_manager_commands_for_default(self, default_app, path):
+            executable = shutil.which(command[0])
+            theme_gallery_debug(f"which {command[0]} -> {executable}")
+            if executable is None:
+                continue
+            theme_gallery_debug(f"launching {' '.join(command)}")
+            try:
+                subprocess.Popen(
+                    command,
+                    cwd=str(ROOT),
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                theme_gallery_debug(f"launched {' '.join(command)}")
+                return True
+            except Exception as exc:
+                theme_gallery_debug(f"{' '.join(command)} failed: {exc!r}")
+        return False
+
+    def open_theme_record_folder_debuggable(self, record: ThemeRecord):
+        path = record.directory
+        uri = path.resolve().as_uri() if path.exists() else "<missing>"
+        theme_gallery_debug("open folder clicked")
+        theme_gallery_debug(f"theme={record.name}")
+        theme_gallery_debug(f"path={path}")
+        theme_gallery_debug(f"resolved={path.resolve() if path.exists() else '<missing>'}")
+        theme_gallery_debug(f"exists={path.exists()} is_dir={path.is_dir()}")
+        theme_gallery_debug(f"uri={uri}")
+        theme_gallery_debug(f"cwd={Path.cwd()}")
+        for key in (
+            "XDG_CURRENT_DESKTOP",
+            "DESKTOP_SESSION",
+            "WAYLAND_DISPLAY",
+            "DISPLAY",
+            "PATH",
+        ):
+            theme_gallery_debug(f"env {key}={os.environ.get(key, '<unset>')}")
+
+        if not path.is_dir():
+            raise FileNotFoundError(path)
+
+        default_app = directory_default_app(self)
+        known_default = any(
+            token in default_app.casefold()
+            for token in ("nautilus", "dolphin", "thunar", "nemo", "pcmanfm")
+        )
+        running_niri = os.environ.get("XDG_CURRENT_DESKTOP", "").casefold() == "niri"
+        prefer_direct_file_manager = running_niri or not known_default
+
+        if prefer_direct_file_manager:
+            theme_gallery_debug(
+                "preferring direct file manager because "
+                f"running_niri={running_niri} known_default={known_default}"
+            )
+            if launch_file_manager_directly(self, path, default_app):
+                return
+
+        errors: list[str] = []
+        try:
+            theme_gallery_debug("trying app.Gio.AppInfo.launch_default_for_uri")
+            launched = app.Gio.AppInfo.launch_default_for_uri(uri, None)
+            theme_gallery_debug(
+                f"app.Gio.AppInfo.launch_default_for_uri returned {launched!r}"
+            )
+            if launched and not prefer_direct_file_manager:
+                return
+        except Exception as exc:
+            errors.append(f"app.Gio launch failed: {exc}")
+            theme_gallery_debug(f"app.Gio launch failed: {exc!r}")
+
+        for command in (
+            ["gio", "open", str(path)],
+            ["xdg-open", str(path)],
+        ):
+            executable = shutil.which(command[0])
+            theme_gallery_debug(f"which {command[0]} -> {executable}")
+            if executable is None:
+                errors.append(f"{command[0]} not found")
+                continue
+            theme_gallery_debug(f"running {' '.join(command)}")
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=str(ROOT),
+                    text=True,
+                    capture_output=True,
+                    timeout=5,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                errors.append(f"{' '.join(command)} timed out: {exc}")
+                theme_gallery_debug(f"{' '.join(command)} timed out")
+                continue
+            except Exception as exc:
+                errors.append(f"{' '.join(command)} failed: {exc}")
+                theme_gallery_debug(f"{' '.join(command)} failed: {exc!r}")
+                continue
+            stdout = result.stdout.strip()
+            stderr = result.stderr.strip()
+            theme_gallery_debug(
+                f"{' '.join(command)} returncode={result.returncode} stdout={stdout!r} stderr={stderr!r}"
+            )
+            if result.returncode == 0 and not prefer_direct_file_manager:
+                return
+            if result.returncode != 0:
+                errors.append(
+                    f"{' '.join(command)} exited {result.returncode}: {stderr or stdout or 'no output'}"
+                )
+
+        if launch_file_manager_directly(self, path, default_app):
+            return
+
+        raise RuntimeError("Could not open folder. " + " | ".join(errors))
+
+    def open_theme_record_folder(self, record: ThemeRecord):
+        theme_gallery_debug(f"folder button callback fired for {record.name}")
+        try:
+            open_theme_record_folder_debuggable(self, record)
+        except Exception as exc:
+            theme_gallery_debug(f"open folder failed: {exc!r}")
+            self.toast(f"Could not open theme folder: {exc}")
+            return
+        theme_gallery_debug(f"open folder finished for {record.name}")
+        self.toast(f"Opening folder for {record.name}")
+
+    def show_theme_record_diagnostics(self, record: ThemeRecord):
+        show_theme_gallery_diagnostics_dialog(self, record, self.toast)
+
+    def confirm_set_current_theme_from_gallery(self, record: ThemeRecord):
+        show_set_current_theme_dialog(
+            self,
+            record,
+            self.apply_set_current_theme_from_gallery,
+        )
+
+    def apply_set_current_theme_from_gallery(self, record: ThemeRecord):
+        try:
+            old_theme, new_theme = gallery_set_current_theme(record)
+        except Exception as exc:
+            self.toast(f"Could not update config.yaml: {exc}")
+            return
+
+        self.current_theme = new_theme
+        self.refresh_all()
+        if old_theme and old_theme != new_theme:
+            self.toast(f"Active theme changed: {old_theme} → {new_theme}")
+        else:
+            self.toast(f"Active theme set to {new_theme}")
 
     def build_settings_page(self):
         clamp = app.Adw.Clamp(maximum_size=760)
@@ -280,7 +587,6 @@ def install_runtime_patches(app):
         if self.runtime_stop_in_progress:
             self.toast("Monitor stop is already in progress")
             return
-
         state = self.runtime_controller.state()
         if not state.busy:
             self.toast("Monitor is not running")
@@ -368,6 +674,14 @@ def install_runtime_patches(app):
     app.SmartScreenWindow.update_runtime_status = update_runtime_status
     app.SmartScreenWindow.refresh_runtime_status = refresh_runtime_status
     app.SmartScreenWindow.refresh_overview = patched_refresh_overview
+    app.SmartScreenWindow.build_themes_page = build_themes_page
+    app.SmartScreenWindow.refresh_theme_list = refresh_theme_list
+    app.SmartScreenWindow.open_theme_record_editor = open_theme_record_editor
+    app.SmartScreenWindow.open_theme_record_folder = open_theme_record_folder
+    app.SmartScreenWindow.show_theme_record_diagnostics = show_theme_record_diagnostics
+    app.SmartScreenWindow.confirm_set_current_theme_from_gallery = confirm_set_current_theme_from_gallery
+    app.SmartScreenWindow.apply_set_current_theme_from_gallery = apply_set_current_theme_from_gallery
+    app.SmartScreenWindow.on_theme_gallery_records_changed = on_theme_gallery_records_changed
     app.SmartScreenWindow.build_settings_page = build_settings_page
     app.SmartScreenWindow.on_start_monitor_changed = on_start_monitor_changed
     app.SmartScreenWindow.auto_apply_last_theme = auto_apply_last_theme
