@@ -31,6 +31,7 @@ THEME_EDITOR = ROOT / "theme-editor-gtk.py"
 
 ThemeCallback = Callable[["ThemeRecord"], None]
 DuplicateThemeCallback = Callable[["ThemeRecord", str], None]
+DeleteThemeCallback = Callable[["ThemeRecord"], None]
 
 
 @dataclass(frozen=True)
@@ -214,6 +215,24 @@ def duplicate_theme(record: ThemeRecord, requested_name: str) -> str:
     return target_name
 
 
+def delete_theme(record: ThemeRecord) -> None:
+    if record.current:
+        raise RuntimeError("The current theme cannot be deleted. Choose another theme first.")
+    if not record.directory.is_dir():
+        raise FileNotFoundError(record.directory)
+    if record.directory.parent.resolve() != THEMES_DIR.resolve():
+        raise RuntimeError(f"Refusing to delete a folder outside {THEMES_DIR}")
+
+    theme_file = Gio.File.new_for_path(str(record.directory))
+    try:
+        if theme_file.trash(None):
+            return
+    except Exception as exc:
+        raise RuntimeError(f"Could not move theme to Trash: {exc}") from exc
+
+    raise RuntimeError("Could not move theme to Trash.")
+
+
 def discover_themes(
     themes_dir: Path = THEMES_DIR,
     config_file: Path = CONFIG_FILE,
@@ -356,24 +375,74 @@ def launch_theme_editor(record: ThemeRecord, theme_editor: Path = THEME_EDITOR) 
     )
 
 
+def open_path_with_default_app(path: Path) -> None:
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    errors: list[str] = []
+    uri = path.resolve().as_uri()
+    try:
+        launched = Gio.AppInfo.launch_default_for_uri(uri, None)
+        if launched:
+            return
+        errors.append("Gio launch_default_for_uri returned false")
+    except Exception as exc:
+        errors.append(f"Gio launch_default_for_uri failed: {exc}")
+
+    for command in (
+        ["gio", "open", str(path)],
+        ["xdg-open", str(path)],
+    ):
+        if shutil.which(command[0]) is None:
+            errors.append(f"{command[0]} not found")
+            continue
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(ROOT),
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except Exception as exc:
+            errors.append(f"{' '.join(command)} failed: {exc}")
+            continue
+        if result.returncode == 0:
+            return
+        stderr = result.stderr.strip() or result.stdout.strip()
+        errors.append(
+            f"{' '.join(command)} exited {result.returncode}: {stderr or 'no output'}"
+        )
+
+    for command in (
+        ["dolphin", str(path)],
+        ["nautilus", str(path)],
+        ["thunar", str(path)],
+        ["nemo", str(path)],
+        ["pcmanfm", str(path)],
+    ):
+        if shutil.which(command[0]) is None:
+            continue
+        try:
+            subprocess.Popen(
+                command,
+                cwd=str(ROOT),
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return
+        except Exception as exc:
+            errors.append(f"{' '.join(command)} failed: {exc}")
+
+    raise RuntimeError("Could not open folder. " + " | ".join(errors))
+
+
 def open_theme_folder(record: ThemeRecord) -> None:
     if not record.directory.is_dir():
         raise FileNotFoundError(record.directory)
-
-    uri = record.directory.resolve().as_uri()
-    try:
-        Gio.AppInfo.launch_default_for_uri(uri, None)
-        return
-    except Exception:
-        pass
-
-    subprocess.Popen(
-        ["xdg-open", str(record.directory)],
-        cwd=str(ROOT),
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    open_path_with_default_app(record.directory)
 
 
 def show_theme_gallery_diagnostics_dialog(
@@ -478,6 +547,50 @@ def show_duplicate_theme_dialog(
     dialog.present(parent)
 
 
+def show_delete_theme_dialog(
+    parent: Gtk.Widget,
+    record: ThemeRecord,
+    on_confirm: DeleteThemeCallback,
+) -> None:
+    entry = Gtk.Entry()
+    entry.set_placeholder_text(record.name)
+    entry.set_activates_default(True)
+    entry.set_margin_top(6)
+    entry.set_margin_bottom(6)
+
+    dialog = Adw.AlertDialog(
+        heading=f"Delete {record.name}?",
+        body=(
+            "This will move the theme folder to Trash. To confirm, type the "
+            "theme name exactly."
+        ),
+    )
+    dialog.set_extra_child(entry)
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("delete", "Delete")
+    dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+    dialog.set_default_response("cancel")
+    dialog.set_close_response("cancel")
+
+    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+        if response != "delete":
+            return
+        if entry.get_text().strip() != record.name:
+            error = Adw.AlertDialog(
+                heading="Theme name did not match",
+                body=f"Type {record.name} exactly to delete this theme.",
+            )
+            error.add_response("ok", "OK")
+            error.set_close_response("ok")
+            error.set_default_response("ok")
+            error.present(parent)
+            return
+        on_confirm(record)
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+
+
 class ThemeGalleryPane(Gtk.Box):
     """Reusable gallery surface for app shell and developer window."""
 
@@ -489,6 +602,7 @@ class ThemeGalleryPane(Gtk.Box):
         on_theme_diagnostics: ThemeCallback | None = None,
         on_set_current_theme: ThemeCallback | None = None,
         on_duplicate_theme: DuplicateThemeCallback | None = None,
+        on_delete_theme: DeleteThemeCallback | None = None,
         on_records_changed: Callable[[list[ThemeRecord]], None] | None = None,
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -499,6 +613,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.on_theme_diagnostics = on_theme_diagnostics
         self.on_set_current_theme = on_set_current_theme
         self.on_duplicate_theme = on_duplicate_theme or self.apply_duplicate_theme
+        self.on_delete_theme = on_delete_theme or self.apply_delete_theme
         self.on_records_changed = on_records_changed
         self.records: list[ThemeRecord] = []
         self.filtered_records: list[ThemeRecord] = []
@@ -737,6 +852,13 @@ class ThemeGalleryPane(Gtk.Box):
         duplicate_button.connect("clicked", lambda *_args: self.confirm_duplicate_theme(record))
         actions.append(duplicate_button)
 
+        if not record.current:
+            delete_button = Gtk.Button(icon_name="user-trash-symbolic")
+            delete_button.add_css_class("destructive-action")
+            delete_button.set_tooltip_text("Delete theme")
+            delete_button.connect("clicked", lambda *_args: self.confirm_delete_theme(record))
+            actions.append(delete_button)
+
         if self.on_theme_diagnostics is not None:
             diagnostics_button = Gtk.Button(icon_name="dialog-information-symbolic")
             diagnostics_button.set_tooltip_text("Show theme diagnostics")
@@ -776,6 +898,17 @@ class ThemeGalleryPane(Gtk.Box):
             duplicate_theme(record, requested_name)
         except Exception as exc:
             self.show_error_dialog("Could not duplicate theme", str(exc))
+            return
+        self.reload_themes()
+
+    def confirm_delete_theme(self, record: ThemeRecord) -> None:
+        show_delete_theme_dialog(self.root_widget(), record, self.on_delete_theme)
+
+    def apply_delete_theme(self, record: ThemeRecord) -> None:
+        try:
+            delete_theme(record)
+        except Exception as exc:
+            self.show_error_dialog("Could not delete theme", str(exc))
             return
         self.reload_themes()
 
