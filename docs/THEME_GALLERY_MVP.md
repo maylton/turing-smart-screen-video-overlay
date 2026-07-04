@@ -26,7 +26,7 @@ grep -n "ThemeGalleryPane" ~/.local/share/turing-smart-screen/configure-gtk.py
 
 ## Scope
 
-The MVP is now a mostly read-oriented theme management surface, with guarded write actions for selecting or duplicating a theme.
+The MVP is now a mostly read-oriented theme management surface, with guarded write actions for selecting, duplicating, or deleting a theme.
 
 Included:
 
@@ -48,14 +48,15 @@ Included:
 - atomic update of `config.yaml` `THEME` value;
 - non-destructive per-theme duplicate action;
 - safe non-conflicting folder-name suggestion for duplicates;
-- GTK/GIO-backed theme folder opening, with `xdg-open` fallback;
+- guarded delete action that requires typing the exact theme name;
+- delete moves the theme folder to Trash and refuses to delete the current theme;
+- robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then direct file-manager fallbacks;
 - per-theme `Edit` action;
 - refresh action.
 
 Not included yet:
 
 - rename theme;
-- delete theme;
 - import/export theme;
 - device sync/send-to-display.
 
@@ -105,10 +106,13 @@ The MVP is accepted when:
 - confirming `Use Theme` updates `config.yaml` and refreshes the current badge;
 - duplicate creates a non-destructive copy with a safe non-conflicting folder name;
 - duplicate does not change `config.yaml` automatically;
+- delete is not available for the current theme;
+- deleting a non-current theme requires typing the exact theme name;
+- confirmed delete moves the theme folder to Trash and refreshes the gallery;
 - clicking `Edit` opens the selected theme in `theme-editor-gtk.py`;
-- clicking the folder button opens the theme folder;
+- clicking the folder button opens the theme folder or shows a useful error dialog;
 - clicking refresh reloads the list;
-- only explicit `Use Theme` or `Duplicate` actions write files.
+- only explicit `Use Theme`, `Duplicate`, or confirmed `Delete` actions write files.
 
 ## Validation
 
@@ -143,10 +147,12 @@ Manual validation:
 16. Confirm `Use Theme` updates the badge and `config.yaml` `THEME` value.
 17. Click duplicate on a valid theme and confirm the dialog suggests a safe copy name.
 18. Confirm duplicating creates a new compatible card after refresh without changing `config.yaml`.
-19. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
-20. Click the folder button and confirm the file manager opens the theme folder.
-21. Click refresh and confirm the list reloads.
-22. Restore test config/theme changes before final merge if needed.
+19. Click delete on the duplicated theme, type the exact name, and confirm it moves to Trash.
+20. Confirm the current theme does not show a delete button.
+21. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
+22. Click the folder button and confirm the file manager opens the theme folder.
+23. Click refresh and confirm the list reloads.
+24. Restore test config/theme changes before final merge if needed.
 
 ## Stack position
 
@@ -162,10 +168,10 @@ Completed in this branch so far:
 8. Fix gallery layout expansion in the main app.
 9. Filter gallery themes to the detected/configured display size.
 10. Duplicate theme and fix open theme folder.
+11. Delete theme with confirmation and safer folder opening diagnostics.
 
 Follow-up stack:
 
 1. Rename theme.
-2. Delete theme with confirmation.
-3. Import/export theme.
-4. Device Manager / display-profile integration.
+2. Import/export theme.
+3. Device Manager / display-profile integration.
