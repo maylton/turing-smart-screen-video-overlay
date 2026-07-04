@@ -25,6 +25,9 @@ Included:
 - preview thumbnail when `preview.png` exists;
 - missing-preview placeholder;
 - broken-theme indicator when `theme.yaml`/`theme.yml` is missing;
+- search/filter by name, path, YAML filename, or status;
+- result count for filtered searches;
+- filtered empty state when no theme matches;
 - `Open Current` action in the developer window and app shell;
 - per-theme `Edit` action;
 - per-theme folder-open action;
@@ -66,11 +69,14 @@ The MVP is accepted when:
 - cards show `preview.png` when available;
 - cards show a clear placeholder when no preview exists;
 - broken theme folders are visible but cannot be opened in the editor;
+- search filters themes by name/path/status/YAML filename;
+- unmatched search shows a filtered empty state;
+- clearing search restores the full theme list;
 - clicking `Edit` opens the selected theme in `theme-editor-gtk.py`;
 - clicking `Open Current` opens the current theme;
 - clicking the folder button opens the theme folder;
 - clicking refresh reloads the list;
-- no theme files are modified by simply opening or browsing the gallery.
+- no theme files are modified by simply opening, browsing, or filtering the gallery.
 
 ## Validation
 
@@ -91,11 +97,15 @@ Manual validation later in the stack:
 4. Confirm the current theme badge appears on the theme from `config.yaml`.
 5. Confirm previews load where `preview.png` exists.
 6. Confirm missing previews show a placeholder.
-7. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
-8. Click `Open Current` and confirm the current theme opens.
-9. Click the folder button and confirm the file manager opens the theme folder.
-10. Click refresh and confirm the list reloads.
-11. Confirm `git status --short` shows no theme changes caused by browsing.
+7. Search by theme name and confirm only matching cards remain.
+8. Search by status/path/YAML filename and confirm matching cards remain.
+9. Search for a non-existing term and confirm the filtered empty state appears.
+10. Clear search and confirm all themes return.
+11. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
+12. Click `Open Current` and confirm the current theme opens.
+13. Click the folder button and confirm the file manager opens the theme folder.
+14. Click refresh and confirm the list reloads.
+15. Confirm `git status --short` shows no theme changes caused by browsing/searching.
 
 ## Stack position
 
@@ -103,11 +113,11 @@ Completed in this branch so far:
 
 1. Reusable Theme Gallery module.
 2. Main app shell that embeds the gallery.
+3. Gallery search/filter.
 
 Follow-up stack:
 
-1. Gallery search/filter.
-2. Gallery diagnostics action.
-3. Set active/current theme from the gallery.
-4. Duplicate/import/export/rename/delete in later management slices.
-5. Device Manager / display-profile integration.
+1. Gallery diagnostics action.
+2. Set active/current theme from the gallery.
+3. Duplicate/import/export/rename/delete in later management slices.
+4. Device Manager / display-profile integration.
