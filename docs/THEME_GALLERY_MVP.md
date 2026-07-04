@@ -2,16 +2,17 @@
 
 This document describes the first implementation slice from `docs/OFFICIAL_WINDOWS_PARITY_ROADMAP.md` and the architecture checkpoint in `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md`.
 
-The Theme Gallery is the future Linux/GTK home surface inspired by the official Windows app's theme-selection workflow. It does not replace the GTK Theme Editor; it opens themes into it.
+The Theme Gallery is the new Linux/GTK theme-management surface inspired by the official Windows app's theme-selection workflow. It does not replace the GTK Theme Editor; it opens themes into it.
 
 ## Architecture role
 
-This slice provides two pieces:
+This slice provides three pieces:
 
-- `library/theme_gallery.py` — reusable discovery/model/UI components for the app shell;
-- `theme-gallery-gtk.py` — temporary developer entry point for testing the gallery independently.
+- `library/theme_gallery.py` — reusable discovery/model/UI components;
+- main-app integration — the existing `configure-gtk.py` / `turing-smart-screen` `Themes` page uses the gallery surface;
+- `theme-gallery-gtk.py` / `turing-smart-screen-gtk.py` — temporary developer/prototype entry points for isolated testing.
 
-The temporary standalone script is not the final product architecture. The normal user-facing direction is `turing-smart-screen-gtk.py`, which embeds `ThemeGalleryPane` as the app home surface.
+The temporary standalone scripts are not the final product architecture. The normal user-facing direction is the existing installed GTK configuration app, launched by `turing-smart-screen`.
 
 ## Scope
 
@@ -22,6 +23,8 @@ Included:
 - reusable theme discovery from `res/themes`;
 - current-theme detection from `config.yaml`;
 - visual card grid component;
+- integration into the existing main app `Themes` page;
+- retained `Create blank` action from the old main-app Themes page;
 - preview thumbnail when `preview.png` exists;
 - missing-preview placeholder;
 - broken-theme indicator when `theme.yaml`/`theme.yml` is missing;
@@ -32,7 +35,6 @@ Included:
 - copyable gallery-level diagnostics report;
 - guarded `Use` action for setting a valid theme as current;
 - atomic update of `config.yaml` `THEME` value;
-- `Open Current` action in the developer window and app shell;
 - per-theme `Edit` action;
 - per-theme folder-open action;
 - refresh action.
@@ -49,10 +51,16 @@ Those actions are intentionally deferred because this stack should introduce the
 
 ## Entry points
 
-Normal app-shell entry point:
+Normal installed app entry point:
 
 ```bash
-.venv/bin/python turing-smart-screen-gtk.py
+turing-smart-screen
+```
+
+Development checkout entry point for the same main app:
+
+```bash
+.venv/bin/python configure-gtk.py
 ```
 
 Temporary developer gallery entry point:
@@ -66,7 +74,8 @@ Temporary developer gallery entry point:
 The MVP is accepted when:
 
 - the reusable gallery module imports successfully;
-- the app shell opens and embeds the gallery;
+- the existing main app opens and embeds the gallery on the `Themes` page;
+- the old split list/preview `Themes` page is replaced by gallery cards;
 - the developer gallery still opens independently;
 - themes from `res/themes` are listed;
 - the theme configured in `config.yaml` is marked as current;
@@ -82,7 +91,6 @@ The MVP is accepted when:
 - `Use` is disabled for broken themes;
 - confirming `Use Theme` updates `config.yaml` and refreshes the current badge;
 - clicking `Edit` opens the selected theme in `theme-editor-gtk.py`;
-- clicking `Open Current` opens the current theme;
 - clicking the folder button opens the theme folder;
 - clicking refresh reloads the list;
 - only the explicit `Use Theme` action modifies `config.yaml`.
@@ -93,6 +101,8 @@ The MVP is accepted when:
 .venv/bin/python -m py_compile library/theme_gallery.py
 .venv/bin/python -m py_compile theme-gallery-gtk.py
 .venv/bin/python -m py_compile turing-smart-screen-gtk.py
+.venv/bin/python -m py_compile configure-gtk.py
+.venv/bin/python -m py_compile configure_gtk_app.py
 .venv/bin/python -m py_compile theme-editor-gtk.py
 .venv/bin/python -m unittest discover -s tests -t . -v
 git diff --check
@@ -100,9 +110,9 @@ git diff --check
 
 Manual validation:
 
-1. Launch the app shell.
-2. Confirm the shell opens with a sidebar.
-3. Confirm the Theme Gallery cards are displayed inside the shell.
+1. Launch the existing main app with `.venv/bin/python configure-gtk.py`.
+2. Open the sidebar `Themes` page.
+3. Confirm the Theme Gallery cards are displayed in the main app.
 4. Confirm the current theme badge appears on the theme from `config.yaml`.
 5. Confirm previews load where `preview.png` exists.
 6. Confirm missing previews show a placeholder.
@@ -116,20 +126,20 @@ Manual validation:
 14. Confirm `Use Theme` updates the badge and `config.yaml` `THEME` value.
 15. Confirm broken themes cannot be set as current.
 16. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
-17. Click `Open Current` and confirm the current theme opens.
-18. Click the folder button and confirm the file manager opens the theme folder.
-19. Click refresh and confirm the list reloads.
-20. Restore test config changes before final merge if needed: `git restore config.yaml`.
+17. Click the folder button and confirm the file manager opens the theme folder.
+18. Click refresh and confirm the list reloads.
+19. Restore test config changes before final merge if needed: `git restore config.yaml`.
 
 ## Stack position
 
 Completed in this branch so far:
 
 1. Reusable Theme Gallery module.
-2. Main app shell that embeds the gallery.
+2. Temporary app shell prototype.
 3. Gallery search/filter.
 4. Gallery diagnostics action.
 5. Set active/current theme from the gallery.
+6. Integrate gallery into the existing main app `Themes` page.
 
 Follow-up stack:
 
