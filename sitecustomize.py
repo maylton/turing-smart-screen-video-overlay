@@ -15,6 +15,7 @@ _TARGET_ENTRY_POINTS = {
     "configure-gtk.py",
     "theme-gallery-gtk.py",
     "turing-smart-screen-gtk.py",
+    "turing-smart-screen-main.py",
 }
 
 
