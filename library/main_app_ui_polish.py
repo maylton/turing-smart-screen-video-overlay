@@ -101,6 +101,42 @@ def _theme_yaml_path(app, theme_name: str) -> Path | None:
     return None
 
 
+def _theme_tree_signature(theme_dir: Path) -> str:
+    """Return a lightweight signature for files that affect the overview preview."""
+    if not theme_dir.is_dir():
+        return ""
+    relevant_suffixes = {
+        ".yaml",
+        ".yml",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
+        ".svg",
+        ".ttf",
+        ".otf",
+        ".mp4",
+        ".webm",
+        ".mov",
+    }
+    pieces: list[str] = []
+    try:
+        paths = sorted(theme_dir.rglob("*"))
+    except OSError:
+        return ""
+    for path in paths:
+        try:
+            if not path.is_file() or path.suffix.lower() not in relevant_suffixes:
+                continue
+            stat = path.stat()
+            relative = path.relative_to(theme_dir).as_posix()
+        except OSError:
+            continue
+        pieces.append(f"{relative}:{stat.st_size}:{stat.st_mtime_ns}")
+    return "|".join(pieces)
+
+
 def _theme_video_path(app, theme_name: str) -> Path | None:
     theme_name = str(theme_name or "").strip()
     if not theme_name:
@@ -197,18 +233,14 @@ class OverviewLivePreviewAnimator:
         self.prepare_preview_async(theme_name, video_path, key)
 
     def cache_key(self, theme_name: str, video_path: Path) -> str:
-        theme_yaml = _theme_yaml_path(self.app, theme_name)
+        theme_dir = self.app.THEMES_DIR / theme_name
         try:
             stat = video_path.stat()
-            video_stamp = f"{video_path}:{stat.st_size}:{int(stat.st_mtime)}"
+            video_stamp = f"{video_path}:{stat.st_size}:{int(stat.st_mtime_ns)}"
         except OSError:
             video_stamp = str(video_path)
-        try:
-            theme_stat = theme_yaml.stat() if theme_yaml is not None else None
-            theme_stamp = f"{theme_yaml}:{theme_stat.st_size}:{theme_stat.st_mtime_ns}" if theme_stat else ""
-        except OSError:
-            theme_stamp = str(theme_yaml or "")
-        renderer_version = "full-theme-preview-v1-datetime-presets-autosize"
+        theme_stamp = _theme_tree_signature(theme_dir)
+        renderer_version = "full-theme-preview-v1-video-transparent-assets-cache"
         digest = hashlib.sha1(
             f"{video_stamp}:{theme_stamp}:{renderer_version}".encode("utf-8")
         ).hexdigest()[:12]
