@@ -1,6 +1,6 @@
 # Theme App Shell MVP
 
-This document describes stack phase 2 from `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md` and the follow-up gallery filtering/diagnostics phases.
+This document describes stack phase 2 from `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md` and the follow-up gallery filtering/diagnostics/current-theme phases.
 
 The app shell establishes one user-facing GTK/Libadwaita launcher for future surfaces instead of letting each roadmap feature become a separate standalone app.
 
@@ -25,11 +25,12 @@ Included so far:
 - filtered empty state when no theme matches;
 - per-theme gallery diagnostics action;
 - copyable gallery-level diagnostics report;
+- guarded `Use` action to set a theme as current;
+- atomic `config.yaml` update for `config.THEME`;
 - no theme file writes from browsing, filtering, or diagnostics.
 
 Not included yet:
 
-- setting the active/current theme from gallery;
 - import/export/duplicate/delete management actions;
 - real Device Manager implementation.
 
@@ -56,7 +57,7 @@ Temporary direct scripts may still exist for development/testing, but new roadma
 git diff --check
 ```
 
-Manual validation later in the stack:
+Manual validation:
 
 1. Launch `turing-smart-screen-gtk.py`.
 2. Confirm the shell opens with a sidebar.
@@ -70,10 +71,14 @@ Manual validation later in the stack:
 10. Confirm per-theme `Edit` opens the selected theme.
 11. Confirm per-theme diagnostics opens a report dialog.
 12. Confirm `Copy Report` copies the diagnostics report.
-13. Confirm per-theme folder button opens the theme folder.
-14. Confirm refresh updates the card list and preserves the current search query.
-15. Confirm disabled sidebar rows do not open separate apps.
-16. Confirm browsing/searching/diagnostics do not modify tracked theme files.
+13. Click `Use` on a non-current valid theme and confirm the dialog appears.
+14. Confirm `Use Theme` updates the current badge and `config.yaml` `THEME` value.
+15. Confirm broken themes cannot be set as current.
+16. Confirm per-theme folder button opens the theme folder.
+17. Confirm refresh updates the card list and preserves the current search query.
+18. Confirm disabled sidebar rows do not open separate apps.
+19. Confirm browsing/searching/diagnostics do not modify tracked theme files.
+20. Restore the test config change before final merge if needed: `git restore config.yaml`.
 
 ## Stack status
 
@@ -83,7 +88,8 @@ Completed in this branch so far:
 - Phase 2 — main GTK app shell with Theme Gallery embedded.
 - Phase 3 — gallery search/filter inside the shell.
 - Phase 4 — gallery diagnostics action.
+- Phase 5 — set active/current theme from the gallery.
 
 Next phase:
 
-- Phase 5 — set active/current theme from the gallery.
+- Validate the integrated stack locally before merging.
