@@ -89,6 +89,33 @@ def read_current_theme(config_file: Path = CONFIG_FILE) -> str | None:
     return match.group(1).strip()
 
 
+def set_current_theme(record: ThemeRecord, config_file: Path = CONFIG_FILE) -> tuple[str | None, str]:
+    """Set the active theme in config.yaml and return (old_theme, new_theme)."""
+    if not record.editable:
+        raise RuntimeError(
+            f"{record.name} cannot be set as current because it has no theme.yaml/theme.yml."
+        )
+
+    try:
+        content = config_file.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"Could not find {config_file}") from exc
+
+    old_theme = read_current_theme(config_file)
+    pattern = re.compile(r"(?m)^(\s*THEME\s*:\s*)([^#\n]*)(\s*(?:#.*)?)$")
+    match = pattern.search(content)
+    if match is None:
+        raise RuntimeError("Could not find THEME in config.yaml")
+
+    replacement = f"{match.group(1)}{record.name}{match.group(3)}"
+    new_content = content[: match.start()] + replacement + content[match.end() :]
+
+    tmp_file = config_file.with_name(f"{config_file.name}.tmp")
+    tmp_file.write_text(new_content, encoding="utf-8")
+    os.replace(tmp_file, config_file)
+    return old_theme, record.name
+
+
 def discover_themes(
     themes_dir: Path = THEMES_DIR,
     config_file: Path = CONFIG_FILE,
@@ -264,6 +291,32 @@ def show_theme_gallery_diagnostics_dialog(
     dialog.present(parent)
 
 
+def show_set_current_theme_dialog(
+    parent: Gtk.Widget,
+    record: ThemeRecord,
+    on_confirm: ThemeCallback,
+) -> None:
+    dialog = Adw.AlertDialog(
+        heading=f"Use {record.name}?",
+        body=(
+            "This will update config.yaml so this theme becomes the current "
+            "theme used by the app."
+        ),
+    )
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("use", "Use Theme")
+    dialog.set_response_appearance("use", Adw.ResponseAppearance.SUGGESTED)
+    dialog.set_default_response("use")
+    dialog.set_close_response("cancel")
+
+    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+        if response == "use":
+            on_confirm(record)
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+
+
 class ThemeGalleryPane(Gtk.Box):
     """Reusable gallery surface for app shell and developer window."""
 
@@ -273,12 +326,14 @@ class ThemeGalleryPane(Gtk.Box):
         on_open_theme: ThemeCallback,
         on_open_folder: ThemeCallback,
         on_theme_diagnostics: ThemeCallback | None = None,
+        on_set_current_theme: ThemeCallback | None = None,
         on_records_changed: Callable[[list[ThemeRecord]], None] | None = None,
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.on_open_theme = on_open_theme
         self.on_open_folder = on_open_folder
         self.on_theme_diagnostics = on_theme_diagnostics
+        self.on_set_current_theme = on_set_current_theme
         self.on_records_changed = on_records_changed
         self.records: list[ThemeRecord] = []
         self.filtered_records: list[ThemeRecord] = []
@@ -469,6 +524,16 @@ class ThemeGalleryPane(Gtk.Box):
             spacing=8,
             margin_top=4,
         )
+        if self.on_set_current_theme is not None and not record.current:
+            use_button = Gtk.Button(label="Use")
+            use_button.set_sensitive(record.editable)
+            use_button.set_tooltip_text("Set this theme as current")
+            use_button.connect(
+                "clicked",
+                lambda *_args: self.on_set_current_theme(record),
+            )
+            actions.append(use_button)
+
         edit_button = Gtk.Button(label="Edit")
         edit_button.add_css_class("suggested-action")
         edit_button.set_hexpand(True)
@@ -540,6 +605,7 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
             on_open_theme=self.open_theme_editor,
             on_open_folder=self.open_theme_folder,
             on_theme_diagnostics=self.show_theme_diagnostics,
+            on_set_current_theme=self.confirm_set_current_theme,
             on_records_changed=self.update_records_state,
         )
         toolbar.set_content(self.gallery)
@@ -594,6 +660,21 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
 
     def show_theme_diagnostics(self, record: ThemeRecord) -> None:
         show_theme_gallery_diagnostics_dialog(self, record, self.toast)
+
+    def confirm_set_current_theme(self, record: ThemeRecord) -> None:
+        show_set_current_theme_dialog(self, record, self.apply_set_current_theme)
+
+    def apply_set_current_theme(self, record: ThemeRecord) -> None:
+        try:
+            old_theme, new_theme = set_current_theme(record)
+        except Exception as exc:
+            self.error_dialog("Could not set current theme", str(exc))
+            return
+        self.gallery.reload_themes()
+        if old_theme and old_theme != new_theme:
+            self.toast(f"Current theme changed: {old_theme} → {new_theme}")
+        else:
+            self.toast(f"Current theme set to {new_theme}")
 
 
 class ThemeGalleryApplication(Adw.Application):
