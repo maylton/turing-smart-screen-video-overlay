@@ -42,24 +42,54 @@ SAMPLE_METRICS: dict[str, Any] = {
 }
 
 
+_PT_BR_MONTHS_ABBR = {
+    1: "jan.",
+    2: "fev.",
+    3: "mar.",
+    4: "abr.",
+    5: "mai.",
+    6: "jun.",
+    7: "jul.",
+    8: "ago.",
+    9: "set.",
+    10: "out.",
+    11: "nov.",
+    12: "dez.",
+}
+
+_PT_BR_WEEKDAYS = {
+    0: "segunda-feira",
+    1: "terça-feira",
+    2: "quarta-feira",
+    3: "quinta-feira",
+    4: "sexta-feira",
+    5: "sábado",
+    6: "domingo",
+}
+
+
 def build_mock_preview_context(theme_doc: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Return deterministic but realistic sample values for theme previews."""
-    now = datetime(2026, 7, 4, 22, 48, 0)
+    now = datetime(2023, 9, 6, 12, 36, 0)
     context = dict(SAMPLE_METRICS)
     context.update(
         {
-            "DATE": now.strftime("%a %d %b"),
-            "DAY": now.strftime("%A"),
+            "DATE": _format_pt_br_medium_date(now),
+            "DAY": _PT_BR_WEEKDAYS[now.weekday()],
             "TIME": now.strftime("%H:%M"),
             "TIME_SECONDS": now.strftime("%H:%M:%S"),
             "HOUR": now.strftime("%H"),
             "MINUTE": now.strftime("%M"),
             "YEAR": now.strftime("%Y"),
-            "MONTH": now.strftime("%B"),
+            "MONTH": _PT_BR_MONTHS_ABBR[now.month],
             "THEME": _theme_name(theme_doc),
         }
     )
     return context
+
+
+def _format_pt_br_medium_date(value: datetime) -> str:
+    return f"{value.day} de {_PT_BR_MONTHS_ABBR[value.month]} de {value.year}"
 
 
 def _theme_name(theme_doc: Mapping[str, Any] | None) -> str:
