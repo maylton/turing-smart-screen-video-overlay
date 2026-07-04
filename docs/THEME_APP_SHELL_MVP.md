@@ -33,20 +33,25 @@ Included so far:
 - integration into the existing main GTK configuration app via `configure-gtk.py` runtime patches;
 - replacement of the old main-app `Themes` page with the reusable `ThemeGalleryPane`;
 - `Create blank` action retained from the old Themes page;
-- search/filter by theme name, path, YAML filename, or status;
+- compatible-theme filtering by detected/configured display size;
+- search/filter by theme name, path, YAML filename, display size, or status;
 - result count for filtered searches;
-- filtered empty state when no theme matches;
+- filtered empty state when no compatible theme matches;
 - per-theme gallery diagnostics action;
 - copyable gallery-level diagnostics report;
 - guarded `Use` action to set a theme as current;
 - atomic `config.yaml` update for `config.THEME`;
+- non-destructive per-theme duplicate action;
+- GTK/GIO-backed theme folder opening, with `xdg-open` fallback;
 - installer guard so local `configure-gtk-final.py` leftovers cannot override the branch's `configure-gtk.py` during installed-app tests;
 - installed syntax validation for `library/theme_gallery.py`, `theme-gallery-gtk.py`, and `turing-smart-screen-gtk.py`;
-- no theme file writes from browsing, filtering, or diagnostics.
+- no theme file writes from browsing, filtering, diagnostics, or opening folders.
 
 Not included yet:
 
-- import/export/duplicate/delete management actions;
+- rename theme;
+- delete theme;
+- import/export theme;
 - real Device Manager implementation.
 
 ## Architecture decision
@@ -87,21 +92,24 @@ Manual validation:
 1. Launch the existing main app with `.venv/bin/python configure-gtk.py` or the installed `turing-smart-screen` command after reinstalling.
 2. Open the sidebar `Themes` page.
 3. Confirm the old split list/preview view is replaced by the gallery cards.
-4. Confirm the `Create blank` button is still available at the top of the page.
-5. Search by part of a theme name and confirm the card list filters.
-6. Search by `missing`, `theme.yaml`, or a path fragment and confirm matching works.
-7. Confirm an unmatched search shows the filtered empty state.
-8. Clear search and confirm all themes return.
-9. Confirm per-theme `Edit` opens the selected theme.
-10. Confirm per-theme diagnostics opens a report dialog.
-11. Confirm `Copy Report` copies the diagnostics report.
-12. Click `Use` on a non-current valid theme and confirm the dialog appears.
-13. Confirm `Use Theme` updates the current badge and `config.yaml` `THEME` value.
-14. Confirm broken themes cannot be set as current.
-15. Confirm per-theme folder button opens the theme folder.
-16. Confirm refresh updates the card list and preserves the current search query.
-17. Confirm browsing/searching/diagnostics do not modify tracked theme files.
-18. Restore the test config change before final merge if needed: `git restore config.yaml`.
+4. Confirm only compatible themes are shown for the detected/configured display size.
+5. Confirm the `Create blank` button is still available at the top of the page.
+6. Search by part of a theme name and confirm the card list filters.
+7. Search by `missing`, `theme.yaml`, display size, or a path fragment and confirm matching works.
+8. Confirm an unmatched search shows the filtered empty state.
+9. Clear search and confirm all compatible themes return.
+10. Confirm per-theme `Edit` opens the selected theme.
+11. Confirm per-theme diagnostics opens a report dialog.
+12. Confirm `Copy Report` copies the diagnostics report.
+13. Click `Use` on a non-current valid theme and confirm the dialog appears.
+14. Confirm `Use Theme` updates the current badge and `config.yaml` `THEME` value.
+15. Confirm broken themes cannot be set as current.
+16. Click duplicate on a valid theme and confirm a copy is created with a safe non-conflicting folder name.
+17. Confirm duplicate does not change `config.yaml` automatically.
+18. Confirm per-theme folder button opens the theme folder in the file manager.
+19. Confirm refresh updates the card list and preserves the current search query.
+20. Confirm browsing/searching/diagnostics/folder-open do not modify tracked theme files.
+21. Restore test config/theme changes before final merge if needed.
 
 ## Stack status
 
@@ -114,7 +122,10 @@ Completed in this branch so far:
 - Phase 5 — set active/current theme from the gallery.
 - Phase 6 — integrate the gallery into the existing main app `Themes` page.
 - Phase 7 — fix installer path so stale `configure-gtk-final.py` cannot mask this branch.
+- Phase 8 — fix gallery layout expansion in the main app.
+- Phase 9 — filter gallery themes to the detected/configured display size.
+- Phase 10 — duplicate theme and fix open theme folder.
 
 Next phase:
 
-- Validate the integrated main-app Themes page locally before merging.
+- Rename theme.
