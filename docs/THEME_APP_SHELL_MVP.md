@@ -42,7 +42,9 @@ Included so far:
 - guarded `Use` action to set a theme as current;
 - atomic `config.yaml` update for `config.THEME`;
 - non-destructive per-theme duplicate action;
-- GTK/GIO-backed theme folder opening, with `xdg-open` fallback;
+- guarded delete action that requires typing the exact theme name;
+- delete moves themes to Trash and refuses to delete the current theme;
+- robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then file-manager fallbacks;
 - installer guard so local `configure-gtk-final.py` leftovers cannot override the branch's `configure-gtk.py` during installed-app tests;
 - installed syntax validation for `library/theme_gallery.py`, `theme-gallery-gtk.py`, and `turing-smart-screen-gtk.py`;
 - no theme file writes from browsing, filtering, diagnostics, or opening folders.
@@ -50,7 +52,6 @@ Included so far:
 Not included yet:
 
 - rename theme;
-- delete theme;
 - import/export theme;
 - real Device Manager implementation.
 
@@ -106,10 +107,12 @@ Manual validation:
 15. Confirm broken themes cannot be set as current.
 16. Click duplicate on a valid theme and confirm a copy is created with a safe non-conflicting folder name.
 17. Confirm duplicate does not change `config.yaml` automatically.
-18. Confirm per-theme folder button opens the theme folder in the file manager.
-19. Confirm refresh updates the card list and preserves the current search query.
-20. Confirm browsing/searching/diagnostics/folder-open do not modify tracked theme files.
-21. Restore test config/theme changes before final merge if needed.
+18. Click delete on the duplicated theme, type the exact name, and confirm it moves to Trash.
+19. Confirm the current theme does not show a delete button.
+20. Confirm per-theme folder button opens the theme folder in the file manager or shows a useful error dialog.
+21. Confirm refresh updates the card list and preserves the current search query.
+22. Confirm browsing/searching/diagnostics/folder-open do not modify tracked theme files.
+23. Restore test config/theme changes before final merge if needed.
 
 ## Stack status
 
@@ -125,6 +128,7 @@ Completed in this branch so far:
 - Phase 8 — fix gallery layout expansion in the main app.
 - Phase 9 — filter gallery themes to the detected/configured display size.
 - Phase 10 — duplicate theme and fix open theme folder.
+- Phase 11 — delete theme with confirmation and safer folder-opening diagnostics.
 
 Next phase:
 
