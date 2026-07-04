@@ -143,7 +143,7 @@ Completed in this branch so far:
 - Phase 8 — delete theme with confirmation.
 - Phase 9 — import theme from folder/archive.
 - Phase 10 — integrate the gallery into the existing main app `Themes` page.
-- Phase 11 — fix installer path so stale `configure-gtk-final.py` cannot mask this branch.
+- Phase 11 — fix installer path so stale local `configure-gtk-final.py` cannot mask this branch.
 - Phase 12 — fix gallery layout expansion in the main app.
 - Phase 13 — filter gallery themes to the detected/configured display size.
 - Phase 14 — fix open theme folder in niri with direct file-manager fallback and debug logs.
