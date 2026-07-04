@@ -5,6 +5,11 @@ Some themes intentionally place static images partially outside the canvas so th
 visible area is cropped. The Rev. C low-level updater previously encoded the
 raw negative address and crashed with ``OverflowError``. This guard clips the
 transformed image before packet generation, and skips fully offscreen images.
+
+Important: clipping happens only after the theme image has been positioned and
+orientation-transformed. Do not pre-crop oversized images to the display size,
+because that changes the image region that should become visible on the device
+and makes runtime output disagree with the editor preview.
 """
 
 from __future__ import annotations
@@ -190,15 +195,15 @@ def install_rev_c_image_bounds_guard() -> None:
         if not image_width:
             image_width = image.size[0]
 
-        if image.size[1] > self.get_height():
-            image_height = self.get_height()
-        if image.size[0] > self.get_width():
-            image_width = self.get_width()
+        # Keep the positioned image intact. The old Rev. C path cropped images
+        # larger than the display before applying X/Y, which changed the visible
+        # portion of themes that rely on negative coordinates for centering.
+        # The guard below clips only the final, positioned rectangle.
+        if image_width > 0 and image_height > 0:
+            if image_width < image.size[0] or image_height < image.size[1]:
+                image = image.crop((0, 0, image_width, image_height))
 
-        if image_width != image.size[0] or image_height != image.size[1]:
-            image = image.crop((0, 0, image_width, image_height))
-
-        if image_height <= 0 or image_width <= 0:
+        if image.size[0] <= 0 or image.size[1] <= 0:
             logger.warning("Skipping Rev. C bitmap with invalid size %sx%s", image_width, image_height)
             return
 
@@ -207,12 +212,12 @@ def install_rev_c_image_bounds_guard() -> None:
                 image=image,
                 x=x,
                 y=y,
-                image_width=image_width,
-                image_height=image_height,
+                image_width=image.width,
+                image_height=image.height,
             )
             return
 
-        if x == 0 and y == 0 and image_width == self.get_width() and image_height == self.get_height():
+        if x == 0 and y == 0 and image.width == self.get_width() and image.height == self.get_height():
             with self.update_queue_mutex:
                 self._send_command(Command.PRE_UPDATE_BITMAP)
                 self._send_command(
