@@ -35,6 +35,8 @@ DISPLAY_SIZES = {
     '12.3"': (720, 1920),
 }
 
+DATE_TIME_FORMAT_PRESETS = {"short", "medium", "long", "full"}
+
 
 def load_theme_document(theme_yaml: Path) -> Mapping[str, Any]:
     """Load a theme YAML file without preserving comments."""
@@ -257,7 +259,6 @@ def draw_image_node(frame: Image.Image, theme_dir: Path, node: Mapping[str, Any]
         overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
     _paste_clipped(frame, overlay, _safe_int(node.get("X")), _safe_int(node.get("Y")))
 
-
 def draw_static_text(
     frame: Image.Image,
     root: Path,
@@ -361,10 +362,16 @@ def _format_node_text(
         raw = node.get("FORMAT")
     value = value_for_path(path, node, context)
     if raw is None or str(raw).strip() == "":
+        if _looks_like_time_path(path) or _looks_like_date_path(path):
+            return str(value)
         label = fallback_label or _human_label(path)
         return f"{label}: {value}"
 
     text = str(raw)
+    preset_text = _format_date_time_preset(path, text, context)
+    if preset_text is not None:
+        return preset_text
+
     replacements = {
         "{value}": str(value),
         "{VALUE}": str(value),
@@ -376,6 +383,27 @@ def _format_node_text(
     for key, replacement in replacements.items():
         text = text.replace(key, replacement)
     return text
+
+
+def _format_date_time_preset(path: tuple[Any, ...], text: str, context: Mapping[str, Any]) -> str | None:
+    preset = text.strip().strip('"\'').lower()
+    if preset not in DATE_TIME_FORMAT_PRESETS:
+        return None
+    if _looks_like_time_path(path):
+        return str(context.get("TIME", "22:48"))
+    if _looks_like_date_path(path):
+        return str(context.get("DATE", "Fri 04 Jul"))
+    return None
+
+
+def _looks_like_time_path(path: tuple[Any, ...]) -> bool:
+    label = "_".join(str(part).upper() for part in path if not isinstance(part, int))
+    return any(token in label for token in ("CLOCK", "TIME", "HOUR", "MINUTE"))
+
+
+def _looks_like_date_path(path: tuple[Any, ...]) -> bool:
+    label = "_".join(str(part).upper() for part in path if not isinstance(part, int))
+    return any(token in label for token in ("DATE", "DAY", "MONTH", "YEAR"))
 
 
 def _human_label(path: tuple[Any, ...]) -> str:
