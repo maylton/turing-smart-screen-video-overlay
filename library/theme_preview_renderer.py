@@ -375,22 +375,33 @@ def draw_text_node(
     bbox = probe_draw.multiline_textbbox((0, 0), text, font=font, spacing=2)
     measured_width = max(1, bbox[2] - bbox[0])
     measured_height = max(1, bbox[3] - bbox[1])
-    padding_x = max(2, font_size // 8)
-    padding_y = max(2, font_size // 8)
 
     configured_width = _safe_int(node.get("WIDTH"), 0)
     configured_height = _safe_int(node.get("HEIGHT"), 0)
-    width = max(configured_width, measured_width + padding_x * 2, 1)
-    height = max(configured_height, measured_height + padding_y * 2, 1)
-    if x >= 0:
-        width = min(width, max(1, frame.width - x))
-    if y >= 0:
-        height = min(height, max(1, frame.height - y))
+    has_configured_width = "WIDTH" in node and configured_width > 0
+    has_configured_height = "HEIGHT" in node and configured_height > 0
 
-    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    padding_x = max(2, font_size // 8)
+    padding_y = max(2, font_size // 8)
+    inner_width = configured_width if has_configured_width else measured_width + padding_x * 2
+    inner_height = configured_height if has_configured_height else measured_height + padding_y * 2
+
+    # Preserve the theme's real X/Y/W/H layout box.  Add an invisible guard band
+    # around the layer so glyph ascenders/descenders and left bearings are not
+    # clipped by Pillow even when the configured box is tight.
+    glyph_margin_x = max(4, font_size // 5)
+    glyph_margin_y = max(4, font_size // 4)
+    layer_width = max(1, inner_width + glyph_margin_x * 2)
+    layer_height = max(1, inner_height + glyph_margin_y * 2)
+
+    layer = Image.new("RGBA", (layer_width, layer_height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
+
     if not transparent_background:
-        _draw_node_background(draw, layer, theme_dir, node, width, height)
+        background_layer = Image.new("RGBA", (inner_width, inner_height), (0, 0, 0, 0))
+        background_draw = ImageDraw.Draw(background_layer)
+        _draw_node_background(background_draw, background_layer, theme_dir, node, inner_width, inner_height)
+        layer.alpha_composite(background_layer, (glyph_margin_x, glyph_margin_y))
 
     fill = _color(node.get("FONT_COLOR"), (255, 255, 255, 255))
     bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=2)
@@ -399,27 +410,29 @@ def draw_text_node(
     align = str(node.get("ALIGN", "left")).lower()
     anchor = str(node.get("ANCHOR", "lt")).lower()
 
-    tx = padding_x
+    content_x = glyph_margin_x
+    content_y = glyph_margin_y
+    tx = content_x if has_configured_width else content_x + padding_x
     if align in {"center", "middle"}:
-        tx = max(0, (width - text_width) // 2)
+        tx = content_x + max(0, (inner_width - text_width) // 2)
     elif align in {"right", "end"}:
-        tx = max(0, width - text_width - padding_x)
+        tx = content_x + max(0, inner_width - text_width - (0 if has_configured_width else padding_x))
 
-    ty = padding_y
+    ty = content_y if has_configured_height else content_y + padding_y
     if "m" in anchor or "c" in anchor:
-        ty = max(0, (height - text_height) // 2)
+        ty = content_y + max(0, (inner_height - text_height) // 2)
     elif "b" in anchor:
-        ty = max(0, height - text_height - padding_y)
+        ty = content_y + max(0, inner_height - text_height - (0 if has_configured_height else padding_y))
 
     draw.multiline_text(
-        (tx, ty),
+        (tx - bbox[0], ty - bbox[1]),
         text,
         font=font,
         fill=fill,
         spacing=2,
         align=align if align in {"left", "center", "right"} else "left",
     )
-    _paste_clipped(frame, layer, x, y)
+    _paste_clipped(frame, layer, x - glyph_margin_x, y - glyph_margin_y)
 
 
 def _draw_node_background(
