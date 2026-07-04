@@ -1,6 +1,6 @@
 # Theme App Architecture Checkpoint
 
-This checkpoint corrects the direction before the Theme Gallery MVP is merged.
+This checkpoint records the architecture decision for the Theme Gallery / Theme Manager stack after PR #46 was promoted from prototype work into the integrated main app.
 
 The project should evolve toward one cohesive Linux/GTK application shell, not a collection of separate standalone apps for every new feature.
 
@@ -12,7 +12,7 @@ The initial Theme Gallery MVP branch introduced a new standalone entry point:
 .venv/bin/python theme-gallery-gtk.py
 ```
 
-That is useful as a technical prototype, but it should not become the long-term architecture pattern.
+That was useful as a technical prototype, but it should not become the long-term architecture pattern.
 
 If every major feature becomes a separate script/window/app, the project will drift into this shape:
 
@@ -27,41 +27,51 @@ settings-app.py
 
 That would make the user experience fragmented and would make future packaging harder.
 
-## Target architecture
+## Architecture decision
 
-The desired architecture is one main GTK/Libadwaita app shell with feature surfaces inside it:
+The accepted direction is one main GTK/Libadwaita app shell with feature surfaces inside it:
 
 ```text
 Main app shell
+├─ Overview
 ├─ Theme Gallery / Theme Manager
-├─ Theme Editor
-├─ Generated Media Manager
-├─ Video Inspector
+├─ Embedded Theme Editor
+├─ Embedded Video Manager
+├─ Generated Media / Video tools
 ├─ Device Manager
 ├─ Settings
 └─ Diagnostics
 ```
 
-## Product decision
+The standalone scripts remain useful as fallback/developer entry points, but normal user-facing actions should route through the integrated app shell.
 
-The Theme Gallery should become the future home/start surface of the application.
+## Post-merge status
 
-The GTK Theme Editor should remain the main editing surface, but it should be opened from the Theme Gallery or app shell instead of being the only normal entry point.
+PR #46 was merged with the integrated architecture instead of shipping the original standalone-gallery prototype as the final direction.
 
-The current standalone editor script may remain as a developer/debug entry point during the transition, but the user-facing architecture should converge toward a single app.
+The merged stack now includes:
 
-## Entry point policy
+- Theme Gallery integrated into the existing main app `Themes` page;
+- embedded Theme Editor route from Theme Gallery, Overview, and Quick Actions;
+- embedded Video Manager route from Overview Quick Actions and Tools;
+- Overview animated preview for video themes;
+- preview renderer behavior aligned with the Theme Editor/runtime text rendering path;
+- static Overview preview data aligned with the Theme Editor `HW_SENSORS=STATIC` basis.
+
+## Current entry point policy
 
 | Entry point | Long-term role | Decision |
 | --- | --- | --- |
-| Main app shell | User-facing launcher | Required |
-| Theme Gallery | Home / Theme Manager surface | Required |
-| GTK Theme Editor | Editing surface inside/opened by shell | Required |
-| Generated Media Manager | Tool/dialog inside editor or shell | Required |
-| Video Inspector | Tool/dialog inside editor | Required |
-| Device Manager | Shell surface/dialog | Future required |
-| Classic editor | Advanced fallback only | Temporary |
-| Standalone scripts | Developer/debug compatibility | Allowed during transition |
+| `turing-smart-screen` | Normal installed app launcher | Required |
+| `turing-smart-screen-main.py` | Integrated launcher wrapper | Required |
+| `configure-gtk.py` | Existing app foundation / legacy runtime launcher | Required during transition |
+| `library/theme_gallery.py` | Reusable Theme Gallery surface/model | Required |
+| Embedded Theme Editor | Editing surface inside the app shell | Required |
+| Embedded Video Manager | Video-management surface inside the app shell | Required |
+| `theme-editor-gtk.py` | Standalone fallback/dev editor | Allowed |
+| `video-manager-gtk.py` | Standalone fallback/dev video manager | Allowed |
+| `theme-gallery-gtk.py` | Isolated gallery developer harness | Temporary/dev only |
+| `turing-smart-screen-gtk.py` | Earlier standalone app-shell prototype | Temporary/dev only |
 
 ## Rules for new features
 
@@ -70,87 +80,40 @@ New major features should follow these rules:
 1. Do not create a new user-facing app unless there is an explicit architecture decision.
 2. Prefer a reusable module plus an app-shell surface.
 3. Prefer dialogs/pages/tools inside the main shell or editor.
-4. Keep standalone scripts only as temporary developer/debug entry points.
+4. Keep standalone scripts only as fallback/developer/debug entry points.
 5. Keep the app packageable as one coherent application.
 6. Do not bypass existing safe save/reload/diagnostics behavior.
 
-## How to handle PR #46
+## Current structure
 
-PR #46 should remain draft-only until it is refactored.
+```text
+turing-smart-screen                         # normal installed app command
+└─ turing-smart-screen-main.py              # integrated launcher wrapper
+   └─ configure-gtk.py runtime patches      # existing app foundation
+      ├─ Overview                           # active theme preview surface
+      ├─ Themes page                        # reusable ThemeGalleryPane
+      ├─ Embedded Theme Editor page         # hosted editor surface
+      ├─ Embedded Video Manager page        # hosted video-manager surface
+      └─ Tools / Quick Actions              # routes into embedded surfaces
+```
 
-Treat the current gallery code as a prototype for:
-
-- theme discovery;
-- current-theme detection;
-- theme cards;
-- preview thumbnails;
-- broken-theme state;
-- opening a theme in the GTK editor;
-- opening a theme folder.
-
-Before merging it, choose one of these paths:
-
-### Option A — Promote the gallery into the main app shell
-
-Create a new primary launcher, for example:
+Standalone fallback/dev entry points remain available:
 
 ```bash
+.venv/bin/python theme-editor-gtk.py
+.venv/bin/python video-manager-gtk.py
+.venv/bin/python theme-gallery-gtk.py
 .venv/bin/python turing-smart-screen-gtk.py
 ```
 
-The launcher opens the Theme Gallery as the home surface and opens the Theme Editor from there.
+## Follow-up direction
 
-This is the preferred long-term direction.
+The next work should continue from the integrated shell, not from new standalone app surfaces.
 
-### Option B — Integrate the gallery into an existing launcher
+Recommended follow-ups:
 
-If the repository already has a better app entry point, integrate the gallery into that instead of creating a new shell.
-
-### Option C — Extract reusable gallery logic first
-
-Move discovery/card logic into a reusable module, then add the UI surface inside the chosen shell later.
-
-This is acceptable if the app-shell decision needs more code inspection.
-
-## Recommended next implementation plan
-
-1. Keep PR #46 as draft.
-2. Create an app-shell plan before merging gallery code.
-3. Refactor gallery code into the selected architecture.
-4. Keep `theme-editor-gtk.py` as a direct developer entry point for now.
-5. Make the app shell the normal user-facing launcher later.
-
-## Proposed final structure
-
-Short term:
-
-```text
-theme-editor-gtk.py              # direct editor/dev entry point
-theme-gallery-gtk.py             # draft prototype only, not final pattern
-library/theme_gallery.py         # future reusable theme discovery/model code
-```
-
-Medium term:
-
-```text
-turing-smart-screen-gtk.py       # main app shell
-library/theme_gallery.py         # theme discovery/model helpers
-library/theme_app_shell.py       # shell navigation helpers, if needed
-theme-editor-gtk.py              # still runnable directly for debugging
-```
-
-Long term:
-
-```text
-turing-smart-screen-gtk.py       # normal app launcher
-Theme Gallery                    # home surface
-Theme Editor                     # editing surface
-Tools / Dialogs                  # media, video, diagnostics, device manager
-Classic Editor                   # removed or hidden fallback only
-```
-
-## Decision
-
-Do not merge standalone Theme Gallery as the final architecture.
-
-Use it as a prototype, then refactor toward a single cohesive app shell.
+1. Post-merge documentation and validation cleanup.
+2. Export completeness: referenced/generated media preflight and missing-asset warnings.
+3. Embedded media-preparation workflow.
+4. Device Manager / display-profile integration.
+5. Gradual retirement or hiding of standalone prototype entry points once the integrated app is stable.
