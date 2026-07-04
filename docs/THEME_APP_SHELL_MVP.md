@@ -57,6 +57,7 @@ Included so far:
 - compact gallery card action layout with secondary actions in an overflow menu;
 - embedded Theme Editor page inside the main app stack for the normal gallery `Edit` flow;
 - standalone `theme-editor-gtk.py` kept as the fallback/dev entry point;
+- Rev. C runtime guard that clips partially offscreen bitmap updates instead of crashing on negative packet addresses;
 - robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then file-manager fallbacks;
 - debug logging for the theme-folder open action with `TURING_THEME_GALLERY_DEBUG=1`;
 - installer guard so local `configure-gtk-final.py` leftovers cannot override the branch's `configure-gtk.py` during installed-app tests;
@@ -103,6 +104,7 @@ If there are no `[theme-gallery]` lines after clicking, the button callback is n
 .venv/bin/python -m py_compile library/theme_gallery.py
 .venv/bin/python -m py_compile library/embedded_theme_editor.py
 .venv/bin/python -m py_compile library/embedded_theme_editor_runtime.py
+.venv/bin/python -m py_compile library/runtime_rev_c_image_guard.py
 .venv/bin/python -m py_compile theme-gallery-gtk.py
 .venv/bin/python -m py_compile turing-smart-screen-gtk.py
 .venv/bin/python -m py_compile configure-gtk.py
@@ -118,6 +120,7 @@ Installed-app validation:
 ./install.sh --no-deps
 grep -n "turing-smart-screen-main.py" ~/.local/bin/turing-smart-screen
 grep -n "EmbeddedThemeEditorPage" ~/.local/share/turing-smart-screen/library/embedded_theme_editor.py
+grep -n "runtime_rev_c_image_guard" ~/.local/share/turing-smart-screen/sitecustomize.py
 turing-smart-screen
 ```
 
@@ -134,7 +137,8 @@ Manual validation:
 9. Confirm the embedded editor can render the preview and expose the existing editor panels/actions.
 10. Use the embedded editor's `Themes` back button and confirm it returns to the gallery.
 11. Use `Open separate window` and confirm the standalone GTK Theme Editor still opens as fallback.
-12. Restore test config/theme changes before final merge if needed.
+12. Start the monitor with a theme containing partially offscreen images and confirm it logs clipping warnings instead of crashing with `OverflowError`.
+13. Restore test config/theme changes before final merge if needed.
 
 ## Stack status
 
@@ -157,6 +161,7 @@ Completed in this branch so far:
 - Phase 15 — export theme to `.zip` archive.
 - Phase 16 — polish Theme Gallery card actions into an overflow menu.
 - Phase 17 — embed Theme Editor into the main app stack.
+- Phase 18 — guard Rev. C bitmap updates against offscreen image coordinates.
 
 Next phase:
 
