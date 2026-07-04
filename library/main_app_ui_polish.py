@@ -187,12 +187,10 @@ class OverviewLivePreviewAnimator:
             self.stop()
             self.theme_name = theme_name
             return
-
         key = self.cache_key(theme_name, video_path)
         if key == self.worker_key and self.frames:
             self.start_loop()
             return
-
         self.stop()
         self.theme_name = theme_name
         self.worker_key = key
@@ -210,7 +208,7 @@ class OverviewLivePreviewAnimator:
             theme_stamp = f"{theme_yaml}:{theme_stat.st_size}:{theme_stat.st_mtime_ns}" if theme_stat else ""
         except OSError:
             theme_stamp = str(theme_yaml or "")
-        renderer_version = "full-theme-preview-v1"
+        renderer_version = "full-theme-preview-v1-datetime-presets"
         digest = hashlib.sha1(
             f"{video_stamp}:{theme_stamp}:{renderer_version}".encode("utf-8")
         ).hexdigest()[:12]
