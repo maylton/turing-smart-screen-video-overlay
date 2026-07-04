@@ -9,14 +9,16 @@ The main GTK app already had the important surfaces integrated into one window: 
 - Added `library/main_app_ui_polish.py` as a focused runtime polish layer.
 - Wrapped the Overview preview in an overlay with a status caption.
 - Added `OverviewLivePreviewAnimator` to detect the active theme's `video:` block.
-- When a theme video is enabled and available, the app extracts a tiny cached frame loop using `ffmpeg`.
-- The Overview preview cycles those frames inside the existing `Gtk.Picture`, approximating the real display output without opening another window.
+- Theme video detection now supports both prepared local video references and display-side remote paths by looking up the corresponding prepared local media.
+- When a theme video is enabled and available, the app generates a short 3.5 second GIF preview using `ffmpeg`.
+- The generated GIF is cached per theme/video revision under `~/.cache/turing-smart-screen/overview-preview/<theme-key>/preview.gif`.
+- The Overview preview also cycles cached PNG frames from that same generated preview so the app can animate inside the existing `Gtk.Picture` reliably.
 - If no video is available, the Overview preview remains static and labels itself as a static preview.
 
 ## Safety notes
 
-- The frame extraction runs in a background thread.
-- Extracted frames are cached under `~/.cache/turing-smart-screen/overview-preview/`.
+- GIF/frame generation runs in a background thread.
+- Extracted assets are cached under `~/.cache/turing-smart-screen/overview-preview/`.
 - Theme files are not modified.
 - If `ffmpeg` is missing or extraction fails, the app falls back to the static preview.
 
@@ -33,7 +35,8 @@ Manual test:
 
 1. Open Overview.
 2. Confirm the preview shows a caption.
-3. Use an active theme with `video.ENABLED: true` and a valid `video.PATH`.
-4. Confirm the caption changes from `Preparing live preview…` to `Live theme preview`.
+3. Use an active theme with `video.ENABLED: true` and either a valid `video.LOCAL_PATH` or a display-side `video.PATH` whose prepared local media exists.
+4. Confirm the caption changes from `Generating theme GIF preview…` to `Animated theme preview · preview.gif`.
 5. Confirm the preview cycles video frames.
-6. Use a theme with no video and confirm it falls back to `Static theme preview`.
+6. Check `~/.cache/turing-smart-screen/overview-preview/` and confirm a `preview.gif` was generated for the theme.
+7. Use a theme with no video and confirm it falls back to `Static theme preview`.
