@@ -55,7 +55,8 @@ Included so far:
 - export action for selected themes as `.zip` archives;
 - export skips temporary/editor-backup/cache files and refuses to overwrite existing archives;
 - compact gallery card action layout with secondary actions in an overflow menu;
-- embedded Theme Editor page inside the main app stack for the normal gallery `Edit` flow;
+- embedded Theme Editor page inside the main app stack for the gallery card `Edit` flow;
+- overview `Edit theme` and Quick Actions `Theme editor` now route to the embedded editor page through `win.open-editor`;
 - standalone `theme-editor-gtk.py` kept as the fallback/dev entry point;
 - Rev. C runtime guard that clips partially offscreen bitmap updates instead of crashing on negative packet addresses;
 - robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then file-manager fallbacks;
@@ -81,7 +82,7 @@ turing-smart-screen                         # installed app command
       └─ Embedded Theme Editor page         # existing editor content hosted in app stack
 ```
 
-`theme-editor-gtk.py` remains available as a standalone fallback/dev entry point, but the normal gallery `Edit` path should open the editor inside the main app.
+`theme-editor-gtk.py` remains available as a standalone fallback/dev entry point. Normal app actions that mean “edit theme” should open the editor inside the main app.
 
 ## Debugging folder opening
 
@@ -133,12 +134,14 @@ Manual validation:
 5. Confirm the `Create blank` button is still available at the top of the page.
 6. Confirm each card shows only `Use`, `Edit`, and `⋮` directly.
 7. Open `⋮` and test duplicate, rename, export, open folder, diagnostics, and delete.
-8. Click `Edit` on a theme and confirm the Theme Editor opens inside the main app window.
-9. Confirm the embedded editor can render the preview and expose the existing editor panels/actions.
-10. Use the embedded editor's `Themes` back button and confirm it returns to the gallery.
-11. Use `Open separate window` and confirm the standalone GTK Theme Editor still opens as fallback.
-12. Start the monitor with a theme containing partially offscreen images and confirm it logs clipping warnings instead of crashing with `OverflowError`.
-13. Restore test config/theme changes before final merge if needed.
+8. Click `Edit` on a theme card and confirm the Theme Editor opens inside the main app window.
+9. Go back to Overview, click `Edit theme`, and confirm it opens the same embedded editor page for the active theme.
+10. Use the Quick Actions row `Theme editor` and confirm it also opens the embedded editor page.
+11. Confirm the embedded editor can render the preview and expose the existing editor panels/actions.
+12. Use the embedded editor's `Themes` back button and confirm it returns to the gallery.
+13. Use `Open separate window` and confirm the standalone GTK Theme Editor still opens as fallback.
+14. Start the monitor with a theme containing partially offscreen images and confirm it logs clipping warnings instead of crashing with `OverflowError`.
+15. Restore test config/theme changes before final merge if needed.
 
 ## Stack status
 
@@ -162,6 +165,7 @@ Completed in this branch so far:
 - Phase 16 — polish Theme Gallery card actions into an overflow menu.
 - Phase 17 — embed Theme Editor into the main app stack.
 - Phase 18 — guard Rev. C bitmap updates against offscreen image coordinates.
+- Phase 19 — route overview and quick-action Theme Editor buttons to the embedded editor.
 
 Next phase:
 
