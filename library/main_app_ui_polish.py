@@ -208,7 +208,7 @@ class OverviewLivePreviewAnimator:
             theme_stamp = f"{theme_yaml}:{theme_stat.st_size}:{theme_stat.st_mtime_ns}" if theme_stat else ""
         except OSError:
             theme_stamp = str(theme_yaml or "")
-        renderer_version = "full-theme-preview-v1-datetime-presets"
+        renderer_version = "full-theme-preview-v1-datetime-presets-autosize"
         digest = hashlib.sha1(
             f"{video_stamp}:{theme_stamp}:{renderer_version}".encode("utf-8")
         ).hexdigest()[:12]
