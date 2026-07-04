@@ -46,6 +46,8 @@ Included so far:
 - guarded delete action that requires typing the exact theme name;
 - delete moves themes to Trash and refuses to delete the current theme;
 - import action for theme folders or safe `.zip` archives;
+- export action for selected themes as `.zip` archives;
+- export skips temporary/editor-backup/cache files and refuses to overwrite existing archives;
 - robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then file-manager fallbacks;
 - debug logging for the theme-folder open action with `TURING_THEME_GALLERY_DEBUG=1`;
 - installer guard so local `configure-gtk-final.py` leftovers cannot override the branch's `configure-gtk.py` during installed-app tests;
@@ -54,7 +56,6 @@ Included so far:
 
 Not included yet:
 
-- export theme;
 - real Device Manager implementation.
 
 ## Architecture decision
@@ -124,10 +125,11 @@ Manual validation:
 18. Click delete on a duplicated theme, type the exact name, and confirm it moves to Trash.
 19. Confirm the current theme does not show a delete button.
 20. Click Import, paste a valid theme folder or `.zip` path, and confirm it appears without overwriting existing themes.
-21. Confirm per-theme folder button opens the theme folder in the file manager or produces `[theme-gallery]` debug output.
-22. Confirm refresh updates the card list and preserves the current search query.
-23. Confirm browsing/searching/diagnostics/folder-open do not modify tracked theme files.
-24. Restore test config/theme changes before final merge if needed.
+21. Click Export on a valid theme and confirm a `.zip` archive is created without overwriting existing files.
+22. Confirm per-theme folder button opens the theme folder in the file manager or produces `[theme-gallery]` debug output.
+23. Confirm refresh updates the card list and preserves the current search query.
+24. Confirm browsing/searching/diagnostics/folder-open do not modify tracked theme files.
+25. Restore test config/theme changes before final merge if needed.
 
 ## Stack status
 
@@ -147,7 +149,8 @@ Completed in this branch so far:
 - Phase 12 — fix gallery layout expansion in the main app.
 - Phase 13 — filter gallery themes to the detected/configured display size.
 - Phase 14 — fix open theme folder in niri with direct file-manager fallback and debug logs.
+- Phase 15 — export theme to `.zip` archive.
 
 Next phase:
 
-- Export theme.
+- Device Manager / display-profile integration.
