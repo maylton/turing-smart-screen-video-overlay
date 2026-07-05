@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -661,23 +663,435 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         spec.loader.exec_module(module)
         return module
 
-    def unique_windows_assets_output_dir(self, theme_path: Path) -> Path:
+    def unique_extracted_windows_theme_dir(self, theme_path: Path) -> Path:
         stem = re.sub(r"[^A-Za-z0-9._-]+", "-", theme_path.stem).strip("-._")
-        stem = stem or "windows-theme-assets"
+        stem = stem or "windows-theme"
+        base = f"{stem}-extracted"
 
-        root = self.theme_dir / "windows-assets"
-        root.mkdir(parents=True, exist_ok=True)
-
-        candidate = root / stem
+        candidate = THEMES_DIR / base
         if not candidate.exists():
             return candidate
 
         counter = 2
         while True:
-            candidate = root / f"{stem}-{counter}"
+            candidate = THEMES_DIR / f"{base}-{counter}"
             if not candidate.exists():
                 return candidate
             counter += 1
+
+    def is_windows_preview_asset(self, item: dict) -> bool:
+        text = " ".join(
+            str(item.get(key) or "")
+            for key in ("path", "original_name", "note", "source")
+        ).casefold()
+
+        preview_tokens = (
+            "preview",
+            "cover",
+            "thumbnail",
+            "thumb",
+            "screenshot",
+            "snapshot",
+            "poster",
+            "icon",
+            "logo",
+        )
+        return any(token in text for token in preview_tokens)
+
+    def extracted_windows_image_assets(self, manifest: dict) -> list[dict]:
+        assets = manifest.get("assets", []) if isinstance(manifest, dict) else []
+        return [
+            item for item in assets
+            if isinstance(item, dict)
+            and item.get("kind") == "image"
+            and item.get("path")
+        ]
+
+    def extracted_windows_video_assets(self, manifest: dict) -> list[dict]:
+        assets = manifest.get("assets", []) if isinstance(manifest, dict) else []
+        return [
+            item for item in assets
+            if isinstance(item, dict)
+            and item.get("kind") == "video"
+            and item.get("path")
+        ]
+
+    def preferred_windows_background_asset(self, manifest: dict, *, has_video: bool):
+        images = self.extracted_windows_image_assets(manifest)
+        if not images:
+            return None
+
+        # If a companion/native video exists, the generated theme must not place
+        # any image as an active full-screen background. The video is the real
+        # background; extracted images stay available but disabled so text,
+        # graphs, and overlays render over the video instead of over a cover.
+        if has_video:
+            return None
+
+        # TURZX packages commonly expose the Windows preview/cover first and
+        # the real layout/background image second. Prefer the second image for
+        # non-video themes.
+        if len(images) >= 2:
+            second = images[1]
+            if not self.is_windows_preview_asset(second):
+                return second
+
+        non_preview = [
+            item for item in images
+            if not self.is_windows_preview_asset(item)
+        ]
+
+        if non_preview:
+            return non_preview[0]
+
+        return images[0]
+
+    def preferred_windows_preview_asset(self, manifest: dict):
+        images = self.extracted_windows_image_assets(manifest)
+        if not images:
+            return None
+
+        preview_like = [
+            item for item in images
+            if self.is_windows_preview_asset(item)
+        ]
+        if preview_like:
+            return preview_like[0]
+
+        return images[0]
+
+    def build_extracted_windows_theme_data(self, manifest: dict, assets_prefix: str):
+        display = {}
+        if isinstance(self.theme_data, dict) and isinstance(self.theme_data.get("display"), dict):
+            display = copy.deepcopy(self.theme_data.get("display") or {})
+
+        if not display:
+            display = {
+                "DISPLAY_SIZE": '3.5"',
+                "DISPLAY_ORIENTATION": "portrait",
+            }
+
+        theme_data = {
+            "author": "@windows-theme-extractor",
+            "display": display,
+            "static_images": {},
+            "static_text": {},
+            "STATS": {},
+        }
+
+        try:
+            width, height = theme_canvas_dimensions(theme_data)
+        except Exception:
+            width, height = 320, 480
+
+        video_assets = self.extracted_windows_video_assets(manifest)
+        has_video = bool(video_assets)
+
+        background_asset = self.preferred_windows_background_asset(
+            manifest,
+            has_video=has_video,
+        )
+
+        if background_asset is not None:
+            theme_data["static_images"]["WINDOWS_BACKGROUND"] = {
+                "PATH": f"{assets_prefix}/{background_asset['path']}",
+                "X": 0,
+                "Y": 0,
+                "WIDTH": width,
+                "HEIGHT": height,
+            }
+
+        # Keep every extra extracted image discoverable in the YAML, but disabled
+        # by default. This prevents Windows preview/cover files from covering
+        # the generated theme while still making them easy to enable manually.
+        used_path = background_asset.get("path") if background_asset else ""
+        extra_index = 1
+        for item in self.extracted_windows_image_assets(manifest):
+            if item.get("path") == used_path:
+                continue
+
+            key = f"WINDOWS_ASSET_{extra_index:02d}"
+            extra_index += 1
+
+            theme_data["static_images"][key] = {
+                "SHOW": False,
+                "PATH": f"{assets_prefix}/{item['path']}",
+                "X": 0,
+                "Y": 0,
+                "WIDTH": width,
+                "HEIGHT": height,
+            }
+
+        if video_assets:
+            first_video = video_assets[0]
+            theme_data["video"] = {
+                "ENABLED": True,
+                "OVERLAY": True,
+                "LOCAL_PATH": f"{assets_prefix}/{first_video['path']}",
+                "PATH": f"/mnt/SDCARD/video/{Path(first_video['path']).name}",
+                "PREVIEW_BACKGROUND": "video-preview.png",
+            }
+
+        return theme_data
+
+    def create_video_preview_frame(self, extracted_theme_dir: Path, manifest: dict):
+        video_assets = self.extracted_windows_video_assets(manifest)
+        if not video_assets:
+            return None
+
+        first_video = video_assets[0]
+        relative_path = first_video.get("path")
+        if not relative_path:
+            return None
+
+        source = extracted_theme_dir / "assets" / relative_path
+        if not source.is_file():
+            return None
+
+        destination = extracted_theme_dir / "video-preview.png"
+
+        # Use ffmpeg when available to render a representative frame for the
+        # GTK editor preview. The actual display still uses native video as the
+        # background; this PNG is only a preview fallback for editing.
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            result = subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(source),
+                    "-frames:v",
+                    "1",
+                    str(destination),
+                ],
+                cwd=str(extracted_theme_dir),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode == 0 and destination.is_file():
+                return destination
+
+        return None
+
+    def create_extracted_windows_theme(self, extracted_theme_dir: Path, manifest: dict) -> Path:
+        extracted_theme_dir.mkdir(parents=True, exist_ok=True)
+        theme_yaml = extracted_theme_dir / "theme.yaml"
+        if theme_yaml.exists():
+            raise FileExistsError(theme_yaml)
+
+        theme_data = self.build_extracted_windows_theme_data(
+            manifest,
+            assets_prefix="assets",
+        )
+        save_yaml_atomic(theme_yaml, theme_data)
+
+        video_preview = self.create_video_preview_frame(extracted_theme_dir, manifest)
+
+        if video_preview is not None:
+            shutil.copy2(video_preview, extracted_theme_dir / "preview.png")
+        else:
+            preview_image = self.preferred_windows_preview_asset(manifest)
+            if preview_image is not None:
+                source = extracted_theme_dir / "assets" / preview_image["path"]
+                if source.is_file():
+                    shutil.copy2(source, extracted_theme_dir / "preview.png")
+
+        notes = [
+            "Windows theme asset extraction",
+            "==============================",
+            "",
+            "This folder was generated from a Windows .turtheme file.",
+            "",
+            "The extractor copied image/video assets into ./assets and created",
+            "a starter theme.yaml so the theme can be opened and edited in the",
+            "GTK Theme Editor.",
+            "",
+            "The original Windows layout is not converted yet.",
+            "Adjust positions, visibility, sizes, and components manually.",
+            "",
+        ]
+        (extracted_theme_dir / "EXTRACTION_NOTES.txt").write_text(
+            "\n".join(notes),
+            encoding="utf-8",
+        )
+
+        return extracted_theme_dir
+
+    def companion_video_search_roots(self, theme_path: Path) -> list[Path]:
+        roots = []
+        for root in [
+            theme_path.parent,
+            theme_path.parent.parent,
+            theme_path.parent.parent.parent,
+        ]:
+            if root not in roots and root.exists():
+                roots.append(root)
+        return roots
+
+    def referenced_video_names_from_windows_theme(self, theme_path: Path) -> set[str]:
+        try:
+            text = theme_path.read_bytes().decode("utf-8", errors="ignore")
+        except OSError:
+            return set()
+
+        names = set()
+        pattern = re.compile(
+            r"([A-Za-z0-9_.() -]+\.(?:mp4|mov|m4v|webm|mkv|avi|gif))",
+            re.IGNORECASE,
+        )
+        for match in pattern.finditer(text):
+            names.add(Path(match.group(1)).name.casefold())
+        return names
+
+    def companion_video_candidates_for_windows_theme(self, theme_path: Path) -> list[Path]:
+        video_exts = {
+            ".mp4",
+            ".mov",
+            ".m4v",
+            ".webm",
+            ".mkv",
+            ".avi",
+            ".gif",
+        }
+
+        theme_stem = theme_path.stem.casefold()
+        referenced_names = self.referenced_video_names_from_windows_theme(theme_path)
+        candidates = []
+
+        for root in self.companion_video_search_roots(theme_path):
+            for folder_name in ("video", "videos", "Video", "Videos"):
+                folder = root / folder_name
+                if not folder.is_dir():
+                    continue
+
+                try:
+                    files = sorted(folder.rglob("*"))
+                except OSError:
+                    continue
+
+                for candidate in files:
+                    if not candidate.is_file() or candidate.suffix.casefold() not in video_exts:
+                        continue
+
+                    name = candidate.name.casefold()
+                    stem = candidate.stem.casefold()
+
+                    name_matches_reference = name in referenced_names
+                    stem_matches_theme = (
+                        stem == theme_stem
+                        or stem.startswith(theme_stem + "-")
+                        or stem.startswith(theme_stem + "_")
+                        or stem.startswith(theme_stem + ".")
+                    )
+
+                    if name_matches_reference or stem_matches_theme:
+                        if candidate not in candidates:
+                            candidates.append(candidate)
+
+        return candidates
+
+    def copy_companion_windows_videos_if_present(
+        self,
+        theme_path: Path,
+        assets_dir: Path,
+        manifest: dict,
+    ) -> dict:
+        candidates = self.companion_video_candidates_for_windows_theme(theme_path)
+        if not candidates:
+            if isinstance(manifest, dict):
+                manifest.setdefault("companion_videos", {
+                    "searched": True,
+                    "copied": 0,
+                    "reason": "no matching relative companion video found",
+                })
+            return manifest
+
+        assets = manifest.setdefault("assets", [])
+        summary = manifest.setdefault("summary", {})
+        known_hashes = {
+            item.get("sha256")
+            for item in assets
+            if isinstance(item, dict) and item.get("sha256")
+        }
+
+        videos_dir = assets_dir / "videos"
+        videos_dir.mkdir(parents=True, exist_ok=True)
+
+        copied = 0
+        duplicates = 0
+
+        for source in candidates:
+            try:
+                blob = source.read_bytes()
+            except OSError:
+                continue
+
+            digest = hashlib.sha256(blob).hexdigest()
+            if digest in known_hashes:
+                duplicates += 1
+                continue
+
+            safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", source.name).strip("-._")
+            safe_name = safe_name or f"companion-video{source.suffix.lower()}"
+            destination = videos_dir / safe_name
+
+            if destination.exists():
+                counter = 2
+                while True:
+                    candidate = videos_dir / f"{destination.stem}-{counter}{destination.suffix}"
+                    if not candidate.exists():
+                        destination = candidate
+                        break
+                    counter += 1
+
+            shutil.copy2(source, destination)
+            copied += 1
+            known_hashes.add(digest)
+
+            assets.append(
+                {
+                    "path": str(destination.relative_to(assets_dir)),
+                    "kind": "video",
+                    "extension": destination.suffix.lower().lstrip("."),
+                    "bytes": destination.stat().st_size,
+                    "sha256": digest,
+                    "source": "relative companion video folder",
+                    "original_name": str(source),
+                    "offset": None,
+                    "note": "auto-detected next to the selected .turtheme package",
+                }
+            )
+
+        summary["images"] = sum(
+            1 for item in assets
+            if isinstance(item, dict) and item.get("kind") == "image"
+        )
+        summary["videos"] = sum(
+            1 for item in assets
+            if isinstance(item, dict) and item.get("kind") == "video"
+        )
+        summary["total_assets"] = summary["images"] + summary["videos"]
+        summary["duplicates_skipped"] = int(summary.get("duplicates_skipped") or 0) + duplicates
+
+        manifest["assets"] = sorted(assets, key=lambda item: str(item.get("path", "")))
+        manifest["companion_videos"] = {
+            "searched": True,
+            "copied": copied,
+            "duplicates_skipped": duplicates,
+            "matched": [str(path) for path in candidates],
+        }
+
+        (assets_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        return manifest
 
     def open_windows_theme_asset_extractor(self):
         chooser = Gtk.FileDialog(
@@ -719,22 +1133,27 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 )
                 return
 
-            output_dir = self.unique_windows_assets_output_dir(theme_path)
+            extracted_theme_dir = self.unique_extracted_windows_theme_dir(theme_path)
+            assets_dir = extracted_theme_dir / "assets"
             self.toast("Extracting Windows theme assets…")
 
             def worker():
                 manifest = None
                 error = ""
                 try:
+                    assets_dir.mkdir(parents=True, exist_ok=True)
                     module = self.load_turzx_asset_extractor_module()
-                    manifest = module.AssetExtractor(theme_path, output_dir).run()
+                    manifest = module.AssetExtractor(theme_path, assets_dir).run()
+                    manifest = self.copy_companion_windows_videos_if_present(theme_path, assets_dir, manifest)
+                    self.create_extracted_windows_theme(extracted_theme_dir, manifest)
                 except Exception as exc:
                     error = str(exc)
 
                 GLib.idle_add(
                     self.finish_windows_theme_asset_extraction,
                     theme_path,
-                    output_dir,
+                    extracted_theme_dir,
+                    assets_dir,
                     manifest,
                     error,
                 )
@@ -746,7 +1165,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
     def finish_windows_theme_asset_extraction(
         self,
         theme_path: Path,
-        output_dir: Path,
+        extracted_theme_dir: Path,
+        assets_dir: Path,
         manifest,
         error: str,
     ):
@@ -759,7 +1179,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         videos = int(summary.get("videos") or 0)
         total = int(summary.get("total_assets") or 0)
         duplicates = int(summary.get("duplicates_skipped") or 0)
-        manifest_path = output_dir / "manifest.json"
+        manifest_path = assets_dir / "manifest.json"
 
         if total:
             heading = "Windows theme assets extracted"
@@ -769,8 +1189,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 f"Videos: {videos}\n"
                 f"Total assets: {total}\n"
                 f"Duplicates skipped: {duplicates}\n\n"
-                f"Output folder:\n{output_dir}\n\n"
-                "The current theme YAML was not changed."
+                f"Extracted theme folder:\n{extracted_theme_dir}\n\n"
+                "A starter theme.yaml was created. The original theme was not changed."
             )
         else:
             heading = "No assets found"
@@ -778,7 +1198,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 f"{theme_path.name}\n\n"
                 "No supported image or video assets were found. "
                 "The theme may be compressed, encrypted, or use an unsupported container.\n\n"
-                f"Output folder:\n{output_dir}"
+                f"Extracted theme folder:\n{extracted_theme_dir}"
             )
 
         dialog = Adw.AlertDialog(
@@ -787,18 +1207,26 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         dialog.add_response("close", "Close")
         dialog.add_response("copy", "Copy Manifest Path")
-        dialog.add_response("open", "Open Folder")
+        dialog.add_response("folder", "Open Folder")
+        if total:
+            dialog.add_response("theme", "Open Extracted Theme")
         dialog.set_close_response("close")
-        dialog.set_default_response("open")
+        dialog.set_default_response("theme" if total else "folder")
         if total:
             dialog.set_response_appearance(
-                "open",
+                "theme",
                 Adw.ResponseAppearance.SUGGESTED,
             )
 
         def response(_dialog, response_id):
-            if response_id == "open":
-                self.reveal_generated_media(output_dir)
+            if response_id == "theme":
+                self.switch_theme(extracted_theme_dir.name)
+                # The extractor just created this theme.yaml. Accept the
+                # freshly generated file as the editor baseline so the
+                # external-change guard does not warn on first save.
+                self.reload_theme_from_disk()
+            elif response_id == "folder":
+                self.reveal_generated_media(extracted_theme_dir)
             elif response_id == "copy":
                 self.copy_text_to_clipboard(
                     str(manifest_path),
