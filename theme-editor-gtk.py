@@ -663,6 +663,22 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         spec.loader.exec_module(module)
         return module
 
+    def load_turzx_theme_hints_module(self):
+        hints_file = ROOT / "tools" / "turzx_theme_hints.py"
+        if not hints_file.is_file():
+            raise FileNotFoundError(hints_file)
+
+        spec = importlib.util.spec_from_file_location(
+            "turing_smart_screen_turzx_theme_hints",
+            hints_file,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {hints_file.name}")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     def unique_extracted_windows_theme_dir(self, theme_path: Path) -> Path:
         stem = re.sub(r"[^A-Za-z0-9._-]+", "-", theme_path.stem).strip("-._")
         stem = stem or "windows-theme"
@@ -783,6 +799,25 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             width, height = theme_canvas_dimensions(theme_data)
         except Exception:
             width, height = 320, 480
+
+        hints = manifest.get("windows_theme_hints") if isinstance(manifest, dict) else None
+        if isinstance(hints, dict):
+            try:
+                hints_module = self.load_turzx_theme_hints_module()
+                starter_stats = hints_module.starter_stats_from_hints(
+                    hints,
+                    width=width,
+                    height=height,
+                )
+                if starter_stats:
+                    theme_data["STATS"] = starter_stats
+                    theme_data.setdefault("metadata", {})["WINDOWS_THEME_HINTS"] = {
+                        key: value
+                        for key, value in hints.get("detected", {}).items()
+                        if isinstance(value, dict) and value.get("detected")
+                    }
+            except Exception as exc:
+                theme_data.setdefault("metadata", {})["WINDOWS_THEME_HINTS_ERROR"] = str(exc)
 
         video_assets = self.extracted_windows_video_assets(manifest)
         has_video = bool(video_assets)

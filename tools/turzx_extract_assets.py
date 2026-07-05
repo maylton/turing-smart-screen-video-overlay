@@ -15,6 +15,19 @@ from pathlib import Path
 IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
 VIDEO_EXTS = {"mp4", "mov", "m4v", "webm", "mkv", "avi"}
 
+try:
+    from turzx_theme_hints import (
+        collect_text_fragments,
+        detect_widget_hints,
+        write_hint_outputs,
+    )
+except ModuleNotFoundError:
+    from tools.turzx_theme_hints import (
+        collect_text_fragments,
+        detect_widget_hints,
+        write_hint_outputs,
+    )
+
 EXT_KIND = {}
 for _ext in IMAGE_EXTS:
     EXT_KIND[_ext] = "image"
@@ -251,6 +264,10 @@ class AssetExtractor:
         self.images = 0
         self.videos = 0
         self.duplicates = 0
+        self.hint_fragments = []
+
+    def collect_hints(self, data: bytes, source: str):
+        self.hint_fragments.extend(collect_text_fragments(data, source))
 
     def write_asset(
         self,
@@ -346,6 +363,8 @@ class AssetExtractor:
                 name = info.filename
                 ext = Path(name).suffix.lower().lstrip(".")
                 data = archive.read(info)
+                self.hint_fragments.append({"source": "zip entry filename", "text": name})
+                self.collect_hints(data, f"zip:{name}")
 
                 if ext == "jpeg":
                     ext = "jpg"
@@ -367,10 +386,14 @@ class AssetExtractor:
 
     def run(self):
         data = self.theme.read_bytes()
+        self.hint_fragments.append({"source": "input filename", "text": self.theme.name})
+        self.collect_hints(data, "root")
 
         was_zip = self.scan_zip()
         self.scan_data_urls(data, "root")
         self.scan_raw(data, "root")
+
+        windows_theme_hints = detect_widget_hints(self.hint_fragments)
 
         manifest = {
             "input": str(self.theme),
@@ -383,13 +406,28 @@ class AssetExtractor:
                 "total_assets": self.images + self.videos,
                 "duplicates_skipped": self.duplicates,
             },
+            "windows_theme_hints": windows_theme_hints,
             "assets": sorted(self.assets, key=lambda item: item["path"]),
         }
+
+        try:
+            tools_dir = Path(__file__).resolve().parent
+            if str(tools_dir) not in sys.path:
+                sys.path.insert(0, str(tools_dir))
+
+            from turzx_theme_hints import analyze_extracted_theme, write_outputs
+
+            hints = analyze_extracted_theme(self.theme, self.output, manifest)
+            manifest["windows_theme_hints"] = hints
+            write_outputs(self.output, hints)
+        except Exception as exc:
+            manifest["windows_theme_hints_error"] = str(exc)
 
         (self.output / "manifest.json").write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+        write_hint_outputs(self.output, windows_theme_hints)
 
         return manifest
 
