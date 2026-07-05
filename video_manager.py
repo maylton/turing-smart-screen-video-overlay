@@ -164,8 +164,8 @@ def run_device_command(args, backend) -> dict[str, Any]:
     )
 
     try:
-        manager = backend.VideoManager(com_port=args.port)
         with output_context:
+            manager = backend.VideoManager(com_port=args.port)
             if args.command == "self-test":
                 backend.run_self_test(manager)
                 data = {"message": "Self-test completed successfully."}
@@ -254,7 +254,11 @@ def run_device_command(args, backend) -> dict[str, Any]:
         return success(args.command, data)
     finally:
         if manager is not None:
-            manager.close()
+            if args.json:
+                with contextlib.redirect_stdout(captured):
+                    manager.close()
+            else:
+                manager.close()
 
 
 def cli() -> int:

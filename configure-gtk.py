@@ -10,11 +10,14 @@ without duplicating the large GTK interface.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
 import sys
 import threading
+import traceback
+import time
 from pathlib import Path
 
 from library.runtime import DeviceBusyError, MonitorController
@@ -197,6 +200,33 @@ def install_runtime_patches(app):
         )
         refresh_button.connect("clicked", lambda *_: self.refresh_theme_list())
         header.append(refresh_button)
+
+        sync_current_button = app.Gtk.Button(
+            label="Sync current video",
+            icon_name="folder-download-symbolic",
+            tooltip_text="Sync the active theme video to the display",
+            valign=app.Gtk.Align.CENTER,
+        )
+        sync_current_button.add_css_class("suggested-action")
+        sync_current_button.connect(
+            "clicked",
+            lambda *_: self.sync_current_theme_video_from_gallery(),
+        )
+        header.append(sync_current_button)
+
+        apply_sync_start_button = app.Gtk.Button(
+            label="Apply + Sync + Start",
+            icon_name="media-playback-start-symbolic",
+            tooltip_text="Stop monitor if needed, sync the active theme video, then start the monitor",
+            valign=app.Gtk.Align.CENTER,
+        )
+        apply_sync_start_button.add_css_class("suggested-action")
+        apply_sync_start_button.connect(
+            "clicked",
+            lambda *_: self.apply_current_theme_sync_and_start(),
+        )
+        header.append(apply_sync_start_button)
+
         outer.append(header)
 
         self.theme_gallery = ThemeGalleryPane(
@@ -204,6 +234,7 @@ def install_runtime_patches(app):
             on_open_folder=self.open_theme_record_folder,
             on_theme_diagnostics=self.show_theme_record_diagnostics,
             on_set_current_theme=self.confirm_set_current_theme_from_gallery,
+            on_sync_theme_video=self.sync_theme_video_from_gallery,
             on_records_changed=self.on_theme_gallery_records_changed,
         )
         self.theme_gallery.set_vexpand(True)
@@ -405,6 +436,224 @@ def install_runtime_patches(app):
     def show_theme_record_diagnostics(self, record: ThemeRecord):
         show_theme_gallery_diagnostics_dialog(self, record, self.toast)
 
+    def parse_video_manager_json(stdout: str, stderr: str = "") -> dict:
+        raw_stdout = stdout or ""
+
+        if raw_stdout.strip():
+            try:
+                payload = json.loads(raw_stdout)
+                if payload:
+                    return payload
+            except json.JSONDecodeError:
+                pass
+
+        for line in reversed(raw_stdout.splitlines()):
+            candidate = line.strip()
+            if not candidate.startswith("{") or not candidate.endswith("}"):
+                continue
+            try:
+                payload = json.loads(candidate)
+                if payload:
+                    return payload
+            except json.JSONDecodeError:
+                continue
+
+        output = (raw_stdout or stderr or "").strip()
+        raise RuntimeError(
+            f"video_manager.py did not return a JSON payload. Output: {output[-1200:] or '<empty>'}"
+        )
+
+    def run_video_manager_json(arguments: list[str]) -> dict:
+        backend = app.ROOT / "video_manager.py"
+        if not backend.is_file():
+            raise FileNotFoundError(backend)
+
+        try:
+            result = subprocess.run(
+                [
+                    app.project_python(),
+                    str(backend),
+                    "--force",
+                    "--json",
+                    *arguments,
+                ],
+                cwd=str(app.ROOT),
+                text=True,
+                capture_output=True,
+                timeout=180,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"video_manager.py timed out while running: {' '.join(arguments)}") from exc
+
+        payload = None
+        parse_error = None
+
+        try:
+            payload = parse_video_manager_json(result.stdout, result.stderr)
+        except Exception as exc:
+            parse_error = exc
+
+        if isinstance(payload, dict):
+            if payload.get("ok"):
+                return payload
+
+            error = payload.get("error") or {}
+            message = error.get("message") or str(payload)
+            raise RuntimeError(message)
+
+        output = (result.stderr or result.stdout or "").strip()
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                output
+                or f"video_manager.py exited {result.returncode} without JSON"
+            )
+
+        if parse_error is not None:
+            raise RuntimeError(str(parse_error))
+
+        raise RuntimeError("video_manager.py did not return a JSON payload")
+
+    def read_theme_video_config_from_record(record: ThemeRecord) -> dict:
+        if record.yaml_file is None or not record.yaml_file.is_file():
+            raise RuntimeError(f"{record.name} has no theme.yaml/theme.yml")
+
+        import yaml
+
+        data = yaml.safe_load(record.yaml_file.read_text(encoding="utf-8")) or {}
+        video = data.get("video")
+        if not isinstance(video, dict):
+            return {}
+
+        enabled = bool(video.get("ENABLED", video.get("SHOW", False)))
+        if not enabled:
+            return {}
+
+        local_raw = str(video.get("LOCAL_PATH") or "").strip()
+        remote = str(video.get("PATH") or "").strip()
+
+        if not local_raw and not remote:
+            return {}
+
+        local = Path(local_raw).expanduser() if local_raw else None
+        if local is not None and not local.is_absolute():
+            local = record.directory / local
+
+        if not remote and local is not None:
+            remote = "/mnt/SDCARD/video/" + local.name
+
+        if not remote.startswith(("/mnt/SDCARD/video/", "/root/video/")):
+            remote = "/mnt/SDCARD/video/" + Path(remote).name
+
+        return {
+            "theme": record.name,
+            "local": local,
+            "remote": remote,
+            "filename": Path(remote).name,
+            "internal": remote.startswith("/root/video/"),
+        }
+
+    def display_has_video(video: dict) -> bool:
+        args = ["list"]
+        if video.get("internal"):
+            args.append("--internal")
+
+        payload = run_video_manager_json_for_theme_apply(self, args)
+        files = payload.get("data", {}).get("files") or []
+        wanted = str(video.get("filename") or "")
+        return wanted in {str(item) for item in files}
+
+    def sync_theme_video_worker(self, record: ThemeRecord):
+        error = ""
+        message = ""
+
+        try:
+            video = read_theme_video_config_from_record(record)
+            if not video:
+                raise RuntimeError(f"{record.name} does not declare an enabled local video")
+
+            local = video.get("local")
+            if local is None or not Path(local).is_file():
+                raise FileNotFoundError(f"Theme video file was not found: {local}")
+
+            if display_has_video_for_theme_apply(self, video):
+                message = f"Video already exists on display: {video['filename']}"
+            else:
+                args = [
+                    "upload",
+                    str(local),
+                    "--remote",
+                    str(video["remote"]),
+                    "--skip-probe",
+                ]
+                if video.get("internal"):
+                    args.append("--internal")
+
+                payload = run_video_manager_json_for_theme_apply(self, args)
+                data = payload.get("data") or {}
+                message = data.get("message") or f"Uploaded {video['filename']}"
+
+        except Exception as exc:
+            error = str(exc)
+
+        app.GLib.idle_add(self.finish_sync_theme_video, record.name, message, error)
+
+    def sync_current_theme_video_from_gallery(self):
+        gallery = getattr(self, "theme_gallery", None)
+        if gallery is None:
+            self.toast("Theme gallery is not loaded")
+            return
+
+        current_name = app.read_current_theme()
+        if not current_name:
+            self.toast("No active theme configured")
+            return
+
+        record = None
+        for candidate in getattr(gallery, "records", []):
+            if candidate.name == current_name:
+                record = candidate
+                break
+
+        if record is None:
+            gallery.reload_themes()
+            for candidate in getattr(gallery, "records", []):
+                if candidate.name == current_name:
+                    record = candidate
+                    break
+
+        if record is None:
+            self.toast(f"Active theme was not found in gallery: {current_name}")
+            return
+
+        self.sync_theme_video_from_gallery(record)
+
+    def sync_theme_video_from_gallery(self, record: ThemeRecord):
+        state = self.runtime_controller.state()
+        if state.busy:
+            if state.monitor_running:
+                self.toast("Stop the monitor before syncing theme video")
+            else:
+                self.toast("Display is busy: " + state.owner.describe())
+            update_runtime_status(self)
+            return
+
+        self.toast(f"Syncing video for {record.name}…")
+        threading.Thread(
+            target=sync_theme_video_worker,
+            args=(self, record),
+            daemon=True,
+        ).start()
+
+    def finish_sync_theme_video(self, theme_name: str, message: str, error: str):
+        update_runtime_status(self)
+        if error:
+            self.toast(f"Could not sync video for {theme_name}: {error}")
+        else:
+            self.toast(message or f"Video synced for {theme_name}")
+        return False
+
     def confirm_set_current_theme_from_gallery(self, record: ThemeRecord):
         show_set_current_theme_dialog(
             self,
@@ -412,7 +661,296 @@ def install_runtime_patches(app):
             self.apply_set_current_theme_from_gallery,
         )
 
+    def wait_until_display_free_for_theme_apply(self, timeout: float = 12.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            state = self.runtime_controller.state()
+            if not state.busy:
+                return True
+            time.sleep(0.25)
+        return not self.runtime_controller.state().busy
+
+    def process_exists_for_theme_apply(pid: int | None) -> bool:
+        if not pid:
+            return False
+        try:
+            os.kill(int(pid), 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
+        return True
+
+    def wait_for_serial_device_for_theme_apply(timeout: float = 15.0) -> list[Path]:
+        """Wait for the screen serial device to reappear after USB re-enumerates."""
+        deadline = time.monotonic() + timeout
+
+        try:
+            subprocess.run(
+                ["udevadm", "settle", "--timeout=5"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except Exception:
+            pass
+
+        while time.monotonic() < deadline:
+            devices = sorted(Path("/dev").glob("ttyACM*"))
+            if devices:
+                return devices
+            time.sleep(0.35)
+
+        return sorted(Path("/dev").glob("ttyACM*"))
+
+    def force_release_monitor_for_theme_apply(self, timeout: float = 18.0) -> None:
+        """Stop any running main.py before video sync.
+
+        This intentionally mirrors the manual recovery command that works:
+        pkill -TERM -f '[m]ain.py'
+        """
+        deadline = time.monotonic() + timeout
+
+        def wait_free(seconds: float) -> bool:
+            wait_deadline = time.monotonic() + seconds
+            while time.monotonic() < wait_deadline:
+                if not self.runtime_controller.state().busy:
+                    return True
+                time.sleep(0.25)
+            return not self.runtime_controller.state().busy
+
+        # First try the structured controller, when the lock owner is known.
+        state = self.runtime_controller.state()
+        if state.monitor_running:
+            try:
+                self.runtime_controller.terminate_monitor(timeout=4.0, kill_timeout=2.0)
+                reap_monitor_child(self, timeout=0.0)
+            except Exception:
+                pass
+
+        if wait_free(2.0):
+            return
+
+        # Then use the same practical approach that worked manually.
+        patterns = [
+            str(app.MAIN_PROGRAM),
+            "[m]ain.py",
+        ]
+
+        for pattern in patterns:
+            try:
+                subprocess.run(
+                    ["pkill", "-TERM", "-f", pattern],
+                    cwd=str(app.ROOT),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                pass
+
+        while time.monotonic() < deadline:
+            if wait_free(0.5):
+                return
+            time.sleep(0.25)
+
+        # Last resort: force-kill only monitor processes.
+        for pattern in patterns:
+            try:
+                subprocess.run(
+                    ["pkill", "-KILL", "-f", pattern],
+                    cwd=str(app.ROOT),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                pass
+
+        if wait_free(3.0):
+            return
+
+        state = self.runtime_controller.state()
+        if state.busy:
+            raise RuntimeError(
+                "Display is still busy after stopping monitor: "
+                + state.owner.describe()
+            )
+
+    def theme_apply_video_error_is_retryable(message: str) -> bool:
+        lowered = message.casefold()
+        retry_tokens = (
+            "already in use by monitor",
+            "devicebusyerror",
+            "display is already in use",
+            "serialexception",
+            "failed to read serial data",
+            "failed to send serial data",
+            "cannot open com port",
+            "could not open port",
+            "arquivo ou diretório inexistente",
+            "no such file or directory",
+            "/dev/ttyacm",
+            "invalid or unsupported id",
+            "display returned invalid",
+            "input/output error",
+            "i/o error",
+            "device disconnected",
+            "descriptor de arquivo inválido",
+            "bad file descriptor",
+        )
+        return any(token in lowered for token in retry_tokens)
+
+    def run_video_manager_json_for_theme_apply(self, arguments: list[str]) -> dict:
+        last_error: Exception | None = None
+        delays = (1.0, 2.5, 4.0, 6.0, 8.0)
+
+        for attempt, delay in enumerate(delays, start=1):
+            force_release_monitor_for_theme_apply(self, timeout=18.0)
+            wait_for_serial_device_for_theme_apply(timeout=15.0)
+
+            if attempt > 1:
+                time.sleep(delay)
+                wait_for_serial_device_for_theme_apply(timeout=15.0)
+
+            try:
+                return run_video_manager_json(arguments)
+            except Exception as exc:
+                last_error = exc
+                message = str(exc)
+                print(
+                    "[theme-video-sync] "
+                    f"attempt {attempt}/{len(delays)} failed for "
+                    f"{' '.join(arguments)}: {message}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+                if attempt < len(delays) and theme_apply_video_error_is_retryable(message):
+                    continue
+
+                raise
+
+        if last_error is not None:
+            raise last_error
+
+        raise RuntimeError("video_manager.py did not complete")
+
+    def display_has_video_for_theme_apply(self, video: dict) -> bool:
+        args = ["list"]
+        if video.get("internal"):
+            args.append("--internal")
+
+        payload = run_video_manager_json_for_theme_apply(self, args)
+        files = payload.get("data", {}).get("files") or []
+        wanted = str(video.get("filename") or "")
+        return wanted in {str(item) for item in files}
+
+    def load_video_manager_backend_for_theme_apply():
+        backend_file = app.ROOT / "video_manager_backend.py"
+        if not backend_file.is_file():
+            raise FileNotFoundError(backend_file)
+
+        spec = importlib.util.spec_from_file_location(
+            "turing_theme_apply_video_backend",
+            backend_file,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {backend_file.name}")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def sync_theme_video_via_backend_for_theme_apply(self, video: dict) -> str:
+        """Sync theme video without going through video_manager.py JSON stdout."""
+        from library.runtime import DeviceLock
+
+        log_file = Path("/tmp/turing-theme-video-sync.log")
+
+        wanted = str(video.get("filename") or Path(str(video["remote"])).name)
+        local = Path(video["local"])
+        remote = str(video["remote"])
+        internal = bool(video.get("internal"))
+
+        del internal  # get_size/upload use the full remote path.
+
+        last_error: Exception | None = None
+
+        for attempt in range(3):
+            force_release_monitor_for_theme_apply(self, timeout=18.0)
+
+            try:
+                backend = load_video_manager_backend_for_theme_apply()
+
+                with DeviceLock(role="theme-video-sync", root=app.ROOT):
+                    manager = backend.VideoManager(com_port="AUTO")
+                    try:
+                        # Source of truth: ask the display for this exact remote path.
+                        # list_videos() can vary by firmware/path formatting, but get_size()
+                        # tells us whether the selected remote file already exists.
+                        try:
+                            existing_size = manager.get_size(remote)
+                        except Exception:
+                            existing_size = 0
+
+                        if existing_size and existing_size > 0:
+                            return f"Video already exists on display: {wanted}"
+
+                        try:
+                            manager.upload(
+                                local_path=local,
+                                remote_path=remote,
+                                overwrite=False,
+                                packet_delay=0.0,
+                            )
+                        except FileExistsError:
+                            return f"Video already exists on display: {wanted}"
+
+                        try:
+                            remote_size = manager.get_size(remote)
+                            return f"Uploaded {wanted} ({remote_size} bytes)"
+                        except Exception:
+                            return f"Uploaded {wanted}"
+                    finally:
+                        manager.close()
+
+            except Exception as exc:
+                last_error = exc
+                log_file.write_text(
+                    "[theme-video-sync]\n"
+                    f"attempt={attempt + 1}\n"
+                    f"wanted={wanted}\n"
+                    f"local={local}\n"
+                    f"remote={remote}\n"
+                    f"error={exc!r}\n\n"
+                    + traceback.format_exc(),
+                    encoding="utf-8",
+                )
+
+                message = str(exc).lower()
+                if (
+                    "already in use" in message
+                    or "devicebusyerror" in message
+                    or "display is already in use" in message
+                ):
+                    time.sleep(0.8)
+                    continue
+
+                raise
+
+        if last_error is not None:
+            raise last_error
+
+        raise RuntimeError("Theme video sync did not complete")
+
     def apply_set_current_theme_from_gallery(self, record: ThemeRecord):
+        if self.runtime_stop_in_progress:
+            self.toast("Another runtime operation is already in progress")
+            return
+
         try:
             old_theme, new_theme = gallery_set_current_theme(record)
         except Exception as exc:
@@ -421,10 +959,93 @@ def install_runtime_patches(app):
 
         self.current_theme = new_theme
         self.refresh_all()
+
+        self.runtime_stop_in_progress = True
+
         if old_theme and old_theme != new_theme:
-            self.toast(f"Active theme changed: {old_theme} → {new_theme}")
+            self.toast(f"Active theme changed: {old_theme} → {new_theme}; syncing video…")
         else:
-            self.toast(f"Active theme set to {new_theme}")
+            self.toast(f"Active theme set to {new_theme}; syncing video…")
+
+        threading.Thread(
+            target=apply_used_theme_video_and_start_worker,
+            args=(self, record, new_theme),
+            daemon=True,
+        ).start()
+
+    def apply_used_theme_video_and_start_worker(self, record: ThemeRecord, new_theme: str):
+        error = ""
+        message = ""
+
+        try:
+            force_release_monitor_for_theme_apply(self, timeout=18.0)
+
+            video = read_theme_video_config_from_record(record)
+            if not video:
+                message = f"{new_theme} has no enabled theme video; starting monitor"
+            else:
+                local = video.get("local")
+                if local is None or not Path(local).is_file():
+                    raise FileNotFoundError(f"Theme video file was not found: {local}")
+
+                if display_has_video_for_theme_apply(self, video):
+                    message = f"Video already exists on display: {video['filename']}"
+                else:
+                    args = [
+                        "upload",
+                        str(local),
+                        "--remote",
+                        str(video["remote"]),
+                        "--skip-probe",
+                    ]
+                    if video.get("internal"):
+                        args.append("--internal")
+
+                    try:
+                        payload = run_video_manager_json_for_theme_apply(self, args)
+                        data = payload.get("data") or {}
+                        message = data.get("message") or f"Uploaded {video['filename']}"
+                    except Exception as exc:
+                        lowered = str(exc).casefold()
+                        if (
+                            "already exists" in lowered
+                            or "já existe um arquivo remoto" in lowered
+                            or "existe um arquivo remoto" in lowered
+                        ):
+                            message = f"Video already exists on display: {video['filename']}"
+                        else:
+                            raise
+
+        except Exception as exc:
+            error = str(exc)
+
+        app.GLib.idle_add(
+            self.finish_used_theme_video_and_start,
+            new_theme,
+            message,
+            error,
+        )
+
+    def finish_used_theme_video_and_start(self, new_theme: str, message: str, error: str):
+        self.runtime_stop_in_progress = False
+        self.monitor_process = None
+        self.refresh_overview()
+
+        if error:
+            print(
+                f"[theme-video-sync] {new_theme}: {error}",
+                file=sys.stderr,
+                flush=True,
+            )
+            self.toast(
+                f"Theme set to {new_theme}, but video sync failed. Starting monitor anyway."
+            )
+            self.start_monitor()
+            return False
+
+        self.toast(message or f"{new_theme} synced; starting monitor")
+        self.start_monitor()
+        return False
 
     def build_settings_page(self):
         clamp = app.Adw.Clamp(maximum_size=760)
@@ -680,7 +1301,15 @@ def install_runtime_patches(app):
     app.SmartScreenWindow.open_theme_record_folder = open_theme_record_folder
     app.SmartScreenWindow.show_theme_record_diagnostics = show_theme_record_diagnostics
     app.SmartScreenWindow.confirm_set_current_theme_from_gallery = confirm_set_current_theme_from_gallery
+    app.SmartScreenWindow.sync_current_theme_video_from_gallery = sync_current_theme_video_from_gallery
+    app.SmartScreenWindow.sync_theme_video_from_gallery = sync_theme_video_from_gallery
+    app.SmartScreenWindow.finish_sync_theme_video = finish_sync_theme_video
+    app.SmartScreenWindow.wait_until_display_free_for_theme_apply = wait_until_display_free_for_theme_apply
+    app.SmartScreenWindow.force_release_monitor_for_theme_apply = force_release_monitor_for_theme_apply
+    app.SmartScreenWindow.run_video_manager_json_for_theme_apply = run_video_manager_json_for_theme_apply
+    app.SmartScreenWindow.display_has_video_for_theme_apply = display_has_video_for_theme_apply
     app.SmartScreenWindow.apply_set_current_theme_from_gallery = apply_set_current_theme_from_gallery
+    app.SmartScreenWindow.finish_used_theme_video_and_start = finish_used_theme_video_and_start
     app.SmartScreenWindow.on_theme_gallery_records_changed = on_theme_gallery_records_changed
     app.SmartScreenWindow.build_settings_page = build_settings_page
     app.SmartScreenWindow.on_start_monitor_changed = on_start_monitor_changed
