@@ -811,11 +811,14 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 )
                 if starter_stats:
                     theme_data["STATS"] = starter_stats
-                    theme_data.setdefault("metadata", {})["WINDOWS_THEME_HINTS"] = {
-                        key: value
+                    detected_hint_keys = [
+                        key
                         for key, value in hints.get("detected", {}).items()
                         if isinstance(value, dict) and value.get("detected")
-                    }
+                    ]
+                    theme_data.setdefault("metadata", {})["WINDOWS_THEME_HINTS"] = ", ".join(
+                        detected_hint_keys
+                    )
             except Exception as exc:
                 theme_data.setdefault("metadata", {})["WINDOWS_THEME_HINTS_ERROR"] = str(exc)
 
