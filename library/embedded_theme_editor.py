@@ -157,6 +157,7 @@ class EmbeddedThemeEditorPage(Gtk.Box):
 
         module = self.load_editor_module()
         editor_window = module.ThemeEditorWindow(self.application, theme_name)
+        editor_window._embedded_dialog_parent = self
 
         if hasattr(editor_window, "get_content"):
             content = editor_window.get_content()

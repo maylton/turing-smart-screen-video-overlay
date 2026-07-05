@@ -615,6 +615,22 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.refresh_preview()
         self.connect("close-request", self.on_close_request)
 
+    def dialog_parent(self):
+        """Return the visible parent for dialogs.
+
+        In standalone mode, dialogs can be parented to the ThemeEditorWindow.
+        In embedded mode, the window object is only used as an integration
+        shell while its content lives inside the main app. Dialogs and file
+        choosers must then be parented to the visible main window/root.
+        """
+        embedded_parent = getattr(self, "_embedded_dialog_parent", None)
+        if embedded_parent is not None:
+            root = embedded_parent.get_root()
+            if root is not None:
+                return root
+            return embedded_parent
+        return self
+
     def build_elements_panel(self):
         box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -2248,7 +2264,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 self.destroy()
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
         return True
 
     def apply_properties(self):
@@ -2623,7 +2639,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 self.copy_text_to_clipboard(report, "Theme diagnostics report")
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def copy_text_to_clipboard(self, text, label):
         copied = False
@@ -2859,7 +2875,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 self.open_theme_yaml_external()
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def reload_theme_from_disk(self):
         target_path = copy.deepcopy(self.selected_path)
@@ -2930,7 +2946,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 self.reload_theme_from_disk()
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def save_as(self):
         entry = Gtk.Entry(
@@ -3006,7 +3022,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.switch_theme(name)
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def rename_theme(self):
         entry = Gtk.Entry(
@@ -3103,7 +3119,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.toast(f"Theme renamed to {name}")
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def reveal_generated_media(self, path: Path):
         target = path if path.exists() else path.parent
@@ -3296,7 +3312,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             replace_rows(assets_group, "assets", asset_rows)
 
         populate()
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def save(self):
         if self.has_pending_property_edits():
@@ -3739,7 +3755,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             self.toast("Text effects updated")
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def video_node(self):
         node = self.theme_data.setdefault("video", {})
@@ -4171,7 +4187,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 if path:
                     background_image_row.set_text(path)
 
-            chooser.open(self, None, selected)
+            chooser.open(self.dialog_parent(), None, selected)
 
         choose_background.connect("clicked", choose_background_image)
 
@@ -4339,7 +4355,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 if path:
                     start_probe(path)
 
-            chooser.open(self, None, selected)
+            chooser.open(self.dialog_parent(), None, selected)
 
         choose_source.connect("clicked", choose_local_source)
 
@@ -4667,7 +4683,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 Path(preview_path).unlink(missing_ok=True)
 
         dialog.connect("closed", closed)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
         initial_source = resolve_local_video_source(self.theme_dir, current_video)
         if initial_source is None:
@@ -4830,7 +4846,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 source_dropdown.set_selected(0)
                 selected_path.set_text(str(path))
 
-            chooser.open(self, None, selected)
+            chooser.open(self.dialog_parent(), None, selected)
 
         choose_local.connect("clicked", choose_local_video)
 
@@ -5021,24 +5037,24 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
         def response(_dialog, response_id):
             if response_id == "use":
                 self.apply_video_path(selected_path.get_text())
-                dialog.present(self)
+                dialog.present(self.dialog_parent())
             elif response_id == "generate":
                 generate_selected_background()
-                dialog.present(self)
+                dialog.present(self.dialog_parent())
             elif response_id == "play":
                 path = selected_path.get_text().strip()
                 if not path.startswith(("/mnt/SDCARD/video/", "/root/video/")):
                     self.toast("Choose a video stored on the display")
-                    dialog.present(self)
+                    dialog.present(self.dialog_parent())
                     return
                 run_remote_action("play", path)
-                dialog.present(self)
+                dialog.present(self.dialog_parent())
             elif response_id == "stop":
                 run_remote_action("stop", "")
-                dialog.present(self)
+                dialog.present(self.dialog_parent())
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def shared_background_name(self):
         return self.theme_data.get("video", {}).get(
@@ -6354,7 +6370,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 lambda _dialog, response: self.disable_selected()
                 if response == "disable" else None,
             )
-            dialog.present(self)
+            dialog.present(self.dialog_parent())
             return
 
         label = " / ".join(str(part) for part in self.selected_path)
@@ -6402,7 +6418,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             self.toast("Element deleted")
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def launch_classic_editor(self):
         try:
@@ -6440,12 +6456,12 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
                 self.launch_classic_editor()
 
         dialog.connect("response", response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def error_dialog(self, heading, body):
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response("close", "Close")
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def toast(self, text):
         self.toast_overlay.add_toast(Adw.Toast(title=text, timeout=3))
