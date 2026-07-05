@@ -890,16 +890,18 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         )
         save_yaml_atomic(theme_yaml, theme_data)
 
-        video_preview = self.create_video_preview_frame(extracted_theme_dir, manifest)
+        # Create video-preview.png only as a static video background for the
+        # Theme Editor. It must never become the final theme preview.png.
+        #
+        # preview.png means: final/static theme preview.
+        # video-preview.png means: representative video frame/background.
+        self.create_video_preview_frame(extracted_theme_dir, manifest)
 
-        if video_preview is not None:
-            shutil.copy2(video_preview, extracted_theme_dir / "preview.png")
-        else:
-            preview_image = self.preferred_windows_preview_asset(manifest)
-            if preview_image is not None:
-                source = extracted_theme_dir / "assets" / preview_image["path"]
-                if source.is_file():
-                    shutil.copy2(source, extracted_theme_dir / "preview.png")
+        preview_image = self.preferred_windows_preview_asset(manifest)
+        if preview_image is not None:
+            source = extracted_theme_dir / "assets" / preview_image["path"]
+            if source.is_file():
+                shutil.copy2(source, extracted_theme_dir / "preview.png")
 
         notes = [
             "Windows theme asset extraction",
@@ -3992,7 +3994,12 @@ for path, callback in callbacks:
 display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
 """
             result = subprocess.run(
-                [project_python(), "-c", script],
+                [
+                    project_python(),
+                    str(ROOT / "tools" / "render_theme_preview.py"),
+                    self.theme_name,
+                    str(self.preview_file),
+                ],
                 cwd=str(ROOT),
                 text=True,
                 capture_output=True,

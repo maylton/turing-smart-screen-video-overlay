@@ -244,16 +244,30 @@ def available_themes() -> list[str]:
 
 def theme_preview_path(theme_name: str) -> Path | None:
     theme_dir = THEMES_DIR / theme_name
+
+    # These are auxiliary/editor media, not final theme previews.
+    ignored_filenames = {
+        "video-preview.png",
+        "video_preview.png",
+        "preview-background.png",
+        "preview_background.png",
+    }
+
     preferred = (
         theme_dir / "preview.png",
         theme_dir / "background.png",
     )
     for path in preferred:
-        if path.is_file():
+        if path.is_file() and path.name.casefold() not in ignored_filenames:
             return path
 
     for pattern in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
-        matches = sorted(theme_dir.glob(pattern))
+        matches = sorted(
+            candidate
+            for candidate in theme_dir.glob(pattern)
+            if candidate.name.casefold() not in ignored_filenames
+            and not candidate.name.startswith(".")
+        )
         if matches:
             return matches[0]
     return None

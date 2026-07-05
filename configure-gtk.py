@@ -139,12 +139,37 @@ def install_runtime_patches(app):
 
     def patched_refresh_overview(self):
         original_refresh_overview(self)
+
         if self.current_theme:
+            static_preview = app.THEMES_DIR / self.current_theme / "preview.png"
+
+            if static_preview.is_file():
+                cache_dir = app.ROOT / ".cache" / "overview-static-preview"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_file = cache_dir / f"{self.current_theme}-{int(time.time() * 1000)}.png"
+
+                try:
+                    shutil.copy2(static_preview, cache_file)
+                    self.set_picture(self.overview_picture, cache_file)
+                    print(
+                        f"[overview-preview] using copied static preview: {cache_file}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(
+                        f"[overview-preview] failed to copy preview.png: {exc}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    self.set_picture(self.overview_picture, static_preview)
+
             self.theme_path_label.set_label(
                 str(app.THEMES_DIR / self.current_theme)
             )
         else:
             self.theme_path_label.set_label("")
+
         update_runtime_status(self)
 
     def build_themes_page(self):

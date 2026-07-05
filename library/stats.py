@@ -90,6 +90,30 @@ def get_theme_file_path(name):
         return None
 
 
+
+def themed_widget_background_image(theme_data):
+    background_image = theme_data.get("BACKGROUND_IMAGE", None)
+    if not background_image:
+        return None
+
+    try:
+        from library.theme_video_background import theme_uses_video_overlay
+
+        video_config = config.THEME_DATA.get("video", {})
+        preview_background = str(video_config.get("PREVIEW_BACKGROUND", ""))
+
+        if (
+            theme_uses_video_overlay(config.THEME_DATA)
+            and preview_background
+            and str(background_image) == preview_background
+        ):
+            return None
+    except Exception:
+        pass
+
+    return get_theme_file_path(background_image)
+
+
 def display_themed_value(theme_data, value, min_size=0, unit=''):
     if not theme_data.get("SHOW", False):
         return
@@ -114,7 +138,7 @@ def display_themed_value(theme_data, value, min_size=0, unit=''):
         font_size=theme_data.get("FONT_SIZE", 10),
         font_color=theme_data.get("FONT_COLOR", (0, 0, 0)),
         background_color=theme_data.get("BACKGROUND_COLOR", (255, 255, 255)),
-        background_image=get_theme_file_path(theme_data.get("BACKGROUND_IMAGE", None)),
+        background_image=themed_widget_background_image(theme_data),
         align=theme_data.get("ALIGN", "left"),
         anchor=theme_data.get("ANCHOR", "lt"),
         effects=theme_data.get("EFFECTS", {}),
@@ -154,7 +178,7 @@ def display_themed_progress_bar(theme_data, value):
         bar_color=theme_data.get("BAR_COLOR", (0, 0, 0)),
         bar_outline=theme_data.get("BAR_OUTLINE", False),
         background_color=theme_data.get("BACKGROUND_COLOR", (255, 255, 255)),
-        background_image=get_theme_file_path(theme_data.get("BACKGROUND_IMAGE", None)),
+        background_image=themed_widget_background_image(theme_data),
         reverse_direction=theme_data.get("REVERSE_DIRECTION", False)
     )
 
@@ -192,7 +216,7 @@ def display_themed_radial_bar(theme_data, value, min_size=0, unit='', custom_tex
         font_size=theme_data.get("FONT_SIZE", 10),
         font_color=theme_data.get("FONT_COLOR", (0, 0, 0)),
         background_color=theme_data.get("BACKGROUND_COLOR", (0, 0, 0)),
-        background_image=get_theme_file_path(theme_data.get("BACKGROUND_IMAGE", None)),
+        background_image=themed_widget_background_image(theme_data),
         custom_bbox=theme_data.get("CUSTOM_BBOX", (0, 0, 0, 0)),
         text_offset=theme_data.get("TEXT_OFFSET", (0, 0)),
         bar_background_color=theme_data.get("BAR_BACKGROUND_COLOR", (0, 0, 0)),
@@ -242,7 +266,7 @@ def display_themed_line_graph(theme_data, values):
         axis_font=config.FONTS_DIR + theme_data.get("AXIS_FONT", "roboto/Roboto-Black.ttf"),
         axis_font_size=theme_data.get("AXIS_FONT_SIZE", 10),
         background_color=theme_data.get("BACKGROUND_COLOR", (0, 0, 0)),
-        background_image=get_theme_file_path(theme_data.get("BACKGROUND_IMAGE", None))
+        background_image=themed_widget_background_image(theme_data)
     )
 
 
