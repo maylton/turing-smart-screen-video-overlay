@@ -170,7 +170,7 @@ def install_structured_backend(app):
                 body=message[-2400:],
             )
             dialog.add_response("close", "Close")
-            dialog.present(self)
+            dialog.present(self.dialog_parent() if hasattr(self, 'dialog_parent') else self)
             self.content_stack.set_visible_child_name("main")
             return False
 

@@ -159,6 +159,7 @@ class EmbeddedVideoManagerPage(Gtk.Box):
 
         module = self.load_video_module()
         video_window = module.VideoManagerWindow(self.application)
+        video_window._embedded_dialog_parent = self
 
         if hasattr(video_window, "get_content"):
             content = video_window.get_content()

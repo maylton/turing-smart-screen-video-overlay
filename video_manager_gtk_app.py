@@ -100,6 +100,22 @@ class VideoManagerWindow(Adw.ApplicationWindow):
 
         self.refresh_videos()
 
+    def dialog_parent(self):
+        """Return the visible parent for dialogs.
+
+        In standalone mode, dialogs can be parented to the VideoManagerWindow.
+        In embedded mode, the window object is only used as an integration
+        shell while its content lives inside the main app. Dialogs and file
+        choosers must then be parented to the visible main window/root.
+        """
+        embedded_parent = getattr(self, "_embedded_dialog_parent", None)
+        if embedded_parent is not None:
+            root = embedded_parent.get_root()
+            if root is not None:
+                return root
+            return embedded_parent
+        return self
+
     def build_main_page(self):
         split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         split.set_position(500)
@@ -396,7 +412,7 @@ class VideoManagerWindow(Adw.ApplicationWindow):
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
         dialog.connect("response", self.on_delete_response)
-        dialog.present(self)
+        dialog.present(self.dialog_parent())
 
     def on_delete_response(self, _dialog, response):
         if response != "delete" or not self.selected_file:
@@ -430,7 +446,7 @@ class VideoManagerWindow(Adw.ApplicationWindow):
                 body=str(exc),
             )
             dialog.add_response("close", "Close")
-            dialog.present(self)
+            dialog.present(self.dialog_parent())
 
     def choose_upload(self, _button):
         dialog = Gtk.FileDialog(
@@ -450,7 +466,7 @@ class VideoManagerWindow(Adw.ApplicationWindow):
         filters = Gio.ListStore.new(Gtk.FileFilter)
         filters.append(video_filter)
         dialog.set_filters(filters)
-        dialog.open(self, None, self.on_upload_file_chosen)
+        dialog.open(self.dialog_parent(), None, self.on_upload_file_chosen)
 
     def on_upload_file_chosen(self, dialog, result):
         try:
@@ -485,7 +501,7 @@ class VideoManagerWindow(Adw.ApplicationWindow):
             if response == "upload"
             else None,
         )
-        confirm.present(self)
+        confirm.present(self.dialog_parent())
 
     def start_upload(self, path):
         args = [
@@ -597,7 +613,7 @@ class VideoManagerWindow(Adw.ApplicationWindow):
                 body=message[-1800:],
             )
             dialog.add_response("close", "Close")
-            dialog.present(self)
+            dialog.present(self.dialog_parent())
             if not quiet:
                 self.content_stack.set_visible_child_name("main")
             return False
