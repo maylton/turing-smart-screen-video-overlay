@@ -139,6 +139,7 @@ def find_theme_file(theme_dir: Path) -> Path | None:
     return None
 
 
+
 def read_current_theme(config_file: Path = CONFIG_FILE) -> str | None:
     try:
         content = config_file.read_text(encoding="utf-8")
@@ -818,6 +819,7 @@ class ThemeGalleryPane(Gtk.Box):
         on_open_folder: ThemeCallback,
         on_theme_diagnostics: ThemeCallback | None = None,
         on_set_current_theme: ThemeCallback | None = None,
+        on_sync_theme_video: ThemeCallback | None = None,
         on_duplicate_theme: DuplicateThemeCallback | None = None,
         on_rename_theme: RenameThemeCallback | None = None,
         on_delete_theme: DeleteThemeCallback | None = None,
@@ -832,6 +834,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.on_open_folder = on_open_folder
         self.on_theme_diagnostics = on_theme_diagnostics
         self.on_set_current_theme = on_set_current_theme
+        self.on_sync_theme_video = on_sync_theme_video
         self.on_duplicate_theme = on_duplicate_theme or self.apply_duplicate_theme
         self.on_rename_theme = on_rename_theme or self.apply_rename_theme
         self.on_delete_theme = on_delete_theme or self.apply_delete_theme
@@ -1041,56 +1044,77 @@ class ThemeGalleryPane(Gtk.Box):
         path.add_css_class("dim-label")
         card.append(path)
 
-        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, margin_top=4)
+        primary_actions = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+            margin_top=4,
+        )
+
         if self.on_set_current_theme is not None and not record.current:
             use_button = Gtk.Button(label="Use")
             use_button.set_sensitive(record.editable)
             use_button.set_tooltip_text("Set this theme as current")
             use_button.connect("clicked", lambda *_args: self.on_set_current_theme(record))
-            actions.append(use_button)
+            primary_actions.append(use_button)
 
         edit_button = Gtk.Button(label="Edit")
         edit_button.add_css_class("suggested-action")
         edit_button.set_hexpand(True)
         edit_button.set_sensitive(record.editable)
         edit_button.connect("clicked", lambda *_args: self.on_open_theme(record))
-        actions.append(edit_button)
+        primary_actions.append(edit_button)
+
+        if self.on_sync_theme_video is not None:
+            sync_button = Gtk.Button(label="Sync video")
+            sync_button.set_sensitive(record.editable)
+            sync_button.set_tooltip_text("Sync this theme video to the display")
+            sync_button.connect("clicked", lambda *_args: self.on_sync_theme_video(record))
+            primary_actions.append(sync_button)
+
+        card.append(primary_actions)
+
+        secondary_actions = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+            margin_top=2,
+        )
 
         duplicate_button = Gtk.Button(icon_name="edit-copy-symbolic")
         duplicate_button.set_sensitive(record.editable)
         duplicate_button.set_tooltip_text("Duplicate theme")
         duplicate_button.connect("clicked", lambda *_args: self.confirm_duplicate_theme(record))
-        actions.append(duplicate_button)
+        secondary_actions.append(duplicate_button)
 
         rename_button = Gtk.Button(icon_name="document-edit-symbolic")
         rename_button.set_tooltip_text("Rename theme")
         rename_button.connect("clicked", lambda *_args: self.confirm_rename_theme(record))
-        actions.append(rename_button)
+        secondary_actions.append(rename_button)
 
         export_button = Gtk.Button(icon_name="document-save-symbolic")
         export_button.set_sensitive(record.editable)
         export_button.set_tooltip_text("Export theme")
         export_button.connect("clicked", lambda *_args: self.confirm_export_theme(record))
-        actions.append(export_button)
+        secondary_actions.append(export_button)
 
         if not record.current:
             delete_button = Gtk.Button(icon_name="user-trash-symbolic")
             delete_button.add_css_class("destructive-action")
             delete_button.set_tooltip_text("Delete theme")
             delete_button.connect("clicked", lambda *_args: self.confirm_delete_theme(record))
-            actions.append(delete_button)
+            secondary_actions.append(delete_button)
 
         if self.on_theme_diagnostics is not None:
             diagnostics_button = Gtk.Button(icon_name="dialog-information-symbolic")
             diagnostics_button.set_tooltip_text("Show theme diagnostics")
             diagnostics_button.connect("clicked", lambda *_args: self.on_theme_diagnostics(record))
-            actions.append(diagnostics_button)
+            secondary_actions.append(diagnostics_button)
 
         folder_button = Gtk.Button(icon_name="folder-open-symbolic")
         folder_button.set_tooltip_text("Open theme folder")
         folder_button.connect("clicked", lambda *_args: self.on_open_folder(record))
-        actions.append(folder_button)
-        card.append(actions)
+        secondary_actions.append(folder_button)
+
+        card.append(secondary_actions)
         return card
 
     def current_theme_record(self) -> ThemeRecord | None:
