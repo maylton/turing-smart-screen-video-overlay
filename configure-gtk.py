@@ -151,11 +151,6 @@ def install_runtime_patches(app):
                 try:
                     shutil.copy2(static_preview, cache_file)
                     self.set_picture(self.overview_picture, cache_file)
-                    print(
-                        f"[overview-preview] using copied static preview: {cache_file}",
-                        file=sys.stderr,
-                        flush=True,
-                    )
                 except Exception as exc:
                     print(
                         f"[overview-preview] failed to copy preview.png: {exc}",
@@ -1319,6 +1314,42 @@ def install_runtime_patches(app):
     app.SmartScreenWindow.__init__ = patched_init
     app.SmartScreenWindow.update_runtime_status = update_runtime_status
     app.SmartScreenWindow.refresh_runtime_status = refresh_runtime_status
+    original_set_picture = app.SmartScreenWindow.set_picture
+
+    def traced_set_picture(self, picture, path):
+        try:
+            import hashlib
+            import traceback as _traceback
+
+            if path is not None and Path(path).is_file():
+                digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
+                print(
+                    "[set-picture] "
+                    f"picture_id={id(picture)} "
+                    f"is_overview={picture is getattr(self, 'overview_picture', None)} "
+                    f"path={path} "
+                    f"sha={digest}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print(
+                    "[set-picture] "
+                    f"picture_id={id(picture)} "
+                    f"is_overview={picture is getattr(self, 'overview_picture', None)} "
+                    f"path={path}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+            stack = "".join(_traceback.format_stack(limit=5))
+            print("[set-picture-stack]\n" + stack, file=sys.stderr, flush=True)
+        except Exception as exc:
+            print(f"[set-picture] trace failed: {exc}", file=sys.stderr, flush=True)
+
+        return original_set_picture(self, picture, path)
+
+    app.SmartScreenWindow.set_picture = traced_set_picture
     app.SmartScreenWindow.refresh_overview = patched_refresh_overview
     app.SmartScreenWindow.build_themes_page = build_themes_page
     app.SmartScreenWindow.refresh_theme_list = refresh_theme_list

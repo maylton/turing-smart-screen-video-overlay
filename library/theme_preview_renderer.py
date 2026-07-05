@@ -655,6 +655,8 @@ def _format_node_text(
         raw = node.get("FORMAT")
     value = value_for_path(path, node, context)
     if raw is None or str(raw).strip() == "":
+        if _is_stats_text_path(path):
+            return _format_stats_text_value(path, node, value)
         if _looks_like_time_path(path) or _looks_like_date_path(path):
             return str(value)
         label = fallback_label or _human_label(path)
@@ -705,6 +707,76 @@ def _human_label(path: tuple[Any, ...]) -> str:
         return "Value"
     label = parts[-1].replace("_", " ").replace("-", " ").strip()
     return label.title() or "Value"
+
+
+def _path_label(path: tuple[Any, ...]) -> str:
+    return "_".join(str(part).upper() for part in path if not isinstance(part, int))
+
+
+def _is_stats_text_path(path: tuple[Any, ...]) -> bool:
+    parts = [str(part).upper() for part in path if not isinstance(part, int)]
+    return len(parts) >= 3 and parts[0] == "STATS" and parts[-1] == "TEXT"
+
+
+def _format_compact_number(value: Any, *, decimals: int = 0) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+    if decimals > 0:
+        return f"{number:.{decimals}f}"
+
+    return str(int(round(number)))
+
+
+def _format_stats_text_value(
+    path: tuple[Any, ...],
+    node: Mapping[str, Any],
+    value: Any,
+) -> str:
+    """Format STATS leaf TEXT widgets like the runtime stats callbacks.
+
+    The generic Overview renderer walks YAML nodes directly. Runtime stats do
+    not render STATS.*.*.TEXT as "Text: value"; they render the metric value
+    with the proper unit, for example 67°C, 50%, or 2.40 GHz.
+    """
+    label = _path_label(path)
+    show_unit = _truthy(node.get("SHOW_UNIT"), True)
+
+    if "TEMP" in label or "TEMPERATURE" in label:
+        text = _format_compact_number(value)
+        return f"{text}°C" if show_unit else text
+
+    if "FREQUENCY" in label or "FREQ" in label:
+        text = _format_compact_number(value, decimals=2)
+        return f"{text} GHz" if show_unit else text
+
+    if "FPS" in label:
+        return _format_compact_number(value)
+
+    percent_tokens = (
+        "PERCENT",
+        "PERCENTAGE",
+        "USAGE",
+        "LOAD",
+        "FAN",
+        "BATTERY",
+        "VRAM",
+        "RAM",
+        "MEMORY_PERCENT",
+        "DISK",
+        "STORAGE",
+    )
+    if any(token in label for token in percent_tokens):
+        text = _format_compact_number(value)
+        return f"{text}%" if show_unit else text
+
+    if "MEMORY_USED" in label or "MEMORY_TOTAL" in label or "GPU_MEMORY_USED" in label or "GPU_MEMORY_TOTAL" in label:
+        text = _format_compact_number(value)
+        return f"{text} M" if show_unit else text
+
+    return str(value)
 
 
 def draw_dynamic_widgets(
