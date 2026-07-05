@@ -11,7 +11,6 @@ MODE="user"
 INSTALL_DEPS=1
 ENABLE_AUTOSTART=0
 PRESERVE_USER_DATA=1
-CHECK_ONLY=0
 
 usage() {
   cat <<'EOF'
@@ -24,7 +23,6 @@ Options:
   --no-deps         Do not install system packages
   --autostart       Start the application automatically after login
   --fresh           Replace installed themes/configuration instead of preserving them
-  --check-only      Run installer readiness diagnostics without installing anything
   -h, --help        Show this help
 
 Default installation:
@@ -40,7 +38,6 @@ for arg in "$@"; do
     --no-deps) INSTALL_DEPS=0 ;;
     --autostart) ENABLE_AUTOSTART=1 ;;
     --fresh) PRESERVE_USER_DATA=0 ;;
-    --check-only) CHECK_ONLY=1 ;;
     -h|--help)
       usage
       exit 0
@@ -72,254 +69,44 @@ ICON_64="$ICON_BASE/64x64/apps/$APP_ID.png"
 ICON_128="$ICON_BASE/128x128/apps/$APP_ID.png"
 LAUNCHER="$BIN_DIR/$COMMAND_NAME"
 
-status_line() {
-  local label="$1"
-  local value="$2"
-  printf '  %-34s %s\n' "$label" "$value"
-}
-
-command_check() {
-  local command_name="$1"
-  if command -v "$command_name" >/dev/null 2>&1; then
-    status_line "$command_name" "OK ($(command -v "$command_name"))"
-    return 0
-  fi
-  status_line "$command_name" "missing"
-  return 1
-}
-
-python_check() {
-  local label="$1"
-  local code="$2"
-  if /usr/bin/python3 -c "$code" >/dev/null 2>&1; then
-    status_line "$label" "OK"
-    return 0
-  fi
-  status_line "$label" "missing or not importable"
-  return 1
-}
-
-load_os_release() {
-  OS_ID="unknown"
-  OS_ID_LIKE=""
-  OS_NAME="unknown Linux"
-  if [[ -r /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    OS_ID="${ID:-unknown}"
-    OS_ID_LIKE="${ID_LIKE:-}"
-    OS_NAME="${PRETTY_NAME:-${NAME:-unknown Linux}}"
-  fi
-}
-
-detect_package_manager() {
-  if command -v pacman >/dev/null 2>&1; then
-    echo "pacman"
-  elif command -v apt-get >/dev/null 2>&1; then
-    echo "apt"
-  elif command -v dnf >/dev/null 2>&1; then
-    echo "dnf"
-  elif command -v zypper >/dev/null 2>&1; then
-    echo "zypper"
+canonical_path() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m "$1"
   else
-    echo "unknown"
+    python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$1"
   fi
 }
 
-package_hint() {
-  local manager="$1"
-  case "$manager" in
-    pacman)
-      echo "sudo pacman -S --needed python python-pip python-virtualenv python-gobject gtk4 libadwaita ffmpeg rsync git tk python-pillow desktop-file-utils"
-      ;;
-    apt)
-      echo "sudo apt install python3 python3-pip python3-venv python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 ffmpeg rsync git python3-tk python3-pil desktop-file-utils"
-      ;;
-    dnf)
-      echo "sudo dnf install python3 python3-pip python3-virtualenv python3-gobject gtk4 libadwaita ffmpeg rsync git python3-tkinter python3-pillow desktop-file-utils"
-      ;;
-    zypper)
-      echo "sudo zypper install python3 python3-pip python3-virtualenv python3-gobject gtk4 libadwaita ffmpeg rsync git python3-tk python3-Pillow desktop-file-utils"
-      ;;
-    *)
-      echo "Install Python 3, pip, venv, PyGObject, GTK4, Libadwaita, ffmpeg, rsync, Git, Tk, Pillow and desktop-file-utils with your distro package manager."
-      ;;
-  esac
-}
+copy_if_different() {
+  local src="$1"
+  local dest="$2"
+  local mode="${3:-}"
 
-suggested_device_groups() {
-  local os_key="${OS_ID} ${OS_ID_LIKE}"
-  case "$os_key" in
-    *arch*|*cachyos*|*manjaro*)
-      echo "uucp lock"
-      ;;
-    *debian*|*ubuntu*|*linuxmint*|*pop*)
-      echo "dialout plugdev"
-      ;;
-    *fedora*|*rhel*|*centos*|*rocky*|*almalinux*)
-      echo "dialout lock"
-      ;;
-    *opensuse*|*suse*)
-      echo "dialout uucp lock"
-      ;;
-    *)
-      echo "dialout uucp plugdev lock"
-      ;;
-  esac
-}
+  if [[ ! -f "$src" ]]; then
+    return 1
+  fi
 
-existing_groups_from_candidates() {
-  local existing=()
-  local group
-  for group in "$@"; do
-    if getent group "$group" >/dev/null 2>&1; then
-      existing+=("$group")
-    fi
-  done
-  printf '%s\n' "${existing[@]}"
-}
+  local src_real
+  local dest_real
+  src_real="$(canonical_path "$src")"
+  dest_real="$(canonical_path "$dest")"
 
-user_in_group() {
-  local group="$1"
-  id -nG "$USER" 2>/dev/null | tr ' ' '\n' | grep -Fxq "$group"
-}
-
-serial_devices() {
-  local candidate
-  for candidate in /dev/ttyACM* /dev/ttyUSB* /dev/serial/by-id/*; do
-    [[ -e "$candidate" ]] || continue
-    printf '%s\n' "$candidate"
-  done | sort -u
-}
-
-run_device_permission_check() {
-  echo
-  echo "Hardware permission readiness:"
-  local groups_text
-  groups_text="$(suggested_device_groups)"
-  # shellcheck disable=SC2206
-  local candidate_groups=( $groups_text )
-  mapfile -t existing_groups < <(existing_groups_from_candidates "${candidate_groups[@]}")
-
-  if [[ "${#existing_groups[@]}" -gt 0 ]]; then
-    status_line "Distro group candidates" "${existing_groups[*]}"
+  if [[ "$src_real" == "$dest_real" ]]; then
+    echo "Keeping $(basename "$dest"): source and destination are already the same file."
   else
-    status_line "Distro group candidates" "$groups_text (none of these groups exist yet)"
+    $SUDO cp "$src" "$dest"
   fi
 
-  mapfile -t devices < <(serial_devices)
-  if [[ "${#devices[@]}" -eq 0 ]]; then
-    status_line "Serial devices" "none detected now"
-    echo "  Connect the display and rerun: ./install.sh --check-only"
-    if [[ "${#existing_groups[@]}" -gt 0 ]]; then
-      echo "  If the display later appears as /dev/ttyACM* or /dev/ttyUSB*, the likely fix is one of:"
-      local group
-      for group in "${existing_groups[@]}"; do
-        if user_in_group "$group"; then
-          echo "    already in $group"
-        else
-          echo "    sudo usermod -aG $group \"$USER\""
-        fi
-      done
-      echo "  Group changes require logout/login before they affect new sessions."
-    fi
-    return 0
+  if [[ -n "$mode" ]]; then
+    $SUDO chmod "$mode" "$dest"
   fi
-
-  local device owner group mode
-  for device in "${devices[@]}"; do
-    owner="$(stat -Lc '%U' "$device" 2>/dev/null || echo unknown)"
-    group="$(stat -Lc '%G' "$device" 2>/dev/null || echo unknown)"
-    mode="$(stat -Lc '%A' "$device" 2>/dev/null || echo unknown)"
-    status_line "$device" "owner=$owner group=$group mode=$mode"
-    if [[ "$group" != "unknown" ]] && user_in_group "$group"; then
-      status_line "Access group $group" "current user is already a member"
-    elif [[ "$group" != "unknown" ]] && getent group "$group" >/dev/null 2>&1; then
-      status_line "Access group $group" "current user is not a member"
-      echo "  Suggested fix: sudo usermod -aG $group \"$USER\""
-      echo "  Then log out and log in again."
-    else
-      status_line "Access group" "could not determine a usable group for $device"
-    fi
-  done
 }
 
-run_readiness_check() {
-  load_os_release
-  local manager
-  manager="$(detect_package_manager)"
-
-  echo "$APP_NAME installer readiness check"
-  echo "======================================"
-  status_line "Source directory" "$SOURCE_DIR"
-  status_line "Install mode" "$MODE"
-  status_line "Install prefix" "$PREFIX"
-  status_line "Launcher" "$LAUNCHER"
-  status_line "Desktop file" "$DESKTOP_FILE"
-  status_line "OS" "$OS_NAME"
-  status_line "Package manager" "$manager"
-  status_line "Dependency hint" "$(package_hint "$manager")"
-
-  echo
-  echo "Project files:"
-  [[ -f "$SOURCE_DIR/main.py" ]] && status_line "main.py" "OK" || status_line "main.py" "missing"
-  [[ -f "$SOURCE_DIR/configure-gtk.py" ]] && status_line "configure-gtk.py" "OK" || status_line "configure-gtk.py" "missing"
-  [[ -f "$SOURCE_DIR/requirements.txt" ]] && status_line "requirements.txt" "OK" || status_line "requirements.txt" "missing"
-  if [[ -f "$SOURCE_DIR/requirements.txt" ]] && grep -q 'git+' "$SOURCE_DIR/requirements.txt"; then
-    status_line "requirements network" "contains git-based dependency; Git/network may be required during pip install"
-  fi
-
-  echo
-  echo "Command readiness:"
-  command_check python3 || true
-  command_check rsync || true
-  command_check git || true
-  command_check ffmpeg || true
-  command_check desktop-file-validate || true
-  command_check update-desktop-database || true
-  command_check gtk-update-icon-cache || true
-
-  echo
-  echo "Python/runtime readiness:"
-  if /usr/bin/python3 -m venv --help >/dev/null 2>&1; then
-    status_line "python3 -m venv" "OK"
-  else
-    status_line "python3 -m venv" "missing; install python venv support for your distro"
-  fi
-  python_check "GTK4/Libadwaita" 'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); from gi.repository import Adw, Gtk' || true
-  python_check "Pillow" 'import PIL' || true
-  python_check "PyYAML" 'import yaml' || true
-
-  if [[ -x "$PREFIX/venv/bin/python3" ]]; then
-    if "$PREFIX/venv/bin/python3" -c 'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); from gi.repository import Adw, Gtk; import PIL; import yaml; import ruamel.yaml' >/dev/null 2>&1; then
-      status_line "installed venv" "OK"
-    else
-      status_line "installed venv" "exists, but one or more runtime imports failed"
-    fi
-  else
-    status_line "installed venv" "not present yet; install.sh will create it"
-  fi
-
-  echo
-  echo "PATH readiness:"
-  case ":$PATH:" in
-    *":$BIN_DIR:"*) status_line "$BIN_DIR in PATH" "OK" ;;
-    *)
-      status_line "$BIN_DIR in PATH" "missing"
-      echo "  Add this to your shell profile if the command is not found after install:"
-      echo "    export PATH=\"$BIN_DIR:\$PATH\""
-      ;;
-  esac
-
-  run_device_permission_check
-
-  echo
-  echo "Check complete. No files were installed or modified."
-}
-
-if [[ "$CHECK_ONLY" -eq 1 ]]; then
-  run_readiness_check
-  exit 0
+SOURCE_REAL="$(canonical_path "$SOURCE_DIR")"
+PREFIX_REAL="$(canonical_path "$PREFIX")"
+SELF_INSTALL=0
+if [[ "$SOURCE_REAL" == "$PREFIX_REAL" ]]; then
+  SELF_INSTALL=1
 fi
 
 if [[ "$INSTALL_DEPS" -eq 1 ]]; then
@@ -328,11 +115,10 @@ if [[ "$INSTALL_DEPS" -eq 1 ]]; then
     sudo pacman -S --needed \
       python python-pip python-virtualenv python-gobject \
       gtk4 libadwaita ffmpeg rsync git tk python-pillow \
-      desktop-file-utils
+      python-pyserial python-babel desktop-file-utils
   else
     echo "Automatic dependency installation currently supports Arch/CachyOS." >&2
-    echo "Required: Python 3, PyGObject, GTK4, Libadwaita, ffmpeg, rsync, Git, Tk and Pillow." >&2
-    echo "Run ./install.sh --check-only to see a distro-specific dependency hint." >&2
+    echo "Required: Python 3, PyGObject, GTK4, Libadwaita, ffmpeg, rsync, Git, Tk, Pillow, pyserial and Babel." >&2
   fi
 fi
 
@@ -342,12 +128,11 @@ if [[ ! -f "$SOURCE_DIR/main.py" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$SOURCE_DIR/configure-gtk.py" ]]; then
-  echo "configure-gtk.py was not found." >&2
-  exit 1
-fi
-
 echo "Installing $APP_NAME in: $PREFIX"
+
+if [[ "$SELF_INSTALL" -eq 1 ]]; then
+  echo "Source directory is already the install directory; project file synchronization will be skipped."
+fi
 
 $SUDO mkdir -p \
   "$PREFIX" \
@@ -357,7 +142,7 @@ $SUDO mkdir -p \
   "$ICON_BASE/128x128/apps"
 
 BACKUP_DIR=""
-if [[ -d "$PREFIX" ]] && [[ "$PRESERVE_USER_DATA" -eq 1 ]]; then
+if [[ "$SELF_INSTALL" -eq 0 ]] && [[ -d "$PREFIX" ]] && [[ "$PRESERVE_USER_DATA" -eq 1 ]]; then
   BACKUP_DIR="$(mktemp -d)"
 
   [[ -f "$PREFIX/config.yaml" ]] && \
@@ -392,27 +177,34 @@ RSYNC_ARGS=(
   --exclude 'res/themes/*/theme.yaml.before-sequence-repair'
 )
 
-if [[ "$MODE" == "system" ]]; then
-  sudo rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
-else
-  rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
+if [[ "$SELF_INSTALL" -eq 0 ]]; then
+  if [[ "$MODE" == "system" ]]; then
+    sudo rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
+  else
+    rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
+  fi
 fi
 
-# Use the current GTK launcher from the checked-out branch. Do not prefer
-# configure-gtk-final.py here: local leftover files with that name can mask the
-# branch's real configure-gtk.py and make installed smoke tests exercise stale UI.
+# Install the latest consolidated GTK interface from this installer bundle.
+if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
+  copy_if_different "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
+elif [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
+  :
+else
+  echo "configure-gtk.py was not found." >&2
+  exit 1
+fi
 
 if [[ -f "$SOURCE_DIR/main-final.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/main-final.py" "$PREFIX/main.py"
+  copy_if_different "$SOURCE_DIR/main-final.py" "$PREFIX/main.py"
 fi
 
 if [[ -f "$SOURCE_DIR/screen-control.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/screen-control.py" "$PREFIX/screen-control.py"
-  $SUDO chmod +x "$PREFIX/screen-control.py"
+  copy_if_different "$SOURCE_DIR/screen-control.py" "$PREFIX/screen-control.py" "+x"
 fi
 
 if [[ -f "$SOURCE_DIR/gtk-checkup.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/gtk-checkup.py" "$PREFIX/gtk-checkup.py"
+  copy_if_different "$SOURCE_DIR/gtk-checkup.py" "$PREFIX/gtk-checkup.py"
 fi
 
 # Restore the user's existing configuration, custom themes and videos.
@@ -471,23 +263,19 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
+import babel
 import PIL
-import yaml
 import ruamel.yaml
-print("Project venv GTK, Pillow, PyYAML and ruamel.yaml imports OK")
+import serial
+print("Project venv GTK, Pillow, pyserial, Babel and ruamel.yaml imports OK")
 '
 
 PYTHON_ENTRYPOINTS=(
-  sitecustomize.py
-  theme_gallery_card_polish.py
-  turing-smart-screen-main.py
   configure-gtk.py
   configure_gtk_app.py
   main.py
   screen-control.py
   theme-editor-gtk.py
-  theme-gallery-gtk.py
-  turing-smart-screen-gtk.py
   video-manager-gtk.py
   video_manager_gtk_app.py
   video_manager.py
@@ -498,22 +286,11 @@ PYTHON_ENTRYPOINTS=(
   display-detection.py
   gtk-checkup.py
   library/runtime.py
-  library/theme_gallery.py
-  library/theme_export_preflight.py
-  library/theme_generated_media.py
-  library/theme_media_transform.py
-  library/embedded_theme_editor.py
-  library/embedded_theme_editor_runtime.py
-  library/embedded_video_manager.py
-  library/embedded_video_manager_runtime.py
-  library/main_app_ui_polish.py
-  library/theme_preview_mock_data.py
-  library/theme_preview_renderer.py
-  library/runtime_rev_c_image_guard.py
   library/video_media.py
   library/media_preparation.py
   library/media_profiles.py
   library/display_detection.py
+  tools/turzx_extract_assets.py
 )
 
 for relative in "${PYTHON_ENTRYPOINTS[@]}"; do
@@ -525,7 +302,7 @@ if [[ -f "$PREFIX/gtk-checkup.py" ]]; then
   echo "Running installed application checkup..."
   (
     cd "$PREFIX"
-    /usr/bin/python3 "$PREFIX/gtk-checkup.py" "$PREFIX"
+    $SUDO "$PREFIX/venv/bin/python3" "$PREFIX/gtk-checkup.py" "$PREFIX"
   )
 fi
 
@@ -535,9 +312,8 @@ cat > "$TMP_LAUNCHER" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 export TURING_SMART_SCREEN_HOME="$PREFIX"
-export PYTHONPATH="$PREFIX\${PYTHONPATH:+:\$PYTHONPATH}"
 cd "$PREFIX"
-exec /usr/bin/python3 "$PREFIX/turing-smart-screen-main.py" "\$@"
+exec "$PREFIX/venv/bin/python3" "$PREFIX/configure-gtk.py" "\$@"
 EOF
 chmod +x "$TMP_LAUNCHER"
 $SUDO cp "$TMP_LAUNCHER" "$LAUNCHER"
@@ -591,25 +367,27 @@ else
   echo "Warning: application icon source was not found." >&2
 fi
 
-if command -v desktop-file-validate >/dev/null 2>&1; then
-  desktop-file-validate "$DESKTOP_FILE" || true
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  $SUDO gtk-update-icon-cache -q "$(dirname "$(dirname "$ICON_BASE/64x64/apps")")" || true
 fi
 
 if command -v update-desktop-database >/dev/null 2>&1; then
-  update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
-fi
-
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-  gtk-update-icon-cache -q "$ICON_BASE" >/dev/null 2>&1 || true
+  $SUDO update-desktop-database "$DESKTOP_DIR" || true
 fi
 
 if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
-  AUTOSTART_DIR="$HOME/.config/autostart"
-  AUTOSTART_FILE="$AUTOSTART_DIR/$APP_ID.desktop"
-  mkdir -p "$AUTOSTART_DIR"
-  cp "$DESKTOP_FILE" "$AUTOSTART_FILE"
-  echo "Autostart enabled: $AUTOSTART_FILE"
+  if [[ "$MODE" == "system" ]]; then
+    AUTOSTART_DIR="$HOME/.config/autostart"
+    mkdir -p "$AUTOSTART_DIR"
+    cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
+  else
+    AUTOSTART_DIR="$HOME/.config/autostart"
+    mkdir -p "$AUTOSTART_DIR"
+    cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
+  fi
 fi
 
-echo "Installed successfully."
-echo "Run: $COMMAND_NAME"
+echo
+echo "$APP_NAME installed successfully."
+echo "Run it with: $COMMAND_NAME"
+echo "Or open it from your application launcher."
