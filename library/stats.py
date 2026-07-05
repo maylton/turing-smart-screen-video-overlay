@@ -139,6 +139,26 @@ def display_themed_temperature_value(theme_data, value):
 
 
 def display_themed_progress_bar(theme_data, value):
+    # DEBUG VISUAL: draw a very visible test rectangle directly on the preview image.
+    # This bypasses DisplayProgressBar so we can tell whether the preview image accepts drawing here.
+    try:
+        from PIL import ImageDraw
+        if theme_data.get("SHOW", False) and int(theme_data.get("WIDTH", 0) or 0) == 32 and int(theme_data.get("HEIGHT", 0) or 0) == 170:
+            draw = ImageDraw.Draw(display.lcd.screen_image)
+            x = int(theme_data.get("X", 0) or 0)
+            y = int(theme_data.get("Y", 0) or 0)
+            w = int(theme_data.get("WIDTH", 32) or 32)
+            h = int(theme_data.get("HEIGHT", 170) or 170)
+            draw.rectangle((x, y, x + w - 1, y + h - 1), fill=(0, 255, 0), outline=(255, 255, 255))
+            with open("/tmp/turing-cpu-percentage-debug.log", "a", encoding="utf-8") as handle:
+                handle.write(f"[debug direct draw] rectangle x={x} y={y} w={w} h={h}\n")
+    except Exception as exc:
+        try:
+            with open("/tmp/turing-cpu-percentage-debug.log", "a", encoding="utf-8") as handle:
+                handle.write(f"[debug direct draw failed] {exc!r}\n")
+        except Exception:
+            pass
+
     if not theme_data.get("SHOW", False):
         return
 
@@ -154,7 +174,8 @@ def display_themed_progress_bar(theme_data, value):
         bar_outline=theme_data.get("BAR_OUTLINE", False),
         background_color=theme_data.get("BACKGROUND_COLOR", (255, 255, 255)),
         background_image=get_theme_file_path(theme_data.get("BACKGROUND_IMAGE", None)),
-        reverse_direction=theme_data.get("REVERSE_DIRECTION", False)
+        reverse_direction=theme_data.get("REVERSE_DIRECTION", False),
+        orientation=theme_data.get("ORIENTATION", "auto")
     )
 
 
@@ -270,14 +291,28 @@ class CPU:
         cpu_percentage = sensors.Cpu.percentage(
             interval=theme_data.get("INTERVAL", None)
         )
-        save_last_value(cpu_percentage, cls.last_values_cpu_percentage,
-                        theme_data['LINE_GRAPH'].get("HISTORY_SIZE", DEFAULT_HISTORY_SIZE))
-        # logger.debug(f"CPU Percentage: {cpu_percentage}")
 
-        display_themed_progress_bar(theme_data['GRAPH'], cpu_percentage)
-        display_themed_percent_radial_bar(theme_data['RADIAL'], cpu_percentage)
-        display_themed_percent_value(theme_data['TEXT'], cpu_percentage)
-        display_themed_line_graph(theme_data['LINE_GRAPH'], cls.last_values_cpu_percentage)
+        graph_data = theme_data.get('GRAPH', {})
+        radial_data = theme_data.get('RADIAL', {})
+        text_data = theme_data.get('TEXT', {})
+        line_graph_data = theme_data.get('LINE_GRAPH', {})
+
+        save_last_value(
+            cpu_percentage,
+            cls.last_values_cpu_percentage,
+            line_graph_data.get("HISTORY_SIZE", DEFAULT_HISTORY_SIZE),
+        )
+
+        # Imported themes may only define TEXT and GRAPH.
+        # Keep the runtime tolerant when RADIAL/LINE_GRAPH are absent.
+        if graph_data:
+            display_themed_progress_bar(graph_data, cpu_percentage)
+        if radial_data:
+            display_themed_percent_radial_bar(radial_data, cpu_percentage)
+        if text_data:
+            display_themed_percent_value(text_data, cpu_percentage)
+        if line_graph_data:
+            display_themed_line_graph(line_graph_data, cls.last_values_cpu_percentage)
 
     @classmethod
     def frequency(cls):

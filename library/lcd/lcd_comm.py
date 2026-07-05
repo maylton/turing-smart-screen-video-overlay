@@ -250,7 +250,7 @@ class LcdComm(ABC):
             background_image: Optional[str] = None,
             align: str = 'left',
             anchor: str = 'la',
-    ):
+            effects=None):
         # Convert text to bitmap using PIL and display it
         # Provide the background image path to display text with transparent background
 
@@ -327,7 +327,8 @@ class LcdComm(ABC):
                            bar_outline: bool = True,
                            background_color: Color = (255, 255, 255),
                            background_image: Optional[str] = None,
-                           reverse_direction: Optional[bool] = False):
+                           reverse_direction: Optional[bool] = False,
+                           orientation: str = "auto"):
         # Generate a progress bar and display it
         # Provide the background image path to display progress bar with transparent background
 
@@ -362,14 +363,25 @@ class LcdComm(ABC):
         # bar with min_value > 0 (e.g. a 25..95 temperature bar) is
         # filled by the wrong fraction. DisplayRadialProgressBar below
         # already does this correctly. See issue #954.
-        if width > height:
-            bar_filled_width = ((value - min_value) / (max_value - min_value) * width) - 1
-            if bar_filled_width < 0:
-                bar_filled_width = 0
+        orientation = str(orientation or "auto").lower()
+        if orientation in ("horizontal", "h", "x"):
+            horizontal = True
+        elif orientation in ("vertical", "v", "y"):
+            horizontal = False
         else:
-            bar_filled_height = ((value - min_value) / (max_value - min_value) * height) - 1
-            if bar_filled_height < 0:
-                bar_filled_height = 0
+            horizontal = width > height
+
+        span = width if horizontal else height
+        try:
+            pct = (value - min_value) / (max_value - min_value)
+        except ZeroDivisionError:
+            pct = 0
+
+        pct = max(0, min(1, pct))
+        filled = max(0, int(pct * span) - 1)
+        bar_filled_width = filled
+        bar_filled_height = filled
+
         draw = ImageDraw.Draw(bar_image)
 
         # most common setting
@@ -378,7 +390,7 @@ class LcdComm(ABC):
         x2 = width - 1
         y2 = height - 1
 
-        if width > height:
+        if horizontal:
             if reverse_direction is True:
                 x1 = width - 1 - bar_filled_width
             else:
