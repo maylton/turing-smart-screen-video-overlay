@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 import os
 import re
 import shutil
@@ -487,6 +488,19 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 tools_popover,
             )
         )
+
+        windows_heading = Gtk.Label(label="Windows themes", xalign=0)
+        windows_heading.add_css_class("heading")
+        windows_heading.set_margin_top(8)
+        tools_box.append(windows_heading)
+        tools_box.append(
+            popover_action_button(
+                "Extract Windows Theme Assets…",
+                "folder-download-symbolic",
+                self.open_windows_theme_asset_extractor,
+                tools_popover,
+            )
+        )
         tools_popover.set_child(tools_box)
 
         tools_button = Gtk.MenuButton(label="Tools")
@@ -630,6 +644,172 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 return root
             return embedded_parent
         return self
+
+    def load_turzx_asset_extractor_module(self):
+        extractor_file = ROOT / "tools" / "turzx_extract_assets.py"
+        if not extractor_file.is_file():
+            raise FileNotFoundError(extractor_file)
+
+        spec = importlib.util.spec_from_file_location(
+            "turing_smart_screen_turzx_extract_assets",
+            extractor_file,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {extractor_file.name}")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def unique_windows_assets_output_dir(self, theme_path: Path) -> Path:
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "-", theme_path.stem).strip("-._")
+        stem = stem or "windows-theme-assets"
+
+        root = self.theme_dir / "windows-assets"
+        root.mkdir(parents=True, exist_ok=True)
+
+        candidate = root / stem
+        if not candidate.exists():
+            return candidate
+
+        counter = 2
+        while True:
+            candidate = root / f"{stem}-{counter}"
+            if not candidate.exists():
+                return candidate
+            counter += 1
+
+    def open_windows_theme_asset_extractor(self):
+        chooser = Gtk.FileDialog(
+            title="Choose a Windows .turtheme file",
+            modal=True,
+        )
+
+        theme_filter = Gtk.FileFilter()
+        theme_filter.set_name("Windows Turing theme files")
+        theme_filter.add_pattern("*.turtheme")
+        theme_filter.add_pattern("*.TURTHEME")
+
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All files")
+        all_filter.add_pattern("*")
+
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(theme_filter)
+        filters.append(all_filter)
+        chooser.set_filters(filters)
+        chooser.set_default_filter(theme_filter)
+
+        def selected(chooser, result):
+            try:
+                file = chooser.open_finish(result)
+            except GLib.Error:
+                return
+
+            input_path = file.get_path()
+            if not input_path:
+                self.toast("No Windows theme file selected")
+                return
+
+            theme_path = Path(input_path)
+            if not theme_path.is_file():
+                self.error_dialog(
+                    "Windows theme not found",
+                    f"The selected file does not exist:\n{theme_path}",
+                )
+                return
+
+            output_dir = self.unique_windows_assets_output_dir(theme_path)
+            self.toast("Extracting Windows theme assets…")
+
+            def worker():
+                manifest = None
+                error = ""
+                try:
+                    module = self.load_turzx_asset_extractor_module()
+                    manifest = module.AssetExtractor(theme_path, output_dir).run()
+                except Exception as exc:
+                    error = str(exc)
+
+                GLib.idle_add(
+                    self.finish_windows_theme_asset_extraction,
+                    theme_path,
+                    output_dir,
+                    manifest,
+                    error,
+                )
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        chooser.open(self.dialog_parent(), None, selected)
+
+    def finish_windows_theme_asset_extraction(
+        self,
+        theme_path: Path,
+        output_dir: Path,
+        manifest,
+        error: str,
+    ):
+        if error:
+            self.error_dialog("Could not extract Windows theme assets", error)
+            return False
+
+        summary = manifest.get("summary", {}) if isinstance(manifest, dict) else {}
+        images = int(summary.get("images") or 0)
+        videos = int(summary.get("videos") or 0)
+        total = int(summary.get("total_assets") or 0)
+        duplicates = int(summary.get("duplicates_skipped") or 0)
+        manifest_path = output_dir / "manifest.json"
+
+        if total:
+            heading = "Windows theme assets extracted"
+            body = (
+                f"{theme_path.name}\n\n"
+                f"Images: {images}\n"
+                f"Videos: {videos}\n"
+                f"Total assets: {total}\n"
+                f"Duplicates skipped: {duplicates}\n\n"
+                f"Output folder:\n{output_dir}\n\n"
+                "The current theme YAML was not changed."
+            )
+        else:
+            heading = "No assets found"
+            body = (
+                f"{theme_path.name}\n\n"
+                "No supported image or video assets were found. "
+                "The theme may be compressed, encrypted, or use an unsupported container.\n\n"
+                f"Output folder:\n{output_dir}"
+            )
+
+        dialog = Adw.AlertDialog(
+            heading=heading,
+            body=body,
+        )
+        dialog.add_response("close", "Close")
+        dialog.add_response("copy", "Copy Manifest Path")
+        dialog.add_response("open", "Open Folder")
+        dialog.set_close_response("close")
+        dialog.set_default_response("open")
+        if total:
+            dialog.set_response_appearance(
+                "open",
+                Adw.ResponseAppearance.SUGGESTED,
+            )
+
+        def response(_dialog, response_id):
+            if response_id == "open":
+                self.reveal_generated_media(output_dir)
+            elif response_id == "copy":
+                self.copy_text_to_clipboard(
+                    str(manifest_path),
+                    "Windows theme asset manifest path",
+                )
+
+        dialog.connect("response", response)
+        dialog.present(self.dialog_parent())
+        self.toast(f"Extracted {total} Windows theme asset(s)")
+        return False
+
 
     def build_elements_panel(self):
         box = Gtk.Box(
