@@ -55,16 +55,25 @@ def copy_default(default, theme):
 def load_theme():
     global THEME_DATA
     try:
-        theme_path = Path("res/themes/" + CONFIG_DATA['config']['THEME'])
-        logger.info("Loading theme %s from %s" % (CONFIG_DATA['config']['THEME'], theme_path / "theme.yaml"))
+        theme_name = str(CONFIG_DATA['config']['THEME'])
+        CONFIG_DATA['config']['THEME'] = theme_name
+        theme_path = Path("res/themes") / theme_name
+        logger.info("Loading theme %s from %s" % (theme_name, theme_path / "theme.yaml"))
         THEME_DATA = load_yaml(MAIN_DIRECTORY / theme_path / "theme.yaml")
         THEME_DATA['PATH'] = str(MAIN_DIRECTORY / theme_path) + "/"
-    except:
-        logger.error("Theme not found or contains errors!")
+    except Exception as exc:
+        theme_name = CONFIG_DATA.get("config", {}).get("THEME")
+        theme_path = MAIN_DIRECTORY / "res" / "themes" / str(theme_name) / "theme.yaml"
+        logger.exception(
+            "Theme not found or contains errors while loading %r from %s: %s",
+            theme_name,
+            theme_path,
+            exc,
+        )
         try:
-            sys.exit(0)
+            sys.exit(1)
         except:
-            os._exit(0)
+            os._exit(1)
 
     copy_default(THEME_DEFAULT, THEME_DATA)
 
