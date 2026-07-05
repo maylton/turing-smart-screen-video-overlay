@@ -69,16 +69,56 @@ ICON_64="$ICON_BASE/64x64/apps/$APP_ID.png"
 ICON_128="$ICON_BASE/128x128/apps/$APP_ID.png"
 LAUNCHER="$BIN_DIR/$COMMAND_NAME"
 
+canonical_path() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m "$1"
+  else
+    python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$1"
+  fi
+}
+
+copy_if_different() {
+  local src="$1"
+  local dest="$2"
+  local mode="${3:-}"
+
+  if [[ ! -f "$src" ]]; then
+    return 1
+  fi
+
+  local src_real
+  local dest_real
+  src_real="$(canonical_path "$src")"
+  dest_real="$(canonical_path "$dest")"
+
+  if [[ "$src_real" == "$dest_real" ]]; then
+    echo "Keeping $(basename "$dest"): source and destination are already the same file."
+  else
+    $SUDO cp "$src" "$dest"
+  fi
+
+  if [[ -n "$mode" ]]; then
+    $SUDO chmod "$mode" "$dest"
+  fi
+}
+
+SOURCE_REAL="$(canonical_path "$SOURCE_DIR")"
+PREFIX_REAL="$(canonical_path "$PREFIX")"
+SELF_INSTALL=0
+if [[ "$SOURCE_REAL" == "$PREFIX_REAL" ]]; then
+  SELF_INSTALL=1
+fi
+
 if [[ "$INSTALL_DEPS" -eq 1 ]]; then
   if command -v pacman >/dev/null 2>&1; then
     echo "Installing Arch/CachyOS dependencies..."
     sudo pacman -S --needed \
       python python-pip python-virtualenv python-gobject \
       gtk4 libadwaita ffmpeg rsync git tk python-pillow \
-      desktop-file-utils
+      python-pyserial python-babel desktop-file-utils
   else
     echo "Automatic dependency installation currently supports Arch/CachyOS." >&2
-    echo "Required: Python 3, PyGObject, GTK4, Libadwaita, ffmpeg, rsync, Git, Tk and Pillow." >&2
+    echo "Required: Python 3, PyGObject, GTK4, Libadwaita, ffmpeg, rsync, Git, Tk, Pillow, pyserial and Babel." >&2
   fi
 fi
 
@@ -90,6 +130,10 @@ fi
 
 echo "Installing $APP_NAME in: $PREFIX"
 
+if [[ "$SELF_INSTALL" -eq 1 ]]; then
+  echo "Source directory is already the install directory; project file synchronization will be skipped."
+fi
+
 $SUDO mkdir -p \
   "$PREFIX" \
   "$BIN_DIR" \
@@ -98,7 +142,7 @@ $SUDO mkdir -p \
   "$ICON_BASE/128x128/apps"
 
 BACKUP_DIR=""
-if [[ -d "$PREFIX" ]] && [[ "$PRESERVE_USER_DATA" -eq 1 ]]; then
+if [[ "$SELF_INSTALL" -eq 0 ]] && [[ -d "$PREFIX" ]] && [[ "$PRESERVE_USER_DATA" -eq 1 ]]; then
   BACKUP_DIR="$(mktemp -d)"
 
   [[ -f "$PREFIX/config.yaml" ]] && \
@@ -133,15 +177,17 @@ RSYNC_ARGS=(
   --exclude 'res/themes/*/theme.yaml.before-sequence-repair'
 )
 
-if [[ "$MODE" == "system" ]]; then
-  sudo rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
-else
-  rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
+if [[ "$SELF_INSTALL" -eq 0 ]]; then
+  if [[ "$MODE" == "system" ]]; then
+    sudo rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
+  else
+    rsync "${RSYNC_ARGS[@]}" "$SOURCE_DIR/" "$PREFIX/"
+  fi
 fi
 
 # Install the latest consolidated GTK interface from this installer bundle.
 if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
+  copy_if_different "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
 elif [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
   :
 else
@@ -150,16 +196,15 @@ else
 fi
 
 if [[ -f "$SOURCE_DIR/main-final.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/main-final.py" "$PREFIX/main.py"
+  copy_if_different "$SOURCE_DIR/main-final.py" "$PREFIX/main.py"
 fi
 
 if [[ -f "$SOURCE_DIR/screen-control.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/screen-control.py" "$PREFIX/screen-control.py"
-  $SUDO chmod +x "$PREFIX/screen-control.py"
+  copy_if_different "$SOURCE_DIR/screen-control.py" "$PREFIX/screen-control.py" "+x"
 fi
 
 if [[ -f "$SOURCE_DIR/gtk-checkup.py" ]]; then
-  $SUDO cp "$SOURCE_DIR/gtk-checkup.py" "$PREFIX/gtk-checkup.py"
+  copy_if_different "$SOURCE_DIR/gtk-checkup.py" "$PREFIX/gtk-checkup.py"
 fi
 
 # Restore the user's existing configuration, custom themes and videos.
@@ -218,9 +263,11 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
+import babel
 import PIL
 import ruamel.yaml
-print("Project venv GTK, Pillow and ruamel.yaml imports OK")
+import serial
+print("Project venv GTK, Pillow, pyserial, Babel and ruamel.yaml imports OK")
 '
 
 PYTHON_ENTRYPOINTS=(
@@ -243,6 +290,7 @@ PYTHON_ENTRYPOINTS=(
   library/media_preparation.py
   library/media_profiles.py
   library/display_detection.py
+  tools/turzx_extract_assets.py
 )
 
 for relative in "${PYTHON_ENTRYPOINTS[@]}"; do
@@ -254,7 +302,7 @@ if [[ -f "$PREFIX/gtk-checkup.py" ]]; then
   echo "Running installed application checkup..."
   (
     cd "$PREFIX"
-    /usr/bin/python3 "$PREFIX/gtk-checkup.py" "$PREFIX"
+    $SUDO "$PREFIX/venv/bin/python3" "$PREFIX/gtk-checkup.py" "$PREFIX"
   )
 fi
 
@@ -265,7 +313,7 @@ cat > "$TMP_LAUNCHER" <<EOF
 set -euo pipefail
 export TURING_SMART_SCREEN_HOME="$PREFIX"
 cd "$PREFIX"
-exec /usr/bin/python3 "$PREFIX/configure-gtk.py" "\$@"
+exec "$PREFIX/venv/bin/python3" "$PREFIX/configure-gtk.py" "\$@"
 EOF
 chmod +x "$TMP_LAUNCHER"
 $SUDO cp "$TMP_LAUNCHER" "$LAUNCHER"
@@ -319,65 +367,27 @@ else
   echo "Warning: application icon source was not found." >&2
 fi
 
-# Optional desktop autostart.
-if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
-  AUTOSTART_DIR="$HOME/.config/autostart"
-  mkdir -p "$AUTOSTART_DIR"
-
-  cat > "$AUTOSTART_DIR/$APP_ID.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=$APP_NAME
-Comment=Start Turing Smart Screen after login
-Exec=$LAUNCHER
-Icon=$APP_ID
-Terminal=false
-X-GNOME-Autostart-enabled=true
-StartupNotify=false
-EOF
-  echo "Autostart enabled."
-fi
-
-# Report optional udev rules. They remain project-specific and should not be
-# installed blindly without confirming the target USB IDs.
-for rule in "$PREFIX"/udev/*.rules "$PREFIX"/*.rules; do
-  [[ -f "$rule" ]] || continue
-  echo "Available udev rule: $rule"
-done
-
-if command -v desktop-file-validate >/dev/null 2>&1; then
-  desktop-file-validate "$DESKTOP_FILE" || true
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  $SUDO gtk-update-icon-cache -q "$(dirname "$(dirname "$ICON_BASE/64x64/apps")")" || true
 fi
 
 if command -v update-desktop-database >/dev/null 2>&1; then
-  $SUDO update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+  $SUDO update-desktop-database "$DESKTOP_DIR" || true
 fi
 
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-  $SUDO gtk-update-icon-cache -f "$ICON_BASE" >/dev/null 2>&1 || true
+if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
+  if [[ "$MODE" == "system" ]]; then
+    AUTOSTART_DIR="$HOME/.config/autostart"
+    mkdir -p "$AUTOSTART_DIR"
+    cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
+  else
+    AUTOSTART_DIR="$HOME/.config/autostart"
+    mkdir -p "$AUTOSTART_DIR"
+    cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
+  fi
 fi
 
 echo
-echo "$APP_NAME installation completed."
-echo
-echo "Application: $PREFIX"
-echo "Launcher:    $LAUNCHER"
-echo "Desktop:     $DESKTOP_FILE"
-echo "App ID:      $APP_ID"
-echo
-echo "Included features:"
-echo "  - GTK4/Libadwaita interface"
-echo "  - Noctalia-compatible StatusNotifierItem tray"
-echo "  - Compatible-theme filtering and blank-theme creation"
-echo "  - Automatic restoration of the last selected theme"
-echo "  - Native video management and media preparation editor"
-echo "  - Display power-off control"
-echo
-echo "Close any older instance and launch:"
-echo "  $COMMAND_NAME"
-echo
-
-if [[ "$MODE" == "user" ]] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-  echo "Note: add ~/.local/bin to PATH to use the terminal command."
-fi
+echo "$APP_NAME installed successfully."
+echo "Run it with: $COMMAND_NAME"
+echo "Or open it from your application launcher."
