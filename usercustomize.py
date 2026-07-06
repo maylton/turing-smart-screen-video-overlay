@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Narrow test hooks for the GTK launcher.
+"""Narrow compatibility hook for the GTK test launcher.
 
-Python imports ``usercustomize`` after ``sitecustomize`` when it is present on
-``sys.path``. Keep this file guarded by entry point so the diagnostics-page test
-branch can wire new UI into ``configure-gtk.py`` without touching production
-launcher code yet.
+The validated Main App / Diagnostics behavior now lives in
+``library.main_app_diagnostics_integration``. This file remains only as a small
+compatibility bridge for installed draft builds whose launcher has not yet been
+updated to call the consolidated integration directly.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-_DIAGNOSTICS_HOOK_INSTALLED = False
+_HOOK_INSTALLED = False
 
 
 def _entry_point_name() -> str:
@@ -24,93 +24,39 @@ def _should_patch_main_app() -> bool:
     return _entry_point_name() == "configure-gtk.py"
 
 
-def _should_quiet_monitor_logs() -> bool:
-    return _entry_point_name() in {"main.py", "main-final.py"}
-
-
-def _install_quiet_video_overlay_logs() -> None:
-    try:
-        from library.quiet_video_overlay_logs import install_quiet_video_overlay_logs
-    except Exception as exc:  # pragma: no cover - defensive startup guard
-        print(
-            f"[video-overlay-logs] could not import log filter: {exc}",
-            file=sys.stderr,
-            flush=True,
-        )
-        return
-
-    try:
-        install_quiet_video_overlay_logs()
-    except Exception as exc:  # pragma: no cover - defensive startup guard
-        print(
-            f"[video-overlay-logs] could not install log filter: {exc}",
-            file=sys.stderr,
-            flush=True,
-        )
-
-
-def _install_main_app_runtime_ui_hooks(app) -> None:
-    try:
-        from library.main_app_apply_status import install_main_app_apply_status
-    except Exception as exc:  # pragma: no cover - defensive startup guard
-        print(
-            f"[apply-status] could not import main app integration: {exc}",
-            file=sys.stderr,
-            flush=True,
-        )
-    else:
-        try:
-            install_main_app_apply_status(app)
-        except Exception as exc:  # pragma: no cover - defensive startup guard
-            print(
-                f"[apply-status] could not install after runtime patches: {exc}",
-                file=sys.stderr,
-                flush=True,
-            )
-
-    try:
-        from library.main_app_overview_refresh import (
-            install_main_app_overview_auto_refresh,
-        )
-    except Exception as exc:  # pragma: no cover - defensive startup guard
-        print(
-            f"[overview-refresh] could not import main app integration: {exc}",
-            file=sys.stderr,
-            flush=True,
-        )
-    else:
-        try:
-            install_main_app_overview_auto_refresh(app)
-        except Exception as exc:  # pragma: no cover - defensive startup guard
-            print(
-                f"[overview-refresh] could not install after runtime patches: {exc}",
-                file=sys.stderr,
-                flush=True,
-            )
-
-
-def _install_runtime_ui_hooks_after_runtime_patches() -> None:
+def _install_consolidated_integration_after_runtime_patches() -> None:
     main_module = sys.modules.get("__main__")
     runtime_patches = getattr(main_module, "install_runtime_patches", None)
     if runtime_patches is None or getattr(
         runtime_patches,
-        "_runtime_ui_hooks_post_runtime_wrapper",
+        "_consolidated_main_app_integration_wrapper",
         False,
     ):
         return
 
-    def install_runtime_patches_with_ui_hooks(app, *args, **kwargs):
+    def install_runtime_patches_with_consolidated_integration(app, *args, **kwargs):
         result = runtime_patches(app, *args, **kwargs)
-        _install_main_app_runtime_ui_hooks(app)
+        try:
+            from library.main_app_diagnostics_integration import (
+                install_main_app_diagnostics_integration,
+            )
+
+            install_main_app_diagnostics_integration(app)
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            print(
+                f"[main-app-integration] could not install after runtime patches: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
         return result
 
-    install_runtime_patches_with_ui_hooks._runtime_ui_hooks_post_runtime_wrapper = True
-    main_module.install_runtime_patches = install_runtime_patches_with_ui_hooks
+    install_runtime_patches_with_consolidated_integration._consolidated_main_app_integration_wrapper = True
+    main_module.install_runtime_patches = install_runtime_patches_with_consolidated_integration
 
 
-def _install_diagnostics_import_hook() -> None:
-    global _DIAGNOSTICS_HOOK_INSTALLED
-    if _DIAGNOSTICS_HOOK_INSTALLED or not _should_patch_main_app():
+def _install_import_hook() -> None:
+    global _HOOK_INSTALLED
+    if _HOOK_INSTALLED or not _should_patch_main_app():
         return
 
     original_spec_from_file_location = importlib.util.spec_from_file_location
@@ -133,35 +79,20 @@ def _install_diagnostics_import_hook() -> None:
 
         def exec_module(module) -> None:
             original_exec_module(module)
-            try:
-                from library.main_app_diagnostics_integration import (
-                    install_main_app_diagnostics_integration,
-                )
-
-                install_main_app_diagnostics_integration(module)
-            except Exception as exc:  # pragma: no cover - defensive startup guard
-                print(
-                    f"[diagnostics] could not install main app integration: {exc}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-
-            _install_runtime_ui_hooks_after_runtime_patches()
+            _install_consolidated_integration_after_runtime_patches()
 
         loader.exec_module = exec_module
         return spec
 
     importlib.util.spec_from_file_location = spec_from_file_location
-    _DIAGNOSTICS_HOOK_INSTALLED = True
+    _HOOK_INSTALLED = True
 
 
 try:
-    if _should_quiet_monitor_logs():
-        _install_quiet_video_overlay_logs()
-    _install_diagnostics_import_hook()
+    _install_import_hook()
 except Exception as exc:  # pragma: no cover - defensive startup guard
     print(
-        f"[diagnostics] could not install import hook: {exc}",
+        f"[main-app-integration] could not install import hook: {exc}",
         file=sys.stderr,
         flush=True,
     )
