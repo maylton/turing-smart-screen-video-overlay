@@ -217,23 +217,36 @@ else
   exit 1
 fi
 
-# The runtime launcher patches Settings after loading configure_gtk_app.py.
-# Install the diagnostics integration after those runtime patches as well;
-# otherwise the runtime Settings replacement hides the test Diagnostics row.
-if [[ -f "$PREFIX/configure-gtk.py" ]] && [[ -f "$PREFIX/library/main_app_diagnostics_integration.py" ]]; then
+# The runtime launcher replaces Settings after loading configure_gtk_app.py.
+# Patch the installed test launcher directly so the Diagnostics row is added
+# inside the final runtime Settings implementation, not only through early hooks.
+if [[ -f "$PREFIX/configure-gtk.py" ]]; then
   $SUDO /usr/bin/python3 - "$PREFIX/configure-gtk.py" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-marker = "install_main_app_diagnostics_integration(app)"
-if marker not in text:
+changed = False
+
+post_runtime_marker = "install_main_app_diagnostics_integration(app)"
+if post_runtime_marker not in text and "library/main_app_diagnostics_integration.py" in text:
     old = "    install_runtime_patches(app)\n    return app.main()\n"
     new = """    install_runtime_patches(app)\n    try:\n        from library.main_app_diagnostics_integration import (\n            install_main_app_diagnostics_integration,\n        )\n\n        install_main_app_diagnostics_integration(app)\n    except Exception as exc:  # pragma: no cover - defensive startup guard\n        print(\n            f\"[diagnostics] could not install main app integration after runtime patches: {exc}\",\n            file=sys.stderr,\n            flush=True,\n        )\n    return app.main()\n"""
+    if old in text:
+        text = text.replace(old, new, 1)
+        changed = True
+
+if "title=\"Diagnostics\"" not in text:
+    old = """        maintenance.add(checkup_row)\n        box.append(maintenance)\n        return scrolled\n"""
+    new = """        maintenance.add(checkup_row)\n\n        diagnostics_row = app.Adw.ActionRow(\n            title=\"Diagnostics\",\n            subtitle=(\n                \"Inspect theme, video, runtime, and USB state without \"\n                \"opening the serial port\"\n            ),\n            icon_name=\"utilities-system-monitor-symbolic\",\n            activatable=True,\n        )\n\n        def open_diagnostics_from_row(*_args):\n            diagnostics_viewer = app.ROOT / \"diagnostics-gtk.py\"\n            if not diagnostics_viewer.is_file():\n                self.toast(\"diagnostics-gtk.py was not found\")\n                return\n            self.launch_script(\n                diagnostics_viewer,\n                use_system_python=True,\n            )\n\n        diagnostics_row.connect(\"activated\", open_diagnostics_from_row)\n        diagnostics_row.add_suffix(\n            app.Gtk.Image.new_from_icon_name(\"go-next-symbolic\")\n        )\n        maintenance.add(diagnostics_row)\n        box.append(maintenance)\n        return scrolled\n"""
     if old not in text:
-        raise SystemExit("Could not patch configure-gtk.py diagnostics integration hook")
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        raise SystemExit("Could not patch configure-gtk.py Settings diagnostics row")
+    text = text.replace(old, new, 1)
+    changed = True
+
+if changed:
+    path.write_text(text, encoding="utf-8")
 PY
 fi
 
