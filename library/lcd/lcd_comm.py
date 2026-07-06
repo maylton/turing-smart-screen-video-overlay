@@ -501,12 +501,22 @@ class LcdComm(ABC):
                            bar_outline: bool = True,
                            background_color: Color = (255, 255, 255),
                            background_image: Optional[str] = None,
-                           reverse_direction: Optional[bool] = False):
+                           reverse_direction: Optional[bool] = False,
+                           orientation: Optional[str] = "auto",
+                           bar_background_color: Color = (0, 0, 0),
+                           draw_bar_background: bool = False):
         # Generate a progress bar and display it
         # Provide the background image path to display progress bar with transparent background
 
         bar_color = parse_color(bar_color)
         background_color = parse_color(background_color)
+        bar_background_color = parse_color(bar_background_color)
+        orientation = str(orientation or "auto").strip().lower()
+        if orientation not in ("auto", "horizontal", "vertical"):
+            logger.warning(
+                f"Unknown progress bar ORIENTATION '{orientation}', using auto"
+            )
+            orientation = "auto"
 
         assert x <= self.get_width(), 'Progress bar X coordinate must be <= display width'
         assert y <= self.get_height(), 'Progress bar Y coordinate must be <= display height'
@@ -521,6 +531,12 @@ class LcdComm(ABC):
 
         assert min_value <= value <= max_value, 'Progress bar value shall be between min and max'
 
+        if max_value == min_value:
+            pct = 1.0
+        else:
+            pct = (value - min_value) / (max_value - min_value)
+        pct = max(0.0, min(1.0, pct))
+
         bar_image = self._make_widget_canvas(
             (width, height),
             background_color,
@@ -528,20 +544,34 @@ class LcdComm(ABC):
             crop_box=(x, y, x + width, y + height),
         )
 
+        draw = ImageDraw.Draw(bar_image)
+
+        if draw_bar_background:
+            draw.rectangle(
+                [0, 0, width - 1, height - 1],
+                fill=bar_background_color,
+                outline=bar_background_color,
+            )
+
+        is_horizontal = (
+            width > height
+            if orientation == "auto"
+            else orientation == "horizontal"
+        )
+
         # Draw progress bar. Fill has to be computed from the offset
         # into [min_value, max_value], not the raw value; otherwise a
         # bar with min_value > 0 (e.g. a 25..95 temperature bar) is
         # filled by the wrong fraction. DisplayRadialProgressBar below
         # already does this correctly. See issue #954.
-        if width > height:
-            bar_filled_width = ((value - min_value) / (max_value - min_value) * width) - 1
+        if is_horizontal:
+            bar_filled_width = (pct * width) - 1
             if bar_filled_width < 0:
                 bar_filled_width = 0
         else:
-            bar_filled_height = ((value - min_value) / (max_value - min_value) * height) - 1
+            bar_filled_height = (pct * height) - 1
             if bar_filled_height < 0:
                 bar_filled_height = 0
-        draw = ImageDraw.Draw(bar_image)
 
         # most common setting
         x1 = 0
@@ -549,7 +579,7 @@ class LcdComm(ABC):
         x2 = width - 1
         y2 = height - 1
 
-        if width > height:
+        if is_horizontal:
             if reverse_direction is True:
                 x1 = width - 1 - bar_filled_width
             else:
