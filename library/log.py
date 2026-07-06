@@ -36,3 +36,10 @@ logging.basicConfig(  # format='%(asctime)s [%(levelname)s] %(message)s in %(pat
 
 logger = logging.getLogger('turing')
 logger.setLevel(logging.DEBUG)  # Lowest log level : print all messages
+
+try:
+    from library.weather_runtime_patch import install as _install_weather_runtime_patch
+
+    _install_weather_runtime_patch()
+except Exception as exc:
+    logger.debug("Weather runtime integration was not installed: %s", exc)
