@@ -103,6 +103,28 @@ OPEN_METEO_WEATHER_CODES = {
 
 
 @dataclass
+class WeatherLocation:
+    name: str
+    latitude: float
+    longitude: float
+    country: str = ""
+    country_code: str = ""
+    admin1: str = ""
+    timezone: str = ""
+
+    def display_name(self) -> str:
+        parts = [self.name]
+        if self.admin1 and self.admin1 != self.name:
+            parts.append(self.admin1)
+        if self.country:
+            parts.append(self.country)
+        return ", ".join(part for part in parts if part)
+
+    def coordinates_label(self) -> str:
+        return f"{self.latitude:.5f}, {self.longitude:.5f}"
+
+
+@dataclass
 class WeatherSnapshot:
     temperature: Optional[str] = None
     feels_like: Optional[str] = None
@@ -127,6 +149,11 @@ class WeatherProvider:
 
     _last_snapshot: Optional[WeatherSnapshot] = None
     _last_fetch_at: Optional[datetime.datetime] = None
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        cls._last_snapshot = None
+        cls._last_fetch_at = None
 
     @classmethod
     def fetch(cls, settings: Dict[str, Any], hw_sensors: str = "AUTO") -> WeatherSnapshot:
@@ -191,6 +218,79 @@ class WeatherProvider:
             return int(settings.get(key, default))
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _format_coordinate(value: float) -> str:
+        return f"{float(value):.6f}".rstrip("0").rstrip(".")
+
+    @classmethod
+    def search_location(
+        cls,
+        query: str,
+        settings: Dict[str, Any],
+        count: int = 5,
+    ) -> list[WeatherLocation]:
+        """Search Open-Meteo geocoding and return matching locations."""
+
+        name = str(query or "").strip()
+        if len(name) < 2:
+            raise ValueError("Enter at least 2 characters to search a weather location.")
+
+        timeout = cls._int_setting(settings, "WEATHER_TIMEOUT_SECONDS", 10)
+        language = cls._language(settings)
+        count = max(1, min(int(count or 5), 10))
+        params: Dict[str, Any] = {
+            "name": name,
+            "count": count,
+            "language": language,
+            "format": "json",
+        }
+        country_code = str(settings.get("WEATHER_COUNTRY_CODE", "") or "").strip().upper()
+        if country_code:
+            params["countryCode"] = country_code
+
+        try:
+            response = requests.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params=params,
+                timeout=max(1, timeout),
+            )
+            response.raise_for_status()
+            data = response.json()
+        except Exception as exc:
+            logger.error("Error searching Open-Meteo location: %s", exc)
+            raise RuntimeError(f"Open-Meteo location search failed: {exc}") from exc
+
+        raw_results = data.get("results") or []
+        locations: list[WeatherLocation] = []
+        for item in raw_results:
+            try:
+                locations.append(
+                    WeatherLocation(
+                        name=str(item.get("name") or ""),
+                        latitude=float(item["latitude"]),
+                        longitude=float(item["longitude"]),
+                        country=str(item.get("country") or ""),
+                        country_code=str(item.get("country_code") or ""),
+                        admin1=str(item.get("admin1") or ""),
+                        timezone=str(item.get("timezone") or ""),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        if not locations:
+            raise ValueError(f"No Open-Meteo location found for '{name}'.")
+        return locations
+
+    @classmethod
+    def location_config_updates(cls, location: WeatherLocation) -> Dict[str, Any]:
+        return {
+            "WEATHER_PROVIDER": "open-meteo",
+            "WEATHER_LOCATION": location.display_name(),
+            "WEATHER_LATITUDE": cls._format_coordinate(location.latitude),
+            "WEATHER_LONGITUDE": cls._format_coordinate(location.longitude),
+        }
 
     @classmethod
     def _fetch_open_meteo(cls, settings: Dict[str, Any]) -> WeatherSnapshot:
