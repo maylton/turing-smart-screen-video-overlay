@@ -116,15 +116,17 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         self.summary_grid.set_hexpand(True)
         content.append(self.summary_grid)
 
+        self.lifecycle_card = self._summary_card("Display", "video-display-symbolic")
         self.theme_card = self._summary_card("Theme", "applications-graphics-symbolic")
         self.video_card = self._summary_card("Video", "video-x-generic-symbolic")
         self.runtime_card = self._summary_card("Runtime", "media-playback-start-symbolic")
         self.serial_card = self._summary_card("Serial", "network-wired-symbolic")
 
-        self.summary_grid.attach(self.theme_card["card"], 0, 0, 1, 1)
-        self.summary_grid.attach(self.video_card["card"], 1, 0, 1, 1)
-        self.summary_grid.attach(self.runtime_card["card"], 0, 1, 1, 1)
-        self.summary_grid.attach(self.serial_card["card"], 1, 1, 1, 1)
+        self.summary_grid.attach(self.lifecycle_card["card"], 0, 0, 2, 1)
+        self.summary_grid.attach(self.theme_card["card"], 0, 1, 1, 1)
+        self.summary_grid.attach(self.video_card["card"], 1, 1, 1, 1)
+        self.summary_grid.attach(self.runtime_card["card"], 0, 2, 1, 1)
+        self.summary_grid.attach(self.serial_card["card"], 1, 2, 1, 1)
 
         report_group = Adw.PreferencesGroup(
             title="Full report",
@@ -226,6 +228,16 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         video = theme.get("video", {})
         runtime = payload.get("runtime", {})
         serial = payload.get("serial", {})
+        lifecycle = payload.get("display_lifecycle", {})
+
+        lifecycle_label = str(lifecycle.get("label") or "Display: unknown")
+        if lifecycle_label.casefold().startswith("display:"):
+            lifecycle_label = lifecycle_label.split(":", 1)[1].strip().capitalize()
+        self._set_card(
+            self.lifecycle_card,
+            lifecycle_label or str(lifecycle.get("state") or "Unknown"),
+            str(lifecycle.get("details") or "No lifecycle details available"),
+        )
 
         theme_name = config.get("theme") or "No theme"
         theme_ok = bool(theme.get("directory_exists") and theme.get("yaml_exists"))
