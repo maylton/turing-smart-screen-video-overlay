@@ -91,4 +91,4 @@ pkill -KILL -f 'turing-smart-screen-main.py|configure-gtk.py|configure_gtk_app.p
 
 ## Safety
 
-The message hook only wraps UI status updates around existing methods. The Overview refresh hook only calls the app's existing Overview refresh while Overview is visible. The shared log filter only hides the repeated successful native-video frame-refresh DEBUG line. These changes do not open serial ports, send commands, upload files, start/stops processes, or change lock behavior by themselves.
+The message hook only wraps UI status updates around existing methods. The Overview refresh hook only calls the app's existing Overview refresh while Overview is visible. The shared log filter only hides the repeated successful native-video frame-refresh DEBUG line. These changes do not open serial ports, send commands, upload files, start/stop processes, or change lock behavior by themselves.
