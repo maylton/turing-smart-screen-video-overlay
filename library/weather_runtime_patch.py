@@ -20,8 +20,9 @@ from typing import Any, Mapping
 
 
 _INSTALLED = False
+_STATS_PATCH_ATTEMPTS = 0
 _EDITOR_PATCH_ATTEMPTS = 0
-_MAX_EDITOR_PATCH_ATTEMPTS = 100
+_MAX_PATCH_ATTEMPTS = 100
 
 
 def _text_node(
@@ -144,11 +145,14 @@ def weather_text_nodes(weather_theme_data: Mapping[str, Any]) -> tuple[dict[str,
     )
 
 
-def patch_stats_module(stats_module: Any) -> None:
+def patch_stats_module(stats_module: Any) -> bool:
     """Patch ``library.stats.Weather.stats`` to use WeatherProvider."""
 
-    if getattr(stats_module.Weather.stats, "_weather_provider_patch", False):
-        return
+    weather_class = getattr(stats_module, "Weather", None)
+    if weather_class is None or not hasattr(weather_class, "stats"):
+        return False
+    if getattr(weather_class.stats, "_weather_provider_patch", False):
+        return True
 
     from library.weather_provider import WeatherProvider
 
@@ -174,7 +178,8 @@ def patch_stats_module(stats_module: Any) -> None:
         stats_module.display_themed_value(theme_data=wdescription, value=values["desc"])
 
     weather_stats._weather_provider_patch = True
-    stats_module.Weather.stats = staticmethod(weather_stats)
+    weather_class.stats = staticmethod(weather_stats)
+    return True
 
 
 class _StatsPatchLoader(importlib.abc.Loader):
@@ -206,40 +211,53 @@ class _StatsPatchFinder(importlib.abc.MetaPathFinder):
         return spec
 
 
+def _patch_stats_when_ready() -> None:
+    global _STATS_PATCH_ATTEMPTS
+    _STATS_PATCH_ATTEMPTS += 1
+
+    module = sys.modules.get("library.stats")
+    if module is not None and patch_stats_module(module):
+        return
+
+    if _STATS_PATCH_ATTEMPTS < _MAX_PATCH_ATTEMPTS:
+        timer = threading.Timer(0.05, _patch_stats_when_ready)
+        timer.daemon = True
+        timer.start()
+
+
 def _ensure_weather_in_theme(editor: Any) -> tuple[bool, tuple[str, ...]]:
     stats = editor.theme_data.setdefault("STATS", {})
     weather = stats.get("WEATHER")
-    created = False
+    changed = False
     if not isinstance(weather, dict):
         stats["WEATHER"] = weather_theme_defaults(editor.theme_data)
-        created = True
+        changed = True
     else:
         defaults = weather_theme_defaults(editor.theme_data)
         for key, value in defaults.items():
             if key not in weather:
                 weather[key] = copy.deepcopy(value)
-                created = True
+                changed = True
             elif isinstance(value, dict) and isinstance(weather.get(key), dict):
                 for subkey, subvalue in value.items():
                     if subkey not in weather[key]:
                         weather[key][subkey] = copy.deepcopy(subvalue)
-                        created = True
+                        changed = True
 
-    # Make the core weather card visible when adding Weather from the catalog.
     weather = stats["WEATHER"]
     for section in ("TEMPERATURE", "WEATHER_DESCRIPTION", "HUMIDITY", "UPDATE_TIME"):
         node = weather.get(section, {}).get("TEXT")
         if isinstance(node, dict) and not node.get("SHOW", False):
             node["SHOW"] = True
-            created = True
+            changed = True
 
     try:
         weather["INTERVAL"] = int(weather.get("INTERVAL") or 600)
     except (TypeError, ValueError):
         weather["INTERVAL"] = 600
-        created = True
+        changed = True
 
-    return created, ("STATS", "WEATHER", "TEMPERATURE", "TEXT")
+    return changed, ("STATS", "WEATHER", "TEMPERATURE", "TEXT")
 
 
 def _patch_theme_editor_window(window_class: type) -> bool:
@@ -288,7 +306,7 @@ def _patch_editor_when_ready() -> None:
     if isinstance(window_class, type) and _patch_theme_editor_window(window_class):
         return
 
-    if _EDITOR_PATCH_ATTEMPTS < _MAX_EDITOR_PATCH_ATTEMPTS:
+    if _EDITOR_PATCH_ATTEMPTS < _MAX_PATCH_ATTEMPTS:
         timer = threading.Timer(0.05, _patch_editor_when_ready)
         timer.daemon = True
         timer.start()
@@ -303,9 +321,5 @@ def install() -> None:
     if not any(isinstance(finder, _StatsPatchFinder) for finder in sys.meta_path):
         sys.meta_path.insert(0, _StatsPatchFinder())
 
-    if "library.stats" in sys.modules:
-        patch_stats_module(sys.modules["library.stats"])
-
-    timer = threading.Timer(0.05, _patch_editor_when_ready)
-    timer.daemon = True
-    timer.start()
+    _patch_stats_when_ready()
+    _patch_editor_when_ready()
