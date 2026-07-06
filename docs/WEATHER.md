@@ -10,8 +10,9 @@ Weather now defaults to Open-Meteo, which works with latitude and longitude and 
 ```yaml
 config:
   WEATHER_PROVIDER: open-meteo
-  WEATHER_LATITUDE: '45.75'
-  WEATHER_LONGITUDE: '4.85'
+  WEATHER_LOCATION: 'João Pessoa, Paraíba, Brasil'
+  WEATHER_LATITUDE: '-7.1195'
+  WEATHER_LONGITUDE: '-34.8450'
   WEATHER_UNITS: metric
   WEATHER_LANGUAGE: pt_br
   WEATHER_TIMEOUT_SECONDS: 10
@@ -22,6 +23,19 @@ config:
 
 - `open-meteo`: default provider, no API key required.
 - `openweathermap`: compatibility provider, requires `WEATHER_API_KEY`.
+
+## Location search
+
+After adding Weather, select `STATS / WEATHER` in the tree. The Properties panel shows **Weather location**.
+
+Type a city or place name, then choose **Use city**. The editor searches Open-Meteo Geocoding, uses the first matching result, and updates `config.yaml` with:
+
+- `WEATHER_PROVIDER: open-meteo`
+- `WEATHER_LOCATION`
+- `WEATHER_LATITUDE`
+- `WEATHER_LONGITUDE`
+
+The weather cache is cleared after changing location so the next runtime fetch uses the new coordinates.
 
 ## Theme structure
 
