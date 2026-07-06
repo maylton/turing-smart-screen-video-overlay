@@ -15,7 +15,7 @@ The patch surfaces clearer messages while the app performs the existing operatio
 
 It also keeps the existing Overview status cards fresh automatically, so the Monitor card should no longer require clicking Refresh to show the current state.
 
-The current consolidation step centralizes the Main App / Diagnostics integration in `library/main_app_diagnostics_integration.py`. `usercustomize.py` is now only a compatibility bridge for installed draft builds that have not yet moved to a direct launcher call.
+The current consolidation step centralizes the Main App / Diagnostics integration in `library/main_app_diagnostics_integration.py`. The validated integration is loaded through the existing dashboard polish path, and `usercustomize.py` has been removed.
 
 It does not change the runtime/video behavior itself.
 
@@ -63,8 +63,9 @@ Warnings, errors, startup logs, stop logs, and sync logs remain visible.
 python3 -m py_compile \
   diagnostics.py \
   diagnostics-gtk.py \
-  usercustomize.py \
+  sitecustomize.py \
   library/log.py \
+  library/main_app_dashboard_polish.py \
   library/main_app_apply_status.py \
   library/main_app_overview_refresh.py \
   library/main_app_inline_diagnostics.py \
@@ -90,4 +91,4 @@ pkill -KILL -f 'turing-smart-screen-main.py|configure-gtk.py|configure_gtk_app.p
 
 ## Safety
 
-The message hook only wraps UI status updates around existing methods. The Overview refresh hook only calls the app's existing Overview refresh while the Overview page is visible. The shared log filter only hides the repeated successful native-video frame-refresh DEBUG line. These changes do not open serial ports, send commands, upload files, start/stop processes, or change lock behavior by themselves.
+The message hook only wraps UI status updates around existing methods. The Overview refresh hook only calls the app's existing Overview refresh while Overview is visible. The shared log filter only hides the repeated successful native-video frame-refresh DEBUG line. These changes do not open serial ports, send commands, upload files, start/stops processes, or change lock behavior by themselves.
