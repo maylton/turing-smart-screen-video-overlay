@@ -218,8 +218,8 @@ else
 fi
 
 # The runtime launcher replaces Settings after loading configure_gtk_app.py.
-# Patch the installed test launcher directly so the Diagnostics row is added
-# inside the final runtime Settings implementation, not only through early hooks.
+# Patch the installed test launcher directly so Diagnostics opens inline inside
+# the native GTK app instead of launching a separate diagnostics window.
 if [[ -f "$PREFIX/configure-gtk.py" ]]; then
   $SUDO /usr/bin/python3 - "$PREFIX/configure-gtk.py" <<'PY'
 from pathlib import Path
@@ -237,13 +237,22 @@ if post_runtime_marker not in text and "library/main_app_diagnostics_integration
         text = text.replace(old, new, 1)
         changed = True
 
+inline_callback = """        def open_diagnostics_from_row(*_args):\n            try:\n                from library.main_app_inline_diagnostics import (\n                    build_inline_diagnostics_page,\n                )\n\n                page_name = \"diagnostics\"\n                page = getattr(self, \"_inline_diagnostics_page\", None)\n                if page is None:\n                    page = build_inline_diagnostics_page(app, self)\n                    self._inline_diagnostics_page = page\n                    self.stack.add_named(page, page_name)\n                elif hasattr(page, \"refresh_diagnostics\"):\n                    page.refresh_diagnostics()\n                self.stack.set_visible_child_name(page_name)\n            except Exception as exc:\n                self.toast(f\"Could not open diagnostics: {exc}\")\n\n"""
+
 if "title=\"Diagnostics\"" not in text:
     old = """        maintenance.add(checkup_row)\n        box.append(maintenance)\n        return scrolled\n"""
-    new = """        maintenance.add(checkup_row)\n\n        diagnostics_row = app.Adw.ActionRow(\n            title=\"Diagnostics\",\n            subtitle=(\n                \"Inspect theme, video, runtime, and USB state without \"\n                \"opening the serial port\"\n            ),\n            icon_name=\"utilities-system-monitor-symbolic\",\n            activatable=True,\n        )\n\n        def open_diagnostics_from_row(*_args):\n            diagnostics_viewer = app.ROOT / \"diagnostics-gtk.py\"\n            if not diagnostics_viewer.is_file():\n                self.toast(\"diagnostics-gtk.py was not found\")\n                return\n            self.launch_script(\n                diagnostics_viewer,\n                use_system_python=True,\n            )\n\n        diagnostics_row.connect(\"activated\", open_diagnostics_from_row)\n        diagnostics_row.add_suffix(\n            app.Gtk.Image.new_from_icon_name(\"go-next-symbolic\")\n        )\n        maintenance.add(diagnostics_row)\n        box.append(maintenance)\n        return scrolled\n"""
+    new = """        maintenance.add(checkup_row)\n\n        diagnostics_row = app.Adw.ActionRow(\n            title=\"Diagnostics\",\n            subtitle=(\n                \"Inspect theme, video, runtime, and USB state without \"\n                \"opening the serial port\"\n            ),\n            icon_name=\"utilities-system-monitor-symbolic\",\n            activatable=True,\n        )\n\n""" + inline_callback + """        diagnostics_row.connect(\"activated\", open_diagnostics_from_row)\n        diagnostics_row.add_suffix(\n            app.Gtk.Image.new_from_icon_name(\"go-next-symbolic\")\n        )\n        maintenance.add(diagnostics_row)\n        box.append(maintenance)\n        return scrolled\n"""
     if old not in text:
         raise SystemExit("Could not patch configure-gtk.py Settings diagnostics row")
     text = text.replace(old, new, 1)
     changed = True
+else:
+    marker = '        diagnostics_row.connect("activated", open_diagnostics_from_row)\n'
+    start = text.find("        def open_diagnostics_from_row(*_args):\n")
+    end = text.find(marker, start)
+    if start != -1 and end != -1 and "build_inline_diagnostics_page" not in text[start:end]:
+        text = text[:start] + inline_callback + text[end:]
+        changed = True
 
 if changed:
     path.write_text(text, encoding="utf-8")
@@ -349,6 +358,7 @@ PYTHON_ENTRYPOINTS=(
   library/media_profiles.py
   library/display_detection.py
   library/main_app_diagnostics_integration.py
+  library/main_app_inline_diagnostics.py
   tools/turzx_extract_assets.py
 )
 
