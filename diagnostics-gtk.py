@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from typing import Any
 
@@ -39,11 +40,12 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         super().__init__(
             application=app,
             title="Turing Smart Screen Diagnostics",
-            default_width=1080,
-            default_height=820,
+            default_width=1040,
+            default_height=760,
         )
-        self.set_size_request(860, 620)
+        self.set_size_request(820, 560)
         self.latest_text = ""
+        self.latest_json = ""
 
         self.toast_overlay = Adw.ToastOverlay()
         self.set_content(self.toast_overlay)
@@ -69,22 +71,29 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
 
         copy_button = Gtk.Button(
             icon_name="edit-copy-symbolic",
-            tooltip_text="Copy diagnostics report",
+            tooltip_text="Copy text diagnostics report",
         )
         copy_button.connect("clicked", lambda *_: self.copy_report())
         header.pack_end(copy_button)
 
+        copy_json_button = Gtk.Button(
+            label="JSON",
+            tooltip_text="Copy machine-readable diagnostics JSON",
+        )
+        copy_json_button.connect("clicked", lambda *_: self.copy_json_report())
+        header.pack_end(copy_json_button)
+
         scrolled = Gtk.ScrolledWindow()
         toolbar.set_content(scrolled)
 
-        clamp = Adw.Clamp(maximum_size=1040, tightening_threshold=760)
+        clamp = Adw.Clamp(maximum_size=1000, tightening_threshold=760)
         scrolled.set_child(clamp)
 
         content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
-            spacing=22,
-            margin_top=28,
-            margin_bottom=30,
+            spacing=18,
+            margin_top=24,
+            margin_bottom=28,
             margin_start=28,
             margin_end=28,
         )
@@ -102,9 +111,8 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         intro.add_css_class("dim-label")
         content.append(intro)
 
-        self.summary_grid = Gtk.Grid(column_spacing=16, row_spacing=16)
+        self.summary_grid = Gtk.Grid(column_spacing=14, row_spacing=14)
         self.summary_grid.set_column_homogeneous(True)
-        self.summary_grid.set_row_homogeneous(True)
         self.summary_grid.set_hexpand(True)
         content.append(self.summary_grid)
 
@@ -153,19 +161,17 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         card.add_css_class("card")
         card.set_hexpand(True)
-        card.set_vexpand(True)
-        card.set_size_request(-1, 150)
+        card.set_size_request(-1, 108)
 
         inner = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
-            spacing=12,
-            margin_top=18,
-            margin_bottom=18,
-            margin_start=20,
-            margin_end=20,
+            spacing=6,
+            margin_top=12,
+            margin_bottom=12,
+            margin_start=16,
+            margin_end=16,
         )
         inner.set_hexpand(True)
-        inner.set_vexpand(True)
         card.append(inner)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -181,7 +187,7 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         inner.append(header)
 
         value = Gtk.Label(label="—", xalign=0, wrap=True)
-        value.add_css_class("title-3")
+        value.add_css_class("heading")
         value.set_ellipsize(Pango.EllipsizeMode.END)
         value.set_lines(1)
         inner.append(value)
@@ -190,7 +196,7 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         detail.add_css_class("caption")
         detail.add_css_class("dim-label")
         detail.set_ellipsize(Pango.EllipsizeMode.END)
-        detail.set_lines(2)
+        detail.set_lines(1)
         inner.append(detail)
 
         return {"card": card, "value": value, "detail": detail}
@@ -203,11 +209,13 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         try:
             payload = collect_diagnostics()
             self.latest_text = render_text(payload)
+            self.latest_json = json.dumps(payload, indent=2, sort_keys=True)
             self._render_payload(payload)
             self.report_view.get_buffer().set_text(self.latest_text)
             self.toast("Diagnostics refreshed")
         except Exception as exc:
             self.latest_text = f"Diagnostics failed: {exc}"
+            self.latest_json = ""
             self.report_view.get_buffer().set_text(self.latest_text)
             self.toast(self.latest_text)
         return False
@@ -258,15 +266,23 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
             f"UsbMonitor: {', '.join(usb_monitor) if usb_monitor else 'none'}",
         )
 
-    def copy_report(self, *_args) -> None:
-        if not self.latest_text:
-            self.refresh_diagnostics()
+    def copy_to_clipboard(self, text: str, message: str) -> None:
         display = Gdk.Display.get_default()
         if display is None:
             self.toast("Clipboard is not available")
             return
-        display.get_clipboard().set(self.latest_text)
-        self.toast("Diagnostics copied")
+        display.get_clipboard().set(text)
+        self.toast(message)
+
+    def copy_report(self, *_args) -> None:
+        if not self.latest_text:
+            self.refresh_diagnostics()
+        self.copy_to_clipboard(self.latest_text, "Diagnostics copied")
+
+    def copy_json_report(self, *_args) -> None:
+        if not self.latest_json:
+            self.refresh_diagnostics()
+        self.copy_to_clipboard(self.latest_json, "Diagnostics JSON copied")
 
     def toast(self, message: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=message, timeout=3))
