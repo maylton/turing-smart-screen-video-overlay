@@ -40,20 +40,48 @@ def _walk_widgets(widget: Any) -> Iterable[Any]:
         yield from _walk_widgets(child)
 
 
+def _widget_title(widget: Any) -> str:
+    getter = getattr(widget, "get_title", None)
+    if callable(getter):
+        try:
+            return str(getter() or "")
+        except Exception:
+            pass
+    return ""
+
+
+def _widget_label(widget: Any) -> str:
+    getter = getattr(widget, "get_label", None)
+    if callable(getter):
+        try:
+            return str(getter() or "")
+        except Exception:
+            pass
+    return ""
+
+
 def _find_titled_widget(root: Any, title: str) -> Any | None:
     for widget in _walk_widgets(root):
-        if not hasattr(widget, "get_title"):
-            continue
-        try:
-            if widget.get_title() == title:
-                return widget
-        except Exception:
-            continue
+        if _widget_title(widget) == title:
+            return widget
     return None
 
 
 def _has_titled_widget(root: Any, title: str) -> bool:
     return _find_titled_widget(root, title) is not None
+
+
+def _find_settings_content_box(app: Any, root: Any) -> Any | None:
+    """Find the vertical content box of the Settings page as a fallback."""
+
+    Gtk = app.Gtk
+    for widget in _walk_widgets(root):
+        if not isinstance(widget, Gtk.Box):
+            continue
+        for child in _iter_widget_children(widget):
+            if _widget_label(child) == "Settings":
+                return widget
+    return None
 
 
 def _install_optional_integration(
@@ -132,14 +160,7 @@ def _open_diagnostics_factory(app: Any):
     return open_diagnostics
 
 
-def _add_diagnostics_row(app: Any, window: Any, root: Any) -> bool:
-    maintenance = _find_titled_widget(root, "Maintenance")
-    if maintenance is None:
-        return False
-
-    if _has_titled_widget(maintenance, "Diagnostics"):
-        return True
-
+def _make_diagnostics_row(app: Any, window: Any) -> Any:
     diagnostics_row = app.Adw.ActionRow(
         title="Diagnostics",
         subtitle=(
@@ -151,7 +172,34 @@ def _add_diagnostics_row(app: Any, window: Any, root: Any) -> bool:
     )
     diagnostics_row.connect("activated", window.open_diagnostics)
     diagnostics_row.add_suffix(app.Gtk.Image.new_from_icon_name("go-next-symbolic"))
-    maintenance.add(diagnostics_row)
+    return diagnostics_row
+
+
+def _add_diagnostics_row(app: Any, window: Any, root: Any) -> bool:
+    if _has_titled_widget(root, "Diagnostics"):
+        return True
+
+    maintenance = _find_titled_widget(root, "Maintenance")
+    if maintenance is not None:
+        maintenance.add(_make_diagnostics_row(app, window))
+        return True
+
+    # Fallback: the exact Maintenance group may be hard to find after the
+    # window has been constructed. Add a dedicated Diagnostics group to the
+    # Settings content box instead of silently dropping the entry.
+    settings_box = _find_settings_content_box(app, root)
+    if settings_box is None:
+        return False
+
+    diagnostics_group = app.Adw.PreferencesGroup(
+        title="Diagnostics",
+        description=(
+            "Inspect theme, video, runtime, and USB state without opening "
+            "the display serial port."
+        ),
+    )
+    diagnostics_group.add(_make_diagnostics_row(app, window))
+    settings_box.append(diagnostics_group)
     return True
 
 
@@ -176,16 +224,26 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
 
     def build_settings_page(self):
         page = original_build_settings_page(self)
-        _add_diagnostics_row(app, self, page)
+        if not _add_diagnostics_row(app, self, page):
+            print(
+                "[diagnostics] Settings page was built but no Diagnostics target was found",
+                file=sys.stderr,
+                flush=True,
+            )
         return page
 
     def init_with_diagnostics(self, application):
         original_init(self, application)
         # Safety net for builds where Settings was already constructed before
         # this wrapper became active. Walk the created window and patch the
-        # existing Maintenance group directly.
+        # existing Settings page directly.
         try:
-            _add_diagnostics_row(app, self, self)
+            if not _add_diagnostics_row(app, self, self):
+                print(
+                    "[diagnostics] could not find Settings page after window init",
+                    file=sys.stderr,
+                    flush=True,
+                )
         except Exception as exc:  # pragma: no cover - defensive startup guard
             print(
                 f"[diagnostics] could not add Settings row after init: {exc}",
