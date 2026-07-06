@@ -2947,6 +2947,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         button.connect("clicked", apply_preset)
         return row
 
+
     def create_image_layout_row(self, node):
         selected = self.selected_static_image(show_errors=False)
         if selected is None:
@@ -3071,17 +3072,23 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.dynamic_group.add(component_preset_row)
             self.property_rows.append(component_preset_row)
 
-        ordered_keys = [key for key in EDITABLE_KEYS if key in node]
+        def is_scalar_property_value(value):
+            return not isinstance(value, dict) and not (
+                isinstance(value, list)
+                and any(isinstance(item, (dict, list)) for item in value)
+            )
+
+        ordered_keys = [
+            key
+            for key in EDITABLE_KEYS
+            if key in node and is_scalar_property_value(node[key])
+        ]
         ordered_keys.extend(
             key
             for key, value in node.items()
             if key not in ordered_keys
             and key != "EFFECTS"
-            and not isinstance(value, dict)
-            and not (
-                isinstance(value, list)
-                and any(isinstance(item, (dict, list)) for item in value)
-            )
+            and is_scalar_property_value(value)
         )
 
         if is_text_style_node(node):
@@ -6410,7 +6417,243 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
     def on_catalog_selection_changed(self, *_args):
         self.update_catalog_status()
 
+
+    @staticmethod
+    def merge_missing_mapping(target, defaults):
+        for key, value in defaults.items():
+            if key not in target:
+                target[key] = copy.deepcopy(value)
+                continue
+            if isinstance(target[key], dict) and isinstance(value, dict):
+                ThemeEditorWindow.merge_missing_mapping(target[key], value)
+
+    def usage_percentage_combo_metric(self, element_id):
+        if element_id == "cpu_usage_percentage_layout":
+            return "CPU"
+        if element_id == "gpu_usage_percentage_layout":
+            return "GPU"
+        return None
+
+    def hidden_text_defaults(self):
+        return {
+            "SHOW": False,
+            "SHOW_UNIT": True,
+            "X": 0,
+            "Y": 0,
+            "WIDTH": 80,
+            "HEIGHT": 28,
+            "FONT": "roboto-mono/RobotoMono-Regular.ttf",
+            "FONT_SIZE": 16,
+            "FONT_COLOR": [255, 255, 255],
+            "BACKGROUND_IMAGE": self.shared_background_name(),
+            "ALIGN": "left",
+            "ANCHOR": "lt",
+        }
+
+    def hidden_graph_defaults(self):
+        return {
+            "SHOW": False,
+            "X": 0,
+            "Y": 0,
+            "WIDTH": 120,
+            "HEIGHT": 12,
+            "MIN_VALUE": 0,
+            "MAX_VALUE": 100,
+            "BAR_COLOR": [255, 255, 255],
+            "ORIENTATION": "horizontal",
+            "DRAW_BAR_BACKGROUND": True,
+            "BAR_BACKGROUND_COLOR": [55, 55, 55],
+            "BAR_OUTLINE": False,
+            "REVERSE_DIRECTION": False,
+        }
+
+    def hidden_radial_defaults(self):
+        return {
+            "SHOW": False,
+            "X": 0,
+            "Y": 0,
+            "RADIUS": 40,
+            "WIDTH": 8,
+            "MIN_VALUE": 0,
+            "MAX_VALUE": 100,
+            "ANGLE_START": 0,
+            "ANGLE_END": 360,
+            "ANGLE_STEPS": 100,
+            "ANGLE_SEP": 0,
+            "CLOCKWISE": True,
+            "DRAW_BAR_BACKGROUND": False,
+        }
+
+    def hidden_line_graph_defaults(self):
+        return {
+            "SHOW": False,
+            "X": 0,
+            "Y": 0,
+            "WIDTH": 120,
+            "HEIGHT": 40,
+            "MIN_VALUE": 0,
+            "MAX_VALUE": 100,
+            "HISTORY_SIZE": 60,
+            "AUTOSCALE": True,
+            "LINE_WIDTH": 2,
+            "AXIS": False,
+        }
+
+    def percentage_bar_text_layout_updates(self, metric):
+        try:
+            canvas_width, canvas_height = theme_canvas_dimensions(self.theme_data)
+        except Exception:
+            canvas_width, canvas_height = 320, 480
+
+        background = self.shared_background_name()
+        bar_width = max(90, min(160, canvas_width - 110))
+        base_y = max(20, min(canvas_height - 48, canvas_height // 2))
+
+        return {
+            "GRAPH": {
+                "SHOW": True,
+                "X": 20,
+                "Y": base_y,
+                "WIDTH": bar_width,
+                "HEIGHT": 16,
+                "MIN_VALUE": 0,
+                "MAX_VALUE": 100,
+                "ORIENTATION": "horizontal",
+                "DRAW_BAR_BACKGROUND": True,
+                "BAR_BACKGROUND_COLOR": [55, 55, 55],
+                "BAR_OUTLINE": False,
+                "REVERSE_DIRECTION": False,
+            },
+            "TEXT": {
+                "SHOW": True,
+                "SHOW_UNIT": True,
+                "X": min(canvas_width - 64, 20 + bar_width + 10),
+                "Y": max(0, base_y - 5),
+                "WIDTH": 54,
+                "HEIGHT": 28,
+                "FONT": "roboto-mono/RobotoMono-Bold.ttf",
+                "FONT_SIZE": 18,
+                "FONT_COLOR": [255, 255, 255],
+                "BACKGROUND_IMAGE": background,
+                "ALIGN": "right",
+                "ANCHOR": "lt",
+            },
+            "RADIAL": {"SHOW": False},
+            "LINE_GRAPH": {"SHOW": False},
+        }
+
+    def gpu_runtime_defaults(self):
+        return {
+            "INTERVAL": 5,
+            "PERCENTAGE": {
+                "INTERVAL": 5,
+                "TEXT": self.hidden_text_defaults(),
+                "GRAPH": self.hidden_graph_defaults(),
+                "RADIAL": self.hidden_radial_defaults(),
+                "LINE_GRAPH": self.hidden_line_graph_defaults(),
+            },
+            "MEMORY": {
+                "TEXT": self.hidden_text_defaults(),
+                "GRAPH": self.hidden_graph_defaults(),
+                "RADIAL": self.hidden_radial_defaults(),
+            },
+            "MEMORY_PERCENT": {
+                "TEXT": self.hidden_text_defaults(),
+                "GRAPH": self.hidden_graph_defaults(),
+                "RADIAL": self.hidden_radial_defaults(),
+                "LINE_GRAPH": self.hidden_line_graph_defaults(),
+            },
+            "MEMORY_USED": {"TEXT": self.hidden_text_defaults()},
+            "MEMORY_TOTAL": {"TEXT": self.hidden_text_defaults()},
+            "TEMPERATURE": {
+                "TEXT": self.hidden_text_defaults(),
+                "GRAPH": self.hidden_graph_defaults(),
+                "RADIAL": self.hidden_radial_defaults(),
+                "LINE_GRAPH": self.hidden_line_graph_defaults(),
+            },
+            "FPS": {
+                "TEXT": self.hidden_text_defaults(),
+                "GRAPH": self.hidden_graph_defaults(),
+                "RADIAL": self.hidden_radial_defaults(),
+                "LINE_GRAPH": self.hidden_line_graph_defaults(),
+            },
+            "FAN_SPEED": {
+                "TEXT": self.hidden_text_defaults(),
+                "GRAPH": self.hidden_graph_defaults(),
+                "RADIAL": self.hidden_radial_defaults(),
+                "LINE_GRAPH": self.hidden_line_graph_defaults(),
+            },
+            "FREQUENCY": {
+                "TEXT": self.hidden_text_defaults(),
+                "GRAPH": self.hidden_graph_defaults(),
+                "RADIAL": self.hidden_radial_defaults(),
+                "LINE_GRAPH": self.hidden_line_graph_defaults(),
+            },
+        }
+
+    def add_usage_percentage_combo_element(self, element_id):
+        metric = self.usage_percentage_combo_metric(element_id)
+        if metric is None:
+            return False
+
+        if not isinstance(self.theme_data, dict):
+            return False
+
+        self.push_undo()
+
+        stats = self.theme_data.setdefault("STATS", {})
+        metric_node = stats.setdefault(metric, {})
+
+        if metric == "GPU":
+            self.merge_missing_mapping(metric_node, self.gpu_runtime_defaults())
+
+        percentage = metric_node.setdefault("PERCENTAGE", {})
+        percentage.setdefault("INTERVAL", 5)
+        self.merge_missing_mapping(
+            percentage,
+            {
+                "TEXT": self.hidden_text_defaults(),
+                "GRAPH": self.hidden_graph_defaults(),
+                "RADIAL": self.hidden_radial_defaults(),
+                "LINE_GRAPH": self.hidden_line_graph_defaults(),
+            },
+        )
+
+        updates = self.percentage_bar_text_layout_updates(metric)
+        for section, section_updates in updates.items():
+            child = percentage.get(section)
+            if not isinstance(child, dict):
+                percentage[section] = {}
+                child = percentage[section]
+            for key, value in section_updates.items():
+                child[key] = copy.deepcopy(value)
+
+        target_path = ("STATS", metric, "PERCENTAGE", "TEXT")
+        self.selected_path = target_path
+
+        if not self.save_theme_data():
+            return False
+
+        self.populate_elements()
+        GLib.idle_add(self.restore_tree_selection, target_path)
+        self.build_property_rows()
+        self.refresh_preview()
+        self.update_actions_sensitivity()
+        self.toast(f"{metric} usage percentage added")
+        return True
+
+
     def on_add_element_clicked(self, *_args):
+        selected = self.add_element_dropdown.get_selected()
+        if selected != Gtk.INVALID_LIST_POSITION and selected < len(self.catalog_entries):
+            entry = self.catalog_entries[selected]
+            if entry.get("id") in {
+                "cpu_usage_percentage_layout",
+                "gpu_usage_percentage_layout",
+            }:
+                self.add_usage_percentage_combo_element(entry.get("id"))
+                return
+
         entry = self.selected_catalog_entry()
         if entry is None:
             return
