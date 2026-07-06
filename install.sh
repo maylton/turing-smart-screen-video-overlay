@@ -185,13 +185,10 @@ if [[ "$SELF_INSTALL" -eq 0 ]]; then
   fi
 fi
 
-# Install the latest consolidated GTK interface from this installer bundle.
-# Main App integrations must now live in source modules, not installer-time
-# text patches or usercustomize injection.
-if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
-  copy_if_different "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
-elif [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
-  :
+# Use the tracked consolidated launcher from this branch. Do not prefer stale
+# local configure-gtk-final.py files from earlier installer experiments.
+if [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
+  copy_if_different "$SOURCE_DIR/configure-gtk.py" "$PREFIX/configure-gtk.py"
 else
   echo "configure-gtk.py was not found." >&2
   exit 1
@@ -296,6 +293,7 @@ PYTHON_ENTRYPOINTS=(
   library/media_preparation.py
   library/media_profiles.py
   library/display_detection.py
+  library/main_app_dashboard_polish.py
   library/main_app_apply_status.py
   library/main_app_overview_refresh.py
   library/main_app_diagnostics_integration.py
