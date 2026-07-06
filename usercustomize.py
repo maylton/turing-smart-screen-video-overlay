@@ -24,6 +24,45 @@ def _should_patch_main_app() -> bool:
     return _entry_point_name() == "configure-gtk.py"
 
 
+def _install_display_lifecycle_after_runtime_patches() -> None:
+    try:
+        from library.main_app_display_lifecycle import (
+            install_main_app_display_lifecycle,
+        )
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[display-lifecycle] could not import main app integration: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+
+    main_module = sys.modules.get("__main__")
+    runtime_patches = getattr(main_module, "install_runtime_patches", None)
+
+    if runtime_patches is None or getattr(
+        runtime_patches,
+        "_display_lifecycle_post_runtime_wrapper",
+        False,
+    ):
+        return
+
+    def install_runtime_patches_with_display_lifecycle(app, *args, **kwargs):
+        result = runtime_patches(app, *args, **kwargs)
+        try:
+            install_main_app_display_lifecycle(app)
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            print(
+                f"[display-lifecycle] could not install after runtime patches: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+        return result
+
+    install_runtime_patches_with_display_lifecycle._display_lifecycle_post_runtime_wrapper = True
+    main_module.install_runtime_patches = install_runtime_patches_with_display_lifecycle
+
+
 def _install_diagnostics_import_hook() -> None:
     global _DIAGNOSTICS_HOOK_INSTALLED
     if _DIAGNOSTICS_HOOK_INSTALLED or not _should_patch_main_app():
@@ -61,6 +100,8 @@ def _install_diagnostics_import_hook() -> None:
                     file=sys.stderr,
                     flush=True,
                 )
+
+            _install_display_lifecycle_after_runtime_patches()
 
         loader.exec_module = exec_module
         return spec
