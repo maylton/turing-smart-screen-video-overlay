@@ -39,7 +39,9 @@ logger.setLevel(logging.DEBUG)  # Lowest log level : print all messages
 
 try:
     from library.weather_runtime_patch import install as _install_weather_runtime_patch
+    from library.weather_hidden_defaults import install as _install_weather_hidden_defaults
 
     _install_weather_runtime_patch()
+    _install_weather_hidden_defaults()
 except Exception as exc:
     logger.debug("Weather runtime integration was not installed: %s", exc)
