@@ -49,7 +49,7 @@ def _find_preferences_group(root: Any, title: str) -> Any | None:
 def install_main_app_diagnostics_integration(app: Any) -> None:
     """Add Settings → Maintenance → Diagnostics to the GTK launcher."""
     window_class = getattr(app, "SmartScreenWindow", None)
-    if window_class is None or getattr(window_class, "_diagnostics_integration_installed", False):
+    if window_class is None:
         return
 
     Gtk = app.Gtk
@@ -57,8 +57,25 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
     Gio = app.Gio
     diagnostics_viewer = app.ROOT / "diagnostics-gtk.py"
 
-    original_install_actions = window_class.install_actions
-    original_build_settings_page = window_class.build_settings_page
+    original_install_actions = getattr(
+        window_class,
+        "_diagnostics_original_install_actions",
+        window_class.install_actions,
+    )
+
+    current_build_settings_page = window_class.build_settings_page
+    already_wrapped_source = getattr(
+        window_class,
+        "_diagnostics_wrapped_settings_source",
+        None,
+    )
+    if (
+        getattr(current_build_settings_page, "_diagnostics_integration_wrapper", False)
+        and already_wrapped_source is not None
+    ):
+        return
+
+    original_build_settings_page = current_build_settings_page
 
     def open_diagnostics(self, *_args) -> None:
         if not diagnostics_viewer.is_file():
@@ -91,7 +108,11 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
         maintenance.add(diagnostics_row)
         return page
 
+    build_settings_page._diagnostics_integration_wrapper = True
+
     window_class.open_diagnostics = open_diagnostics
     window_class.install_actions = install_actions
     window_class.build_settings_page = build_settings_page
+    window_class._diagnostics_original_install_actions = original_install_actions
+    window_class._diagnostics_wrapped_settings_source = original_build_settings_page
     window_class._diagnostics_integration_installed = True
