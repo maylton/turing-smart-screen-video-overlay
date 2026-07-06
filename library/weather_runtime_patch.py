@@ -7,7 +7,7 @@ stabilized. The hooks are intentionally tiny:
 * patch ``library.stats.Weather.stats`` after ``library.stats`` is imported;
 * teach the GTK editor's existing Weather catalog action how to create a
   minimal ``STATS / WEATHER`` tree when a theme does not have one yet;
-* add weather-card presets to the editor Properties panel.
+* add weather-card presets and location search to the editor Properties panel.
 """
 
 from __future__ import annotations
@@ -584,6 +584,130 @@ def _ensure_weather_in_theme(editor: Any) -> tuple[bool, tuple[str, ...]]:
     return changed, ("STATS", "WEATHER", "TEMPERATURE", "TEXT")
 
 
+def _weather_config_summary(settings: Mapping[str, Any]) -> str:
+    location = str(settings.get("WEATHER_LOCATION", "") or "").strip()
+    lat = str(settings.get("WEATHER_LATITUDE", "") or "").strip()
+    lon = str(settings.get("WEATHER_LONGITUDE", "") or "").strip()
+    if location and lat and lon:
+        return f"Current: {location} ({lat}, {lon})"
+    if lat and lon:
+        return f"Current coordinates: {lat}, {lon}"
+    return "No weather location configured"
+
+
+def _apply_weather_location_to_config(editor: Any, location: Any) -> dict[str, Any]:
+    main = sys.modules.get("__main__")
+    if main is None:
+        raise RuntimeError("Theme editor module is not available.")
+
+    config_file = getattr(main, "CONFIG_FILE", None)
+    load_yaml = getattr(main, "load_yaml", None)
+    save_yaml_atomic = getattr(main, "save_yaml_atomic", None)
+    if config_file is None or load_yaml is None or save_yaml_atomic is None:
+        raise RuntimeError("Theme editor config helpers are not available.")
+
+    from library import config
+    from library.weather_provider import WeatherProvider
+
+    updates = WeatherProvider.location_config_updates(location)
+    data = load_yaml(config_file)
+    root_config = data.setdefault("config", {})
+    root_config.update(updates)
+    root_config.setdefault("WEATHER_UNITS", "metric")
+    root_config.setdefault("WEATHER_LANGUAGE", "pt_br")
+    root_config.setdefault("WEATHER_TIMEOUT_SECONDS", 10)
+    root_config.setdefault("WEATHER_CACHE_SECONDS", 600)
+    save_yaml_atomic(config_file, data)
+
+    config.CONFIG_DATA.setdefault("config", {}).update(root_config)
+    WeatherProvider.clear_cache()
+    return updates
+
+
+def _create_weather_location_row(editor: Any):
+    main = sys.modules.get("__main__")
+    if main is None:
+        return None
+    Gtk = getattr(main, "Gtk", None)
+    Adw = getattr(main, "Adw", None)
+    GLib = getattr(main, "GLib", None)
+    if Gtk is None or Adw is None or GLib is None:
+        return None
+
+    from library import config
+    from library.weather_provider import WeatherProvider
+
+    settings = config.CONFIG_DATA.get("config", {})
+    row = Adw.ActionRow(
+        title="Weather location",
+        subtitle=(
+            _weather_config_summary(settings)
+            + " · Search Open-Meteo and update config.yaml."
+        ),
+    )
+    entry = Gtk.Entry()
+    entry.set_placeholder_text("City, state or country")
+    entry.set_text(str(settings.get("WEATHER_LOCATION", "") or ""))
+    entry.set_width_chars(22)
+    entry.set_valign(Gtk.Align.CENTER)
+    button = Gtk.Button(
+        label="Use city",
+        icon_name="find-location-symbolic",
+        valign=Gtk.Align.CENTER,
+    )
+
+    def finish_search(location, error):
+        button.set_sensitive(True)
+        if error:
+            editor.error_dialog("Weather location not found", error)
+            return False
+        try:
+            updates = _apply_weather_location_to_config(editor, location)
+        except Exception as exc:
+            editor.error_dialog("Could not update weather location", str(exc))
+            return False
+
+        label = location.display_name()
+        entry.set_text(label)
+        row.set_subtitle(
+            f"Current: {label} ({updates['WEATHER_LATITUDE']}, {updates['WEATHER_LONGITUDE']})"
+        )
+        editor.refresh_preview()
+        editor.toast(f"Weather location updated: {label}")
+        return False
+
+    def search_location(*_args):
+        query = entry.get_text().strip()
+        if len(query) < 2:
+            editor.toast("Enter a city or place name first")
+            return
+
+        button.set_sensitive(False)
+        editor.toast("Searching Open-Meteo location…")
+
+        def worker():
+            location = None
+            error = ""
+            try:
+                results = WeatherProvider.search_location(
+                    query,
+                    config.CONFIG_DATA.get("config", {}),
+                    count=1,
+                )
+                location = results[0]
+            except Exception as exc:
+                error = str(exc)
+            GLib.idle_add(finish_search, location, error)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    button.connect("clicked", search_location)
+    entry.connect("activate", search_location)
+    row.add_suffix(entry)
+    row.add_suffix(button)
+    return row
+
+
 def _patch_weather_presets(window_class: type) -> None:
     if getattr(window_class, "_weather_component_preset_patch", False):
         return
@@ -612,8 +736,29 @@ def _patch_weather_presets(window_class: type) -> None:
     window_class._weather_component_preset_patch = True
 
 
+def _patch_weather_location_row(window_class: type) -> None:
+    if getattr(window_class, "_weather_location_row_patch", False):
+        return
+
+    original_build_property_rows = window_class.build_property_rows
+
+    def build_property_rows(self):
+        original_build_property_rows(self)
+        if tuple(getattr(self, "selected_path", ()) or ()) != ("STATS", "WEATHER"):
+            return
+        row = _create_weather_location_row(self)
+        if row is None:
+            return
+        self.dynamic_group.add(row)
+        self.property_rows.append(row)
+
+    window_class.build_property_rows = build_property_rows
+    window_class._weather_location_row_patch = True
+
+
 def _patch_theme_editor_window(window_class: type) -> bool:
     _patch_weather_presets(window_class)
+    _patch_weather_location_row(window_class)
 
     original = getattr(window_class, "on_add_element_clicked", None)
     if original is None or getattr(original, "_weather_editor_patch", False):
