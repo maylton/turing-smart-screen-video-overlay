@@ -740,12 +740,47 @@ def install_runtime_patches(app):
             time.sleep(1.2)
         return devices
 
-    def force_release_monitor_for_theme_apply(self, timeout: float = 18.0) -> None:
-        """Stop any running main.py before video sync.
+    def monitor_pids_for_theme_apply() -> list[int]:
+        current_pid = os.getpid()
+        pids: set[int] = set()
+        patterns = [
+            str(app.MAIN_PROGRAM),
+            "[m]ain.py",
+        ]
 
-        This intentionally mirrors the manual recovery command that works:
-        pkill -TERM -f '[m]ain.py'
-        """
+        for pattern in patterns:
+            try:
+                result = subprocess.run(
+                    ["pgrep", "-f", pattern],
+                    cwd=str(app.ROOT),
+                    text=True,
+                    capture_output=True,
+                    timeout=3,
+                    check=False,
+                )
+            except Exception:
+                continue
+
+            for line in result.stdout.splitlines():
+                try:
+                    pid = int(line.strip())
+                except ValueError:
+                    continue
+                if pid != current_pid:
+                    pids.add(pid)
+
+        return sorted(pids)
+
+    def wait_until_monitor_processes_exit_for_theme_apply(timeout: float = 10.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not monitor_pids_for_theme_apply():
+                return True
+            time.sleep(0.35)
+        return not monitor_pids_for_theme_apply()
+
+    def force_release_monitor_for_theme_apply(self, timeout: float = 18.0) -> None:
+        """Stop any running main.py and wait until it releases the serial port."""
         deadline = time.monotonic() + timeout
 
         def wait_free(seconds: float) -> bool:
@@ -756,19 +791,20 @@ def install_runtime_patches(app):
                 time.sleep(0.25)
             return not self.runtime_controller.state().busy
 
-        # First try the structured controller, when the lock owner is known.
         state = self.runtime_controller.state()
         if state.monitor_running:
             try:
-                self.runtime_controller.terminate_monitor(timeout=4.0, kill_timeout=2.0)
+                self.runtime_controller.terminate_monitor(timeout=5.0, kill_timeout=3.0)
                 reap_monitor_child(self, timeout=0.0)
             except Exception:
                 pass
 
-        if wait_free(2.0):
+        # The runtime lock can be released before main.py has fully finished
+        # closing the native video worker. Wait for the actual process too.
+        if wait_free(2.0) and wait_until_monitor_processes_exit_for_theme_apply(timeout=6.0):
+            time.sleep(1.0)
             return
 
-        # Then use the same practical approach that worked manually.
         patterns = [
             str(app.MAIN_PROGRAM),
             "[m]ain.py",
@@ -787,11 +823,11 @@ def install_runtime_patches(app):
                 pass
 
         while time.monotonic() < deadline:
-            if wait_free(0.5):
+            if wait_free(0.5) and wait_until_monitor_processes_exit_for_theme_apply(timeout=0.5):
+                time.sleep(1.2)
                 return
             time.sleep(0.25)
 
-        # Last resort: force-kill only monitor processes.
         for pattern in patterns:
             try:
                 subprocess.run(
@@ -804,15 +840,16 @@ def install_runtime_patches(app):
             except Exception:
                 pass
 
-        if wait_free(3.0):
+        if wait_free(3.0) and wait_until_monitor_processes_exit_for_theme_apply(timeout=3.0):
+            time.sleep(1.2)
             return
 
         state = self.runtime_controller.state()
-        if state.busy:
-            raise RuntimeError(
-                "Display is still busy after stopping monitor: "
-                + state.owner.describe()
-            )
+        pids = monitor_pids_for_theme_apply()
+        if state.busy or pids:
+            detail = state.owner.describe() if state.busy else f"monitor pids still alive: {pids}"
+            raise RuntimeError("Display is still busy after stopping monitor: " + detail)
+
 
     def theme_apply_video_error_is_retryable(message: str) -> bool:
         lowered = message.casefold()
@@ -832,6 +869,7 @@ def install_runtime_patches(app):
             "/dev/ttyacm",
             "invalid or unsupported id",
             "display returned invalid",
+            "did not return a valid id",
             "input/output error",
             "i/o error",
             "device disconnected",
@@ -901,6 +939,73 @@ def install_runtime_patches(app):
         spec.loader.exec_module(module)
         return module
 
+
+    def install_theme_video_sync_bounded_hello(backend) -> None:
+        """Prevent Rev. C hello detection from looping forever during video sync.
+
+        LcdCommRevC._hello normally retries forever when the display returns an
+        empty/invalid ID. That is OK for the long-running monitor, but during
+        theme video sync it can permanently stall the GTK worker. Bound it here
+        so the outer sync retry loop can wait, try another ttyACM candidate, or
+        fail with a visible toast.
+        """
+        if getattr(backend.LcdCommRevC, "_theme_video_sync_bounded_hello", False):
+            return
+
+        def bounded_hello(self):
+            import string as _string
+
+            self.sub_revision = self._get_sub_revision()
+            printable = set(_string.printable)
+            response = ""
+            last_error = None
+
+            for attempt in range(6):
+                try:
+                    self.serial_flush_input()
+                    self._send_command(backend.Command.HELLO, bypass_queue=True)
+                    response = "".join(
+                        filter(
+                            lambda x: x in printable,
+                            str(self.serial_read(23).decode(errors="ignore")),
+                        )
+                    )
+                    self.serial_flush_input()
+                    print(
+                        f"[theme-video-sync] hello attempt {attempt + 1}/6 returned: {response!r}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    if response.startswith("chs_"):
+                        break
+                except Exception as exc:
+                    last_error = exc
+                    print(
+                        f"[theme-video-sync] hello attempt {attempt + 1}/6 failed: {exc!r}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+                time.sleep(1.0)
+            else:
+                detail = f"; last error: {last_error!r}" if last_error else ""
+                raise RuntimeError(
+                    "Display did not return a valid ID during theme video sync: "
+                    f"{response!r}{detail}"
+                )
+
+            self.sub_revision = self._get_sub_revision()
+            try:
+                self.rom_version = int(response.split(".")[2])
+                if self.rom_version < 80 or self.rom_version > 100:
+                    self.rom_version = 87
+            except Exception:
+                self.rom_version = 87
+
+        backend.LcdCommRevC._hello = bounded_hello
+        backend.LcdCommRevC._theme_video_sync_bounded_hello = True
+
+
     def sync_theme_video_via_backend_for_theme_apply(self, video: dict) -> str:
         """Sync theme video without going through video_manager.py JSON stdout."""
         from library.runtime import DeviceLock
@@ -915,74 +1020,99 @@ def install_runtime_patches(app):
         del internal  # get_size/upload use the full remote path.
 
         last_error: Exception | None = None
+        last_com_port = "AUTO"
+        last_candidates: list[str] = []
 
-        for attempt in range(5):
-            force_release_monitor_for_theme_apply(self, timeout=18.0)
-            wait_for_serial_device_for_theme_apply(timeout=20.0)
+        for attempt in range(6):
+            force_release_monitor_for_theme_apply(self, timeout=22.0)
+            devices = wait_for_serial_device_for_theme_apply(timeout=25.0)
 
             if attempt:
-                time.sleep(min(1.5 * attempt, 5.0))
-                wait_for_serial_device_for_theme_apply(timeout=20.0)
+                time.sleep(min(2.0 * attempt, 7.0))
+                retry_devices = wait_for_serial_device_for_theme_apply(timeout=25.0)
+                if retry_devices:
+                    devices = retry_devices
 
-            try:
-                backend = load_video_manager_backend_for_theme_apply()
+            candidates = [str(device) for device in devices]
+            if not candidates:
+                candidates = ["AUTO"]
 
-                with DeviceLock(role="theme-video-sync", root=app.ROOT):
-                    manager = backend.VideoManager(com_port="AUTO")
-                    try:
-                        # Source of truth: ask the display for this exact remote path.
-                        # list_videos() can vary by firmware/path formatting, but get_size()
-                        # tells us whether the selected remote file already exists.
-                        try:
-                            existing_size = manager.get_size(remote)
-                        except Exception:
-                            existing_size = 0
+            last_candidates = candidates
 
-                        if existing_size and existing_size > 0:
-                            return f"Video already exists on display: {wanted}"
-
-                        try:
-                            manager.upload(
-                                local_path=local,
-                                remote_path=remote,
-                                overwrite=False,
-                                packet_delay=0.0,
-                            )
-                        except FileExistsError:
-                            return f"Video already exists on display: {wanted}"
-
-                        try:
-                            remote_size = manager.get_size(remote)
-                            return f"Uploaded {wanted} ({remote_size} bytes)"
-                        except Exception:
-                            return f"Uploaded {wanted}"
-                    finally:
-                        manager.close()
-
-            except Exception as exc:
-                last_error = exc
-                log_file.write_text(
-                    "[theme-video-sync]\n"
-                    f"attempt={attempt + 1}\n"
-                    f"wanted={wanted}\n"
-                    f"local={local}\n"
-                    f"remote={remote}\n"
-                    f"error={exc!r}\n\n"
-                    + traceback.format_exc(),
-                    encoding="utf-8",
+            for com_port in candidates:
+                last_com_port = com_port
+                print(
+                    f"[theme-video-sync] attempt {attempt + 1}/6 using display port {com_port}",
+                    file=sys.stderr,
+                    flush=True,
                 )
 
-                message = str(exc).casefold()
-                if theme_apply_video_error_is_retryable(message):
-                    time.sleep(min(1.5 * (attempt + 1), 6.0))
-                    continue
+                try:
+                    backend = load_video_manager_backend_for_theme_apply()
+                    install_theme_video_sync_bounded_hello(backend)
 
-                raise
+                    with DeviceLock(role="theme-video-sync", root=app.ROOT):
+                        manager = backend.VideoManager(com_port=com_port)
+                        try:
+                            # Source of truth: ask the display for this exact remote path.
+                            # list_videos() can vary by firmware/path formatting, but get_size()
+                            # tells us whether the selected remote file already exists.
+                            try:
+                                existing_size = manager.get_size(remote)
+                            except Exception:
+                                existing_size = 0
+
+                            if existing_size and existing_size > 0:
+                                return f"Video already exists on display: {wanted}"
+
+                            try:
+                                manager.upload(
+                                    local_path=local,
+                                    remote_path=remote,
+                                    overwrite=False,
+                                    packet_delay=0.0,
+                                )
+                            except FileExistsError:
+                                return f"Video already exists on display: {wanted}"
+
+                            try:
+                                remote_size = manager.get_size(remote)
+                                return f"Uploaded {wanted} ({remote_size} bytes)"
+                            except Exception:
+                                return f"Uploaded {wanted}"
+                        finally:
+                            manager.close()
+
+                except Exception as exc:
+                    last_error = exc
+                    log_file.write_text(
+                        "[theme-video-sync]\n"
+                        f"attempt={attempt + 1}\n"
+                        f"wanted={wanted}\n"
+                        f"local={local}\n"
+                        f"remote={remote}\n"
+                        f"com_port={last_com_port}\n"
+                        f"candidates={last_candidates}\n"
+                        f"error={exc!r}\n\n"
+                        + traceback.format_exc(),
+                        encoding="utf-8",
+                    )
+
+                    message = str(exc).casefold()
+                    if theme_apply_video_error_is_retryable(message):
+                        # Try the next candidate port first. If all fail, the
+                        # outer loop waits again and retries after USB settles.
+                        continue
+
+                    raise
+
+            time.sleep(min(2.0 * (attempt + 1), 8.0))
 
         if last_error is not None:
             raise last_error
 
         raise RuntimeError("Theme video sync did not complete")
+
 
     def apply_set_current_theme_from_gallery(self, record: ThemeRecord):
         if self.runtime_stop_in_progress:
@@ -1043,6 +1173,24 @@ def install_runtime_patches(app):
         self.monitor_process = None
         self.refresh_overview()
 
+        def start_monitor_when_display_is_stable():
+            try:
+                # After video sync/upload, the display may briefly expose only
+                # the UsbMonitor port. Starting main.py during that window makes
+                # COM auto-detection fail even though the device is about to
+                # become available. Wait for the real ttyACM display port to
+                # settle before launching the monitor again.
+                wait_for_serial_device_for_theme_apply(timeout=30.0)
+                time.sleep(1.4)
+            except Exception as exc:
+                print(
+                    f"[theme-video-sync] display settle wait failed before monitor start: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+            app.GLib.idle_add(self.start_monitor)
+
         if error:
             print(
                 f"[theme-video-sync] {new_theme}: {error}",
@@ -1052,11 +1200,11 @@ def install_runtime_patches(app):
             self.toast(
                 f"Theme set to {new_theme}, but video sync failed. Starting monitor anyway."
             )
-            self.start_monitor()
+            threading.Thread(target=start_monitor_when_display_is_stable, daemon=True).start()
             return False
 
         self.toast(message or f"{new_theme} synced; starting monitor")
-        self.start_monitor()
+        threading.Thread(target=start_monitor_when_display_is_stable, daemon=True).start()
         return False
 
     def build_settings_page(self):
