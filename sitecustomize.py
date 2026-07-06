@@ -7,6 +7,7 @@ these hooks narrowly scoped by entry point so normal imports are not affected.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 from typing import Callable
@@ -22,6 +23,8 @@ _MONITOR_ENTRY_POINTS = {
     "main.py",
 }
 
+_DASHBOARD_HOOK_INSTALLED = False
+
 
 def _entry_point_name() -> str:
     return Path(sys.argv[0]).name
@@ -33,6 +36,60 @@ def _should_patch_theme_gallery() -> bool:
 
 def _should_patch_monitor_runtime() -> bool:
     return _entry_point_name() in _MONITOR_ENTRY_POINTS
+
+
+def _should_patch_dashboard() -> bool:
+    return _entry_point_name() == "configure-gtk.py"
+
+
+def _install_dashboard_import_hook() -> None:
+    """Install the Overview dashboard polish when the GTK launcher loads.
+
+    ``configure-gtk.py`` loads ``configure_gtk_app.py`` with
+    ``importlib.util.spec_from_file_location``.  Hook only that loader path so
+    the dashboard patch is applied before the main window is constructed, while
+    leaving every other Python entry point untouched.
+    """
+    global _DASHBOARD_HOOK_INSTALLED
+    if _DASHBOARD_HOOK_INSTALLED or not _should_patch_dashboard():
+        return
+
+    original_spec_from_file_location = importlib.util.spec_from_file_location
+
+    def spec_from_file_location(name, location, *args, **kwargs):
+        spec = original_spec_from_file_location(name, location, *args, **kwargs)
+        if spec is None or spec.loader is None:
+            return spec
+
+        try:
+            path = Path(location)
+        except TypeError:
+            return spec
+
+        if name != "turing_smart_screen_gtk_app" or path.name != "configure_gtk_app.py":
+            return spec
+
+        loader = spec.loader
+        original_exec_module = loader.exec_module
+
+        def exec_module(module) -> None:
+            original_exec_module(module)
+            try:
+                from library.main_app_dashboard_polish import install_main_app_dashboard_polish
+
+                install_main_app_dashboard_polish(module)
+            except Exception as exc:  # pragma: no cover - defensive startup guard
+                print(
+                    f"[dashboard] could not install dashboard polish: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+        loader.exec_module = exec_module
+        return spec
+
+    importlib.util.spec_from_file_location = spec_from_file_location
+    _DASHBOARD_HOOK_INSTALLED = True
 
 
 def _install_theme_gallery_card_polish() -> None:
@@ -71,7 +128,6 @@ def _install_theme_gallery_card_polish() -> None:
 
         button.connect("clicked", on_clicked)
         return button
-
     def theme_actions_popover(
         self: ThemeGalleryPane,
         record: ThemeRecord,
@@ -141,7 +197,6 @@ def _install_theme_gallery_card_polish() -> None:
 
         popover.set_child(box)
         return popover
-
     def compact_preview_widget(
         self: ThemeGalleryPane,
         record: ThemeRecord,
@@ -349,6 +404,16 @@ def _install_monitor_runtime_guards() -> None:
 
     install_rev_c_image_bounds_guard()
 
+
+if _should_patch_dashboard():
+    try:
+        _install_dashboard_import_hook()
+    except Exception as exc:
+        print(
+            f"[dashboard] could not install import hook: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 if _should_patch_monitor_runtime():
     try:
