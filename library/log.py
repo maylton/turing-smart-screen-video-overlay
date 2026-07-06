@@ -42,10 +42,12 @@ try:
     from library.weather_hidden_defaults import install as _install_weather_hidden_defaults
     from library.theme_editor_tree_state_patch import install as _install_tree_state_patch
     from library.theme_editor_preview_interaction_patch import install as _install_preview_interaction_patch
+    from library.theme_editor_preview_drag_fix import install as _install_preview_drag_fix
 
     _install_weather_runtime_patch()
     _install_weather_hidden_defaults()
     _install_tree_state_patch()
     _install_preview_interaction_patch()
+    _install_preview_drag_fix()
 except Exception as exc:
     logger.debug("Weather runtime integration was not installed: %s", exc)
