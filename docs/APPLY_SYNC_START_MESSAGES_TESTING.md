@@ -15,7 +15,7 @@ The patch surfaces clearer messages while the app performs the existing operatio
 
 It also keeps the existing Overview status cards fresh automatically, so the Monitor card should no longer require clicking Refresh to show the current state.
 
-The current consolidation step centralizes the Main App / Diagnostics integration in `library/main_app_diagnostics_integration.py`. The Settings entry is also installed directly from `library/main_app_dashboard_polish.py`, because the installed log confirms that this path is loaded reliably through `sitecustomize.py`.
+The current consolidation step centralizes the Main App UI work in `library/main_app_ui_integration.py`. The old `library/main_app_dashboard_polish.py` path is now only a temporary compatibility shim for installed/test loaders that still import the old module name.
 
 It does not change the runtime/video behavior itself.
 
@@ -66,6 +66,7 @@ python3 -m py_compile \
   diagnostics-gtk.py \
   sitecustomize.py \
   library/log.py \
+  library/main_app_ui_integration.py \
   library/main_app_dashboard_polish.py \
   library/main_app_apply_status.py \
   library/main_app_overview_refresh.py \
