@@ -44,6 +44,15 @@ THEME_ELEMENT_CATALOG = (
         "repeatable": False,
     },
     {
+        "id": "cpu_usage_percentage_layout",
+        "label": "CPU usage % bar + text",
+        "category": "System",
+        "kind": "sensor_combo",
+        "component_id": "CPU.PERCENTAGE",
+        "icon_name": "view-statistics-symbolic",
+        "repeatable": False,
+    },
+    {
         "id": "cpu_temperature",
         "label": "CPU temperature",
         "category": "System",
@@ -68,6 +77,15 @@ THEME_ELEMENT_CATALOG = (
         "kind": "sensor",
         "component_id": "GPU.PERCENTAGE",
         "icon_name": "utilities-system-monitor-symbolic",
+        "repeatable": False,
+    },
+    {
+        "id": "gpu_usage_percentage_layout",
+        "label": "GPU usage % bar + text",
+        "category": "System",
+        "kind": "sensor_combo",
+        "component_id": "GPU.PERCENTAGE",
+        "icon_name": "view-statistics-symbolic",
         "repeatable": False,
     },
     {
