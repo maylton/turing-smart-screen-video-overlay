@@ -217,6 +217,26 @@ else
   exit 1
 fi
 
+# The runtime launcher patches Settings after loading configure_gtk_app.py.
+# Install the diagnostics integration after those runtime patches as well;
+# otherwise the runtime Settings replacement hides the test Diagnostics row.
+if [[ -f "$PREFIX/configure-gtk.py" ]] && [[ -f "$PREFIX/library/main_app_diagnostics_integration.py" ]]; then
+  $SUDO /usr/bin/python3 - "$PREFIX/configure-gtk.py" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+marker = "install_main_app_diagnostics_integration(app)"
+if marker not in text:
+    old = "    install_runtime_patches(app)\n    return app.main()\n"
+    new = """    install_runtime_patches(app)\n    try:\n        from library.main_app_diagnostics_integration import (\n            install_main_app_diagnostics_integration,\n        )\n\n        install_main_app_diagnostics_integration(app)\n    except Exception as exc:  # pragma: no cover - defensive startup guard\n        print(\n            f\"[diagnostics] could not install main app integration after runtime patches: {exc}\",\n            file=sys.stderr,\n            flush=True,\n        )\n    return app.main()\n"""
+    if old not in text:
+        raise SystemExit("Could not patch configure-gtk.py diagnostics integration hook")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+PY
+fi
+
 if [[ -f "$SOURCE_DIR/main-final.py" ]]; then
   copy_if_different "$SOURCE_DIR/main-final.py" "$PREFIX/main.py"
 fi
