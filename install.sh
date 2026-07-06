@@ -185,6 +185,28 @@ if [[ "$SELF_INSTALL" -eq 0 ]]; then
   fi
 fi
 
+# The backend venv disables Python's automatic usercustomize import.  For test
+# branch UI hooks, explicitly load the installed usercustomize.py from the
+# already-imported sitecustomize.py.  This keeps the hook scoped to the installed
+# test build and avoids depending on Python user-site behavior.
+if [[ -f "$PREFIX/sitecustomize.py" ]] && [[ -f "$PREFIX/usercustomize.py" ]]; then
+  if ! grep -q 'Test-branch optional hooks' "$PREFIX/sitecustomize.py"; then
+    $SUDO tee -a "$PREFIX/sitecustomize.py" >/dev/null <<'PY'
+
+# Test-branch optional hooks.
+try:
+    import usercustomize
+except Exception as exc:  # pragma: no cover - defensive startup guard
+    import sys
+    print(
+        f"[usercustomize] could not load optional hooks: {exc}",
+        file=sys.stderr,
+        flush=True,
+    )
+PY
+  fi
+fi
+
 # Install the latest consolidated GTK interface from this installer bundle.
 if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
   copy_if_different "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
@@ -285,11 +307,15 @@ PYTHON_ENTRYPOINTS=(
   media-preparation.py
   display-detection.py
   gtk-checkup.py
+  diagnostics.py
+  diagnostics-gtk.py
+  usercustomize.py
   library/runtime.py
   library/video_media.py
   library/media_preparation.py
   library/media_profiles.py
   library/display_detection.py
+  library/main_app_diagnostics_integration.py
   tools/turzx_extract_assets.py
 )
 
