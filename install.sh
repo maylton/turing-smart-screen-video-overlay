@@ -287,12 +287,19 @@ PYTHON_ENTRYPOINTS=(
   diagnostics.py
   diagnostics-gtk.py
   sitecustomize.py
+  usercustomize.py
   library/log.py
   library/runtime.py
   library/video_media.py
   library/media_preparation.py
   library/media_profiles.py
   library/display_detection.py
+  library/weather_provider.py
+  library/weather_runtime_patch.py
+  library/weather_hidden_defaults.py
+  library/theme_editor_tree_state_patch.py
+  library/theme_editor_preview_interaction_patch.py
+  library/theme_editor_preview_drag_fix.py
   library/main_app_ui_integration.py
   library/main_app_dashboard_polish.py
   library/main_app_apply_status.py
