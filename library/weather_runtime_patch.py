@@ -6,7 +6,8 @@ stabilized. The hooks are intentionally tiny:
 
 * patch ``library.stats.Weather.stats`` after ``library.stats`` is imported;
 * teach the GTK editor's existing Weather catalog action how to create a
-  minimal ``STATS / WEATHER`` tree when a theme does not have one yet.
+  minimal ``STATS / WEATHER`` tree when a theme does not have one yet;
+* add weather-card presets to the editor Properties panel.
 """
 
 from __future__ import annotations
@@ -57,9 +58,7 @@ def _text_node(
     }
 
 
-def weather_theme_defaults(theme_data: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """Return a compact, safe starter WEATHER node for theme.yaml."""
-
+def _theme_canvas_dimensions(theme_data: Mapping[str, Any] | None = None) -> tuple[int, int]:
     width = 320
     height = 480
     display = theme_data.get("display", {}) if isinstance(theme_data, Mapping) else {}
@@ -69,7 +68,13 @@ def weather_theme_defaults(theme_data: Mapping[str, Any] | None = None) -> dict[
     if size in {'5"', '8"', '8.8"', '9.2"', '12.3"'} or orientation == "landscape":
         width = 480
         height = 320
+    return width, height
 
+
+def weather_theme_defaults(theme_data: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Return a compact, safe starter WEATHER node for theme.yaml."""
+
+    width, height = _theme_canvas_dimensions(theme_data)
     left = 20
     top = max(20, height - 118)
     block_width = max(180, min(260, width - 40))
@@ -133,6 +138,325 @@ def weather_theme_defaults(theme_data: Mapping[str, Any] | None = None) -> dict[
             )
         },
     }
+
+
+def _with_text_effects(node: dict[str, Any], effects: dict[str, Any]) -> dict[str, Any]:
+    updated = copy.deepcopy(node)
+    updated["EFFECTS"] = copy.deepcopy(effects)
+    return updated
+
+
+def weather_card_presets(theme_data: Mapping[str, Any] | None = None) -> list[tuple[str, dict[str, Any]]]:
+    """Return ready-to-apply WEATHER node layouts for the Properties panel."""
+
+    width, height = _theme_canvas_dimensions(theme_data)
+    card_width = min(width - 32, 280)
+    bottom_x = max(16, (width - card_width) // 2)
+    bottom_y = max(16, height - 122)
+    center_x = width // 2
+    center_y = height // 2
+
+    subtle_shadow = {
+        "SHADOW": {
+            "ENABLED": True,
+            "COLOR": [0, 0, 0, 180],
+            "OFFSET_X": 2,
+            "OFFSET_Y": 2,
+            "BLUR_RADIUS": 4,
+        }
+    }
+    blue_glow = {
+        "GLOW": {
+            "ENABLED": True,
+            "COLOR": [80, 180, 255, 120],
+            "BLUR_RADIUS": 5,
+            "INTENSITY": 1,
+        }
+    }
+    warm_shadow = {
+        "SHADOW": {
+            "ENABLED": True,
+            "COLOR": [0, 0, 0, 150],
+            "OFFSET_X": 1,
+            "OFFSET_Y": 2,
+            "BLUR_RADIUS": 3,
+        }
+    }
+
+    bottom_card = {
+        "INTERVAL": 600,
+        "TEMPERATURE": {
+            "TEXT": _with_text_effects(
+                _text_node(
+                    show=True,
+                    x=bottom_x,
+                    y=bottom_y,
+                    width=card_width,
+                    height=42,
+                    font_size=31,
+                    font_color=[255, 255, 255],
+                    bold=True,
+                ),
+                subtle_shadow,
+            )
+        },
+        "TEMPERATURE_FELT": {
+            "TEXT": _text_node(
+                show=True,
+                x=bottom_x + 96,
+                y=bottom_y + 10,
+                width=112,
+                height=24,
+                font_size=14,
+                font_color=[205, 226, 248],
+            )
+        },
+        "WEATHER_DESCRIPTION": {
+            "TEXT": _with_text_effects(
+                _text_node(
+                    show=True,
+                    x=bottom_x,
+                    y=bottom_y + 44,
+                    width=card_width,
+                    height=30,
+                    font_size=16,
+                    font_color=[230, 240, 255],
+                ),
+                subtle_shadow,
+            )
+        },
+        "HUMIDITY": {
+            "TEXT": _text_node(
+                show=True,
+                x=bottom_x,
+                y=bottom_y + 78,
+                width=82,
+                height=24,
+                font_size=14,
+                font_color=[160, 215, 255],
+            )
+        },
+        "UPDATE_TIME": {
+            "TEXT": _text_node(
+                show=True,
+                x=bottom_x + 88,
+                y=bottom_y + 78,
+                width=92,
+                height=24,
+                font_size=14,
+                font_color=[160, 215, 255],
+            )
+        },
+    }
+
+    top_strip = {
+        "INTERVAL": 600,
+        "TEMPERATURE": {
+            "TEXT": _with_text_effects(
+                _text_node(
+                    show=True,
+                    x=16,
+                    y=14,
+                    width=96,
+                    height=36,
+                    font_size=24,
+                    font_color=[255, 255, 255],
+                    bold=True,
+                ),
+                blue_glow,
+            )
+        },
+        "TEMPERATURE_FELT": {
+            "TEXT": _text_node(
+                show=False,
+                x=0,
+                y=0,
+                width=1,
+                height=1,
+                font_size=12,
+                font_color=[200, 200, 200],
+            )
+        },
+        "WEATHER_DESCRIPTION": {
+            "TEXT": _text_node(
+                show=True,
+                x=116,
+                y=18,
+                width=max(120, width - 180),
+                height=28,
+                font_size=15,
+                font_color=[225, 238, 255],
+            )
+        },
+        "HUMIDITY": {
+            "TEXT": _text_node(
+                show=True,
+                x=max(16, width - 128),
+                y=48,
+                width=56,
+                height=22,
+                font_size=13,
+                font_color=[155, 215, 255],
+            )
+        },
+        "UPDATE_TIME": {
+            "TEXT": _text_node(
+                show=True,
+                x=max(80, width - 70),
+                y=48,
+                width=60,
+                height=22,
+                font_size=13,
+                font_color=[155, 215, 255],
+            )
+        },
+    }
+
+    centered_card = {
+        "INTERVAL": 600,
+        "TEMPERATURE": {
+            "TEXT": _with_text_effects(
+                _text_node(
+                    show=True,
+                    x=center_x,
+                    y=center_y - 40,
+                    width=min(260, width - 32),
+                    height=58,
+                    font_size=42,
+                    font_color=[255, 255, 255],
+                    align="center",
+                    anchor="mm",
+                    bold=True,
+                ),
+                blue_glow,
+            )
+        },
+        "TEMPERATURE_FELT": {
+            "TEXT": _text_node(
+                show=True,
+                x=center_x,
+                y=center_y + 3,
+                width=min(160, width - 32),
+                height=24,
+                font_size=14,
+                font_color=[215, 226, 245],
+                align="center",
+                anchor="mm",
+            )
+        },
+        "WEATHER_DESCRIPTION": {
+            "TEXT": _with_text_effects(
+                _text_node(
+                    show=True,
+                    x=center_x,
+                    y=center_y + 34,
+                    width=min(260, width - 32),
+                    height=30,
+                    font_size=16,
+                    font_color=[235, 242, 255],
+                    align="center",
+                    anchor="mm",
+                ),
+                subtle_shadow,
+            )
+        },
+        "HUMIDITY": {
+            "TEXT": _text_node(
+                show=True,
+                x=center_x - 42,
+                y=center_y + 68,
+                width=70,
+                height=24,
+                font_size=14,
+                font_color=[160, 215, 255],
+                align="center",
+                anchor="mm",
+            )
+        },
+        "UPDATE_TIME": {
+            "TEXT": _text_node(
+                show=True,
+                x=center_x + 42,
+                y=center_y + 68,
+                width=80,
+                height=24,
+                font_size=14,
+                font_color=[160, 215, 255],
+                align="center",
+                anchor="mm",
+            )
+        },
+    }
+
+    minimal_corner = {
+        "INTERVAL": 600,
+        "TEMPERATURE": {
+            "TEXT": _with_text_effects(
+                _text_node(
+                    show=True,
+                    x=18,
+                    y=18,
+                    width=100,
+                    height=34,
+                    font_size=23,
+                    font_color=[255, 246, 220],
+                    bold=True,
+                ),
+                warm_shadow,
+            )
+        },
+        "TEMPERATURE_FELT": {
+            "TEXT": _text_node(
+                show=False,
+                x=0,
+                y=0,
+                width=1,
+                height=1,
+                font_size=12,
+                font_color=[255, 255, 255],
+            )
+        },
+        "WEATHER_DESCRIPTION": {
+            "TEXT": _text_node(
+                show=True,
+                x=18,
+                y=52,
+                width=min(190, width - 36),
+                height=28,
+                font_size=14,
+                font_color=[255, 220, 170],
+            )
+        },
+        "HUMIDITY": {
+            "TEXT": _text_node(
+                show=False,
+                x=18,
+                y=80,
+                width=70,
+                height=22,
+                font_size=13,
+                font_color=[255, 220, 170],
+            )
+        },
+        "UPDATE_TIME": {
+            "TEXT": _text_node(
+                show=False,
+                x=90,
+                y=80,
+                width=70,
+                height=22,
+                font_size=13,
+                font_color=[255, 220, 170],
+            )
+        },
+    }
+
+    return [
+        ("Bottom weather card", bottom_card),
+        ("Top compact weather strip", top_strip),
+        ("Centered glass weather card", centered_card),
+        ("Minimal warm corner", minimal_corner),
+    ]
 
 
 def weather_text_nodes(weather_theme_data: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
@@ -260,7 +584,37 @@ def _ensure_weather_in_theme(editor: Any) -> tuple[bool, tuple[str, ...]]:
     return changed, ("STATS", "WEATHER", "TEMPERATURE", "TEXT")
 
 
+def _patch_weather_presets(window_class: type) -> None:
+    if getattr(window_class, "_weather_component_preset_patch", False):
+        return
+
+    original_kind = window_class.component_kind_for_node
+    original_options = window_class.component_preset_options
+
+    def component_kind_for_node(self, path, node):
+        if tuple(path or ()) == ("STATS", "WEATHER") and isinstance(node, Mapping):
+            return "weather_card"
+        return original_kind(self, path, node)
+
+    def component_preset_options(self, node):
+        if tuple(getattr(self, "selected_path", ()) or ()) == ("STATS", "WEATHER"):
+            return weather_card_presets(getattr(self, "theme_data", {}))
+        return original_options(self, node)
+
+    window_class.component_kind_for_node = component_kind_for_node
+    window_class.component_preset_options = component_preset_options
+    try:
+        main = sys.modules.get("__main__")
+        if main is not None and hasattr(main, "COMPONENT_PRESET_TITLES"):
+            main.COMPONENT_PRESET_TITLES["weather_card"] = "Weather preset"
+    except Exception:
+        pass
+    window_class._weather_component_preset_patch = True
+
+
 def _patch_theme_editor_window(window_class: type) -> bool:
+    _patch_weather_presets(window_class)
+
     original = getattr(window_class, "on_add_element_clicked", None)
     if original is None or getattr(original, "_weather_editor_patch", False):
         return False
