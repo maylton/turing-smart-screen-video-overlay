@@ -24,6 +24,31 @@ def _should_patch_main_app() -> bool:
     return _entry_point_name() == "configure-gtk.py"
 
 
+def _should_quiet_monitor_logs() -> bool:
+    return _entry_point_name() in {"main.py", "main-final.py"}
+
+
+def _install_quiet_video_overlay_logs() -> None:
+    try:
+        from library.quiet_video_overlay_logs import install_quiet_video_overlay_logs
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[video-overlay-logs] could not import log filter: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+
+    try:
+        install_quiet_video_overlay_logs()
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[video-overlay-logs] could not install log filter: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def _install_main_app_runtime_ui_hooks(app) -> None:
     try:
         from library.main_app_apply_status import install_main_app_apply_status
@@ -131,6 +156,8 @@ def _install_diagnostics_import_hook() -> None:
 
 
 try:
+    if _should_quiet_monitor_logs():
+        _install_quiet_video_overlay_logs()
     _install_diagnostics_import_hook()
 except Exception as exc:  # pragma: no cover - defensive startup guard
     print(
