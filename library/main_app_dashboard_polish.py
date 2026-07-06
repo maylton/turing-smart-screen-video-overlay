@@ -9,6 +9,7 @@ It keeps the visual polish separated from the runtime/video-safety code.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,38 @@ def _open_themes_page(window: Any) -> None:
             row = sidebar.get_row_at_index(1)
             if row is not None and hasattr(sidebar, "select_row"):
                 sidebar.select_row(row)
+
+
+def _install_main_app_integration_after_runtime_patches() -> None:
+    """Run consolidated Main App integration after configure-gtk runtime patches."""
+
+    main_module = sys.modules.get("__main__")
+    runtime_patches = getattr(main_module, "install_runtime_patches", None)
+    if runtime_patches is None or getattr(
+        runtime_patches,
+        "_main_app_integration_wrapper",
+        False,
+    ):
+        return
+
+    def install_runtime_patches_with_main_app_integration(app, *args, **kwargs):
+        result = runtime_patches(app, *args, **kwargs)
+        try:
+            from library.main_app_diagnostics_integration import (
+                install_main_app_diagnostics_integration,
+            )
+
+            install_main_app_diagnostics_integration(app)
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            print(
+                f"[main-app-integration] could not install after runtime patches: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+        return result
+
+    install_runtime_patches_with_main_app_integration._main_app_integration_wrapper = True
+    main_module.install_runtime_patches = install_runtime_patches_with_main_app_integration
 
 
 def _apply_current_theme_sync_and_start_factory(app: Any):
@@ -456,6 +489,7 @@ def _build_overview_page_factory(app: Any):
 
     return build_overview_page
 
+
 def _refresh_overview_factory(app: Any):
     def refresh_overview(self) -> None:
         current = app.read_current_theme()
@@ -546,6 +580,7 @@ def install_main_app_dashboard_polish(app: Any) -> None:
     """Install dashboard widgets before the main GTK window is constructed."""
     window_class = getattr(app, "SmartScreenWindow", None)
     if window_class is None or getattr(window_class, "_dashboard_polish_installed", False):
+        _install_main_app_integration_after_runtime_patches()
         return
 
     window_class.build_overview_page = _build_overview_page_factory(app)
@@ -555,3 +590,4 @@ def install_main_app_dashboard_polish(app: Any) -> None:
         window_class.apply_current_theme_sync_and_start = _apply_current_theme_sync_and_start_factory(app)
 
     window_class._dashboard_polish_installed = True
+    _install_main_app_integration_after_runtime_patches()
