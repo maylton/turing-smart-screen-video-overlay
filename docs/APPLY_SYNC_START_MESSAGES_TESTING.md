@@ -15,7 +15,7 @@ The patch surfaces clearer messages while the app performs the existing operatio
 
 It also keeps the existing Overview status cards fresh automatically, so the Monitor card should no longer require clicking Refresh to show the current state.
 
-The current consolidation step centralizes the Main App / Diagnostics integration in `library/main_app_diagnostics_integration.py`. The validated integration is loaded through the existing dashboard polish path, and `usercustomize.py` has been removed.
+The current consolidation step centralizes the Main App / Diagnostics integration in `library/main_app_diagnostics_integration.py`. The Settings entry is also installed directly from `library/main_app_dashboard_polish.py`, because the installed log confirms that this path is loaded reliably through `sitecustomize.py`.
 
 It does not change the runtime/video behavior itself.
 
@@ -61,6 +61,7 @@ Warnings, errors, startup logs, stop logs, and sync logs remain visible.
 
 ```bash
 python3 -m py_compile \
+  configure-gtk.py \
   diagnostics.py \
   diagnostics-gtk.py \
   sitecustomize.py \
@@ -86,7 +87,7 @@ pkill -KILL -f 'turing-smart-screen-main.py|configure-gtk.py|configure_gtk_app.p
 4. Pick/set a theme from the Theme Gallery using the flow that applies the theme, syncs video, and starts the monitor.
 5. Watch the monitor/status area and toast messages during the operation.
 6. Confirm that the terminal is no longer flooded by successful frame-refresh DEBUG lines.
-7. Confirm that Settings → Maintenance → Diagnostics still opens inline.
+7. Confirm that Settings → Maintenance → Diagnostics still opens inline, or that Settings shows a dedicated Diagnostics group.
 8. Confirm that Start Monitor and Stop Monitor still work normally.
 
 ## Safety
