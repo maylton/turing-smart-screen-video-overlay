@@ -368,7 +368,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
 
         self.stack.add_named(self.build_overview_page(), "overview")
         self.stack.add_named(self.build_themes_page(), "themes")
-        self.stack.add_named(self.build_tools_page(), "tools")
         self.stack.add_named(self.build_settings_page(), "settings")
 
         self.sidebar.select_row(self.sidebar.get_row_at_index(0))
@@ -481,7 +480,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         rows = (
             ("overview", "view-grid-symbolic", "Overview"),
             ("themes", "applications-graphics-symbolic", "Themes"),
-            ("tools", "applications-system-symbolic", "Tools"),
             ("settings", "preferences-system-symbolic", "Settings"),
         )
         for page, icon, title_text in rows:

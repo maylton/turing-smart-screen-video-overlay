@@ -438,3 +438,26 @@ def install_main_app_ui_polish_patches(app, *, root: Path) -> None:
 
     app.SmartScreenWindow.build_overview_page = build_overview_page
     app.SmartScreenWindow.refresh_overview = refresh_overview
+
+# Dashboard polish bridge:
+# Re-apply the newer dashboard Overview after the legacy overview animator patch
+# installs itself. This keeps the animated preview helper available while making
+# the dashboard own the actual Overview layout and refresh method.
+try:
+    _legacy_install_main_app_ui_polish_patches = install_main_app_ui_polish_patches
+
+    def install_main_app_ui_polish_patches(app, *, root):
+        _legacy_install_main_app_ui_polish_patches(app, root=root)
+        try:
+            from library.main_app_dashboard_polish import install_main_app_dashboard_polish
+
+            install_main_app_dashboard_polish(app)
+            print(
+                "[dashboard] dashboard polish installed after main_app_ui_polish",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"[dashboard] bridge failed: {exc}", flush=True)
+
+except Exception as exc:
+    print(f"[dashboard] could not install bridge: {exc}", flush=True)

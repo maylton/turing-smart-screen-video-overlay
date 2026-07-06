@@ -201,29 +201,40 @@ def _install_theme_gallery_card_polish() -> None:
         self: ThemeGalleryPane,
         record: ThemeRecord,
     ) -> Gtk.Widget:
+        frame = Gtk.AspectFrame(
+            ratio=1.0,
+            obey_child=False,
+            xalign=0.5,
+            yalign=0.5,
+        )
+        frame.set_size_request(220, 220)
+
         if record.preview_file.is_file():
             picture = Gtk.Picture.new_for_filename(str(record.preview_file))
-            picture.set_size_request(256, 126)
             picture.set_hexpand(True)
+            picture.set_vexpand(True)
             picture.set_can_shrink(True)
             if hasattr(picture, "set_content_fit"):
                 picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-            return picture
+            frame.set_child(picture)
+            return frame
 
         placeholder = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=8,
-            halign=Gtk.Align.FILL,
+            halign=Gtk.Align.CENTER,
             valign=Gtk.Align.CENTER,
         )
-        placeholder.set_size_request(256, 126)
+        placeholder.set_hexpand(True)
+        placeholder.set_vexpand(True)
         icon = Gtk.Image.new_from_icon_name("image-missing-symbolic")
         icon.set_pixel_size(42)
         placeholder.append(icon)
         label = Gtk.Label(label="No preview")
         label.add_css_class("dim-label")
         placeholder.append(label)
-        return placeholder
+        frame.set_child(placeholder)
+        return frame
 
     def compact_theme_card(
         self: ThemeGalleryPane,
@@ -238,11 +249,11 @@ def _install_theme_gallery_card_polish() -> None:
             margin_end=12,
         )
         card.add_css_class("card")
-        card.set_size_request(292, 260)
+        card.set_size_request(292, 340)
         card.set_valign(Gtk.Align.START)
 
         preview_frame = Gtk.Frame()
-        preview_frame.set_size_request(256, 126)
+        preview_frame.set_hexpand(True)
         preview_frame.set_child(self.preview_widget(record))
         card.append(preview_frame)
 
@@ -431,6 +442,311 @@ if _should_patch_theme_gallery():
     except Exception as exc:
         print(
             f"[theme-gallery] could not install card polish: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+# Adaptive Theme Gallery card polish.
+# Keeps preview aspect ratios per theme/device format and moves per-theme
+# actions into the card menu.
+def _install_adaptive_theme_gallery_cards() -> None:
+    import re
+    from pathlib import Path
+
+    from library import theme_gallery as gallery
+
+    Gtk = gallery.Gtk
+    Pango = gallery.Pango
+    ThemeGalleryPane = gallery.ThemeGalleryPane
+    ThemeRecord = gallery.ThemeRecord
+    relative_path_label = gallery.relative_path_label
+
+    def yaml_text(record: ThemeRecord) -> str:
+        candidates = []
+        yaml_file = getattr(record, "yaml_file", None)
+        if yaml_file is not None:
+            candidates.append(Path(yaml_file))
+        candidates.extend([
+            record.directory / "theme.yaml",
+            record.directory / "theme.yml",
+        ])
+
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    return candidate.read_text(encoding="utf-8")
+            except OSError:
+                pass
+        return ""
+
+    def has_video(record: ThemeRecord) -> bool:
+        text = yaml_text(record)
+        match = re.search(r"(?ms)^video:\s*(.*?)(?:\n\S|\Z)", text)
+        if match is None:
+            return False
+        block = match.group(1)
+        enabled = re.search(r"(?mi)^\s*(ENABLED|SHOW)\s*:\s*(true|yes|on|1)", block)
+        pathish = re.search(r"(?mi)^\s*(LOCAL_PATH|PATH)\s*:\s*\S+", block)
+        return bool(enabled and pathish)
+
+    def has_turzx(record: ThemeRecord) -> bool:
+        return (
+            "WINDOWS_THEME_HINTS" in yaml_text(record)
+            or (record.directory / "assets" / "windows-theme-hints.json").is_file()
+        )
+
+    def display_badge(record: ThemeRecord) -> str:
+        label = str(getattr(record, "display_label", "") or "").strip()
+        return label.replace(" display", "").strip()
+
+    def preview_geometry(record: ThemeRecord) -> tuple[float, int, int]:
+        width = 256
+        ratio = 1.0
+
+        if record.preview_file.is_file():
+            try:
+                from PIL import Image
+
+                with Image.open(record.preview_file) as image:
+                    image_width, image_height = image.size
+
+                if image_width > 0 and image_height > 0:
+                    ratio = image_width / image_height
+            except Exception:
+                ratio = 1.0
+
+        # Supports square, landscape, and portrait displays without making
+        # cards absurdly short or tall.
+        ratio = max(0.55, min(2.4, ratio))
+        height = int(round(width / ratio))
+        height = max(132, min(310, height))
+        return ratio, width, height
+
+    def badge(label: str) -> Gtk.Label:
+        item = Gtk.Label(label=label)
+        item.add_css_class("caption")
+        item.add_css_class("accent")
+        item.set_margin_top(2)
+        item.set_margin_bottom(2)
+        item.set_margin_start(6)
+        item.set_margin_end(6)
+        return item
+
+    def badges_for(record: ThemeRecord) -> Gtk.Widget:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.set_margin_top(2)
+        row.set_margin_bottom(2)
+
+        display = display_badge(record)
+
+        if record.current:
+            row.append(badge("Current"))
+        if display:
+            row.append(badge(display))
+        if has_video(record):
+            row.append(badge("Video"))
+        if has_turzx(record):
+            row.append(badge("TURZX"))
+
+        return row
+
+    def adaptive_preview_widget(
+        self: ThemeGalleryPane,
+        record: ThemeRecord,
+    ) -> Gtk.Widget:
+        ratio, width, height = preview_geometry(record)
+
+        frame = Gtk.AspectFrame(
+            ratio=ratio,
+            obey_child=False,
+            xalign=0.5,
+            yalign=0.5,
+        )
+        frame.set_size_request(width, height)
+
+        if record.preview_file.is_file():
+            picture = Gtk.Picture.new_for_filename(str(record.preview_file))
+            picture.set_hexpand(True)
+            picture.set_vexpand(True)
+            picture.set_can_shrink(True)
+            if hasattr(picture, "set_content_fit"):
+                picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+            frame.set_child(picture)
+            return frame
+
+        placeholder = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+            halign=Gtk.Align.CENTER,
+            valign=Gtk.Align.CENTER,
+        )
+        placeholder.set_hexpand(True)
+        placeholder.set_vexpand(True)
+
+        icon = Gtk.Image.new_from_icon_name("image-missing-symbolic")
+        icon.set_pixel_size(42)
+        placeholder.append(icon)
+
+        label = Gtk.Label(label="No preview")
+        label.add_css_class("dim-label")
+        placeholder.append(label)
+
+        frame.set_child(placeholder)
+        return frame
+
+    def adaptive_theme_actions_popover(
+        self: ThemeGalleryPane,
+        record: ThemeRecord,
+    ) -> Gtk.Popover:
+        popover = Gtk.Popover()
+        popover.set_has_arrow(True)
+
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=4,
+            margin_top=8,
+            margin_bottom=8,
+            margin_start=8,
+            margin_end=8,
+        )
+        box.set_size_request(220, -1)
+
+        def add(label, callback, *, sensitive=True, destructive=False):
+            box.append(
+                self._menu_action_button(
+                    label,
+                    callback,
+                    sensitive=sensitive,
+                    destructive=destructive,
+                    popover=popover,
+                )
+            )
+
+        if getattr(self, "on_sync_theme_video", None) is not None and has_video(record):
+            add(
+                "Sync video",
+                lambda: self.on_sync_theme_video(record),
+                sensitive=record.editable,
+            )
+
+        add("Open folder", lambda: self.on_open_folder(record))
+
+        if self.on_theme_diagnostics is not None:
+            add("Diagnostics", lambda: self.on_theme_diagnostics(record))
+
+        add(
+            "Duplicate",
+            lambda: self.confirm_duplicate_theme(record),
+            sensitive=record.editable,
+        )
+        add("Rename", lambda: self.confirm_rename_theme(record))
+        add(
+            "Export",
+            lambda: self.confirm_export_theme(record),
+            sensitive=record.editable,
+        )
+
+        if not record.current:
+            add(
+                "Delete",
+                lambda: self.confirm_delete_theme(record),
+                destructive=True,
+            )
+
+        popover.set_child(box)
+        return popover
+
+    def adaptive_theme_card(
+        self: ThemeGalleryPane,
+        record: ThemeRecord,
+    ) -> Gtk.Widget:
+        card = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin_top=12,
+            margin_bottom=12,
+            margin_start=12,
+            margin_end=12,
+        )
+        card.add_css_class("card")
+        card.set_size_request(292, -1)
+        card.set_valign(Gtk.Align.START)
+
+        preview_frame = Gtk.Frame()
+        preview_frame.set_hexpand(True)
+        preview_frame.set_child(self.preview_widget(record))
+        card.append(preview_frame)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.set_hexpand(True)
+
+        name = Gtk.Label(label=record.name, xalign=0)
+        name.set_ellipsize(Pango.EllipsizeMode.END)
+        name.add_css_class("heading")
+        name.set_hexpand(True)
+        header.append(name)
+
+        card.append(header)
+        card.append(badges_for(record))
+
+        meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        meta.set_hexpand(True)
+
+        status = Gtk.Label(label=record.status_label, xalign=0)
+        status.set_ellipsize(Pango.EllipsizeMode.END)
+        status.add_css_class("dim-label")
+        meta.append(status)
+
+        path = Gtk.Label(label=relative_path_label(record.directory), xalign=0)
+        path.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        path.set_lines(1)
+        path.add_css_class("caption")
+        path.add_css_class("dim-label")
+        meta.append(path)
+
+        card.append(meta)
+
+        actions = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+            margin_top=4,
+        )
+        actions.set_hexpand(True)
+
+        if self.on_set_current_theme is not None and not record.current:
+            use_button = Gtk.Button(label="Use")
+            use_button.set_sensitive(record.editable)
+            use_button.set_tooltip_text("Set this theme as current")
+            use_button.connect("clicked", lambda *_: self.on_set_current_theme(record))
+            actions.append(use_button)
+
+        edit_button = Gtk.Button(label="Edit")
+        edit_button.add_css_class("suggested-action")
+        edit_button.set_hexpand(True)
+        edit_button.set_sensitive(record.editable)
+        edit_button.connect("clicked", lambda *_: self.on_open_theme(record))
+        actions.append(edit_button)
+
+        more_button = Gtk.MenuButton()
+        more_button.set_icon_name("view-more-symbolic")
+        more_button.set_tooltip_text("More actions")
+        more_button.set_popover(self.theme_actions_popover(record))
+        actions.append(more_button)
+
+        card.append(actions)
+        return card
+
+    ThemeGalleryPane.preview_widget = adaptive_preview_widget
+    ThemeGalleryPane.theme_actions_popover = adaptive_theme_actions_popover
+    ThemeGalleryPane.theme_card = adaptive_theme_card
+
+
+if _should_patch_theme_gallery():
+    try:
+        _install_adaptive_theme_gallery_cards()
+    except Exception as exc:
+        print(
+            f"[theme-gallery] could not install adaptive cards: {exc}",
             file=sys.stderr,
             flush=True,
         )

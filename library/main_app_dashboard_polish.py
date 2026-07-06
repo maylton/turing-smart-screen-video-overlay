@@ -169,33 +169,44 @@ def _make_status_card(app: Any, title: str, icon_name: str) -> tuple[Any, Any, A
     Gtk = app.Gtk
     card = Gtk.Box(
         orientation=Gtk.Orientation.VERTICAL,
-        spacing=8,
-        margin_top=14,
-        margin_bottom=14,
-        margin_start=14,
-        margin_end=14,
+        spacing=0,
+        margin_top=10,
+        margin_bottom=10,
+        margin_start=10,
+        margin_end=10,
     )
     card.set_hexpand(True)
     card.set_valign(Gtk.Align.FILL)
+    card.set_size_request(-1, 132)
     _add_classes(card, "card")
 
-    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    inner = Gtk.Box(
+        orientation=Gtk.Orientation.VERTICAL,
+        spacing=12,
+        margin_top=18,
+        margin_bottom=18,
+        margin_start=20,
+        margin_end=20,
+    )
+    card.append(inner)
+
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
     icon = Gtk.Image.new_from_icon_name(icon_name)
     row.append(icon)
     title_label = Gtk.Label(label=title, xalign=0)
     title_label.set_hexpand(True)
     _add_classes(title_label, "caption", "dim-label")
     row.append(title_label)
-    card.append(row)
+    inner.append(row)
 
     value = Gtk.Label(label="—", xalign=0, wrap=True)
     value.set_ellipsize(Pango.EllipsizeMode.END)
     _add_classes(value, "title-3")
-    card.append(value)
+    inner.append(value)
 
     subtitle = Gtk.Label(label="", xalign=0, wrap=True)
     _add_classes(subtitle, "caption", "dim-label")
-    card.append(subtitle)
+    inner.append(subtitle)
     return card, value, subtitle
 
 
@@ -221,11 +232,11 @@ def _build_overview_page_factory(app: Any):
 
         content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
-            spacing=22,
-            margin_top=28,
-            margin_bottom=28,
-            margin_start=24,
-            margin_end=24,
+            spacing=28,
+            margin_top=34,
+            margin_bottom=36,
+            margin_start=32,
+            margin_end=32,
         )
         clamp.set_child(content)
 
@@ -234,21 +245,21 @@ def _build_overview_page_factory(app: Any):
             _make_title(
                 app,
                 "Overview",
-                "Control the display, active theme, native video overlay, and monitor process from one dashboard.",
+                "Control the active theme, display state, video overlay, and monitor process from one place.",
             )
         )
-        refresh_button = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
+
+        refresh_button = Gtk.Button(
+            icon_name="view-refresh-symbolic",
+            valign=Gtk.Align.CENTER,
+        )
         refresh_button.set_tooltip_text("Refresh status and preview")
         refresh_button.connect("clicked", lambda *_: self.refresh_all())
         heading.append(refresh_button)
         content.append(heading)
 
-        hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=26)
+        hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=34)
         hero.add_css_class("card")
-        hero.set_margin_top(2)
-        hero.set_margin_bottom(2)
-        hero.set_margin_start(0)
-        hero.set_margin_end(0)
         content.append(hero)
 
         preview_frame = Gtk.AspectFrame(
@@ -256,134 +267,38 @@ def _build_overview_page_factory(app: Any):
             obey_child=False,
             xalign=0.5,
             yalign=0.5,
-            margin_top=22,
-            margin_bottom=22,
-            margin_start=22,
+            margin_top=28,
+            margin_bottom=28,
+            margin_start=28,
             margin_end=0,
         )
-        preview_frame.set_size_request(360, 360)
+        preview_frame.set_size_request(390, 390)
+        preview_frame.set_hexpand(False)
+        preview_frame.set_vexpand(False)
+        preview_frame.set_halign(Gtk.Align.START)
+        preview_frame.set_valign(Gtk.Align.CENTER)
         preview_frame.add_css_class("card")
 
         self.overview_picture = Gtk.Picture()
         self.overview_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        self.overview_picture.set_can_shrink(True)
         self.overview_picture.add_css_class("display-preview")
         self.overview_picture.add_css_class("device-live-preview")
         preview_frame.set_child(self.overview_picture)
         hero.append(preview_frame)
 
-        info = Gtk.Box(
+        side = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
-            spacing=14,
+            spacing=16,
             margin_top=30,
             margin_bottom=30,
-            margin_start=2,
-            margin_end=30,
+            margin_start=4,
+            margin_end=34,
         )
-        info.set_hexpand(True)
-        hero.append(info)
+        side.set_hexpand(True)
+        hero.append(side)
 
-        self.theme_title = Gtk.Label(label="No active theme", xalign=0, wrap=True)
-        self.theme_title.add_css_class("title-1")
-        info.append(self.theme_title)
-
-        self.theme_summary_label = Gtk.Label(
-            label="Choose a theme from the gallery to start.",
-            xalign=0,
-            wrap=True,
-        )
-        self.theme_summary_label.add_css_class("dim-label")
-        info.append(self.theme_summary_label)
-
-        badge_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.theme_badge = _make_badge(app, "THEME")
-        self.video_badge = _make_badge(app, "VIDEO")
-        self.display_badge = _make_badge(app, "DISPLAY")
-        badge_row.append(self.theme_badge)
-        badge_row.append(self.video_badge)
-        badge_row.append(self.display_badge)
-        info.append(badge_row)
-
-        self.theme_path_label = Gtk.Label(label="", xalign=0, wrap=True)
-        self.theme_path_label.add_css_class("caption")
-        self.theme_path_label.add_css_class("dim-label")
-        info.append(self.theme_path_label)
-
-        primary_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        primary_actions.set_margin_top(8)
-
-        edit_button = Gtk.Button(label="Edit theme", icon_name="document-edit-symbolic")
-        edit_button.set_action_name("win.open-editor")
-        edit_button.add_css_class("suggested-action")
-        primary_actions.append(edit_button)
-
-        sync_button = Gtk.Button(label="Sync video", icon_name="folder-download-symbolic")
-        sync_button.set_tooltip_text("Sync the active theme video to the display")
-        sync_button.connect(
-            "clicked",
-            lambda *_: _call_if_available(
-                self,
-                "sync_current_theme_video_from_gallery",
-                "Sync is available from the Themes page",
-            ),
-        )
-        primary_actions.append(sync_button)
-
-        apply_button = Gtk.Button(label="Apply + Sync + Start", icon_name="media-playback-start-symbolic")
-        apply_button.add_css_class("suggested-action")
-        apply_button.set_tooltip_text("Stop monitor if needed, sync video, then restart monitor")
-        apply_button.connect(
-            "clicked",
-            lambda *_: _call_if_available(
-                self,
-                "apply_current_theme_sync_and_start",
-                "Apply + Sync is available from the Themes page",
-            ),
-        )
-        primary_actions.append(apply_button)
-        info.append(primary_actions)
-
-        secondary_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        open_themes = Gtk.Button(label="Open gallery", icon_name="applications-graphics-symbolic")
-        open_themes.connect("clicked", lambda *_: _open_themes_page(self))
-        secondary_actions.append(open_themes)
-
-        video_manager = Gtk.Button(label="Video manager", icon_name="video-x-generic-symbolic")
-        video_manager.set_action_name("win.open-videos")
-        secondary_actions.append(video_manager)
-
-        power_button = Gtk.Button(label="Turn off", icon_name="system-shutdown-symbolic")
-        power_button.add_css_class("destructive-action")
-        power_button.set_action_name("win.turn-off-display")
-        secondary_actions.append(power_button)
-        info.append(secondary_actions)
-
-        status_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-        status_row.set_homogeneous(True)
-        content.append(status_row)
-
-        theme_card, self.theme_status_value, self.theme_status_detail = _make_status_card(
-            app,
-            "Theme",
-            "applications-graphics-symbolic",
-        )
-        monitor_card, self.monitor_status_value, self.monitor_status_detail = _make_status_card(
-            app,
-            "Monitor",
-            "media-playback-start-symbolic",
-        )
-        display_card, self.display_status_value, self.display_status_detail = _make_status_card(
-            app,
-            "Display",
-            "video-display-symbolic",
-        )
-        status_row.append(theme_card)
-        status_row.append(monitor_card)
-        status_row.append(display_card)
-
-        status_group = Adw.PreferencesGroup(
-            title="Runtime details",
-            description="Live state from the theme config, display detection, and monitor lock owner.",
-        )
+        # Hidden compatibility rows used by existing runtime/detection methods.
         self.theme_status_row = Adw.ActionRow(
             title="Active theme",
             icon_name="applications-graphics-symbolic",
@@ -397,51 +312,149 @@ def _build_overview_page_factory(app: Any):
             subtitle="Detection has not run yet",
             icon_name="video-display-symbolic",
         )
-        detect_button = Gtk.Button(
-            label="Detect now",
-            valign=Gtk.Align.CENTER,
-            action_name="win.detect-display",
-        )
-        self.detection_status_row.add_suffix(detect_button)
-        status_group.add(self.theme_status_row)
-        status_group.add(self.process_status_row)
-        status_group.add(self.detection_status_row)
-        content.append(status_group)
 
-        quick_group = Adw.PreferencesGroup(
-            title="Quick actions",
-            description="Use these when you want the older row-based workflow.",
+        def inline_status_card(title: str, icon_name: str):
+            card = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL,
+                spacing=0,
+                margin_top=12,
+                margin_bottom=12,
+                margin_start=12,
+                margin_end=12,
+            )
+            card.add_css_class("card")
+            card.set_hexpand(True)
+            card.set_size_request(-1, 112)
+
+            inner = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL,
+                spacing=10,
+                margin_top=18,
+                margin_bottom=18,
+                margin_start=20,
+                margin_end=20,
+            )
+            card.append(inner)
+
+            top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            icon = Gtk.Image.new_from_icon_name(icon_name)
+            top.append(icon)
+
+            label = Gtk.Label(label=title, xalign=0)
+            label.add_css_class("caption")
+            label.add_css_class("dim-label")
+            label.set_hexpand(True)
+            top.append(label)
+            inner.append(top)
+
+            value = Gtk.Label(label="—", xalign=0, wrap=True)
+            value.set_ellipsize(Pango.EllipsizeMode.END)
+            value.add_css_class("title-3")
+            inner.append(value)
+
+            detail = Gtk.Label(label="", xalign=0, wrap=True)
+            detail.add_css_class("caption")
+            detail.add_css_class("dim-label")
+            inner.append(detail)
+
+            return card, value, detail
+
+        status_stack = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        status_stack.set_margin_top(0)
+        status_stack.set_margin_bottom(6)
+        side.append(status_stack)
+
+        theme_card, self.theme_status_value, self.theme_status_detail = inline_status_card(
+            "Theme",
+            "applications-graphics-symbolic",
         )
-        for title, subtitle, icon, action in (
-            (
-                "Theme editor",
-                "Edit the active theme layout and components.",
-                "document-edit-symbolic",
-                "win.open-editor",
+        monitor_card, self.monitor_status_value, self.monitor_status_detail = inline_status_card(
+            "Monitor",
+            "media-playback-start-symbolic",
+        )
+        display_card, self.display_status_value, self.display_status_detail = inline_status_card(
+            "Display",
+            "video-display-symbolic",
+        )
+        status_stack.append(theme_card)
+        status_stack.append(monitor_card)
+        status_stack.append(display_card)
+
+        actions_grid = Gtk.Grid(
+            column_spacing=10,
+            row_spacing=10,
+            margin_top=8,
+        )
+        actions_grid.set_hexpand(True)
+        side.append(actions_grid)
+
+        def attach_button(button: Any, column: int, row: int) -> None:
+            button.set_hexpand(True)
+            button.set_halign(Gtk.Align.FILL)
+            actions_grid.attach(button, column, row, 1, 1)
+
+        edit_button = Gtk.Button(label="Edit theme", icon_name="document-edit-symbolic")
+        edit_button.set_tooltip_text("Open the active theme in the Theme Editor.")
+        edit_button.set_action_name("win.open-editor")
+        edit_button.add_css_class("suggested-action")
+        attach_button(edit_button, 0, 0)
+
+        sync_button = Gtk.Button(label="Sync video", icon_name="folder-download-symbolic")
+        sync_button.set_tooltip_text("Sync the active theme video to the display")
+        sync_button.connect(
+            "clicked",
+            lambda *_: _call_if_available(
+                self,
+                "sync_current_theme_video_from_gallery",
+                "Sync is available from the Themes page",
             ),
-            (
-                "Start monitor",
-                "Run main.py using the project environment.",
-                "media-playback-start-symbolic",
-                "win.start-monitor",
+        )
+        attach_button(sync_button, 1, 0)
+
+        apply_button = Gtk.Button(
+            label="Apply + Start",
+            icon_name="media-playback-start-symbolic",
+        )
+        apply_button.add_css_class("suggested-action")
+        apply_button.set_tooltip_text("Apply, sync video, then start the monitor")
+        apply_button.connect(
+            "clicked",
+            lambda *_: _call_if_available(
+                self,
+                "apply_current_theme_sync_and_start",
+                "Apply + Sync is available from the Themes page",
             ),
-            (
-                "Stop monitor",
-                "Stop the process started by this app or owned by the runtime lock.",
-                "media-playback-stop-symbolic",
-                "win.stop-monitor",
-            ),
-        ):
-            row = Adw.ActionRow(title=title, subtitle=subtitle, icon_name=icon, activatable=True)
-            row.set_action_name(action)
-            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-            quick_group.add(row)
-        content.append(quick_group)
+        )
+        attach_button(apply_button, 2, 0)
+
+        gallery_button = Gtk.Button(
+            label="Gallery",
+            icon_name="applications-graphics-symbolic",
+        )
+        gallery_button.set_tooltip_text("Open the theme gallery to browse, import, edit, or manage themes.")
+        gallery_button.connect("clicked", lambda *_: _open_themes_page(self))
+        attach_button(gallery_button, 0, 1)
+
+        video_button = Gtk.Button(
+            label="Videos",
+            icon_name="video-x-generic-symbolic",
+        )
+        video_button.set_tooltip_text("Open the video manager to upload, delete, or inspect display videos.")
+        video_button.set_action_name("win.open-videos")
+        attach_button(video_button, 1, 1)
+
+        power_button = Gtk.Button(
+            label="Turn off",
+            icon_name="system-shutdown-symbolic",
+        )
+        power_button.set_tooltip_text("Stop the monitor and turn off the physical display safely.")
+        power_button.add_css_class("destructive-action")
+        power_button.set_action_name("win.turn-off-display")
+        attach_button(power_button, 2, 1)
 
         return scrolled
 
     return build_overview_page
-
 
 def _refresh_overview_factory(app: Any):
     def refresh_overview(self) -> None:
