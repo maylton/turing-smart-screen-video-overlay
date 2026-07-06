@@ -6,6 +6,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import gi
+
+gi.require_version("Pango", "1.0")
+from gi.repository import Pango
+
 from diagnostics import collect_diagnostics, render_text
 
 
@@ -63,7 +68,10 @@ def build_inline_diagnostics_page(app: Any, window: Any):
                 icon_name="go-previous-symbolic",
                 tooltip_text="Return to Settings",
             )
-            back_button.connect("clicked", lambda *_: window.stack.set_visible_child_name("settings"))
+            back_button.connect(
+                "clicked",
+                lambda *_: window.stack.set_visible_child_name("settings"),
+            )
             header.append(back_button)
 
             refresh_button = Gtk.Button(
@@ -158,14 +166,14 @@ def build_inline_diagnostics_page(app: Any, window: Any):
 
             value = Gtk.Label(label="—", xalign=0)
             value.add_css_class("heading")
-            value.set_ellipsize(app.Pango.EllipsizeMode.END)
+            value.set_ellipsize(Pango.EllipsizeMode.END)
             value.set_lines(1)
             inner.append(value)
 
             detail = Gtk.Label(label="", xalign=0)
             detail.add_css_class("caption")
             detail.add_css_class("dim-label")
-            detail.set_ellipsize(app.Pango.EllipsizeMode.END)
+            detail.set_ellipsize(Pango.EllipsizeMode.END)
             detail.set_lines(1)
             inner.append(detail)
 
@@ -200,7 +208,11 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             theme_name = config.get("theme") or "No theme"
             theme_ok = bool(theme.get("directory_exists") and theme.get("yaml_exists"))
             preview_text = "preview OK" if theme.get("preview_exists") else "preview missing"
-            self._set_card(self.theme_card, theme_name, f"{'OK' if theme_ok else 'Needs attention'} · {preview_text}")
+            self._set_card(
+                self.theme_card,
+                theme_name,
+                f"{'OK' if theme_ok else 'Needs attention'} · {preview_text}",
+            )
 
             if video.get("configured"):
                 video_value = "Configured"
