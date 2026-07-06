@@ -23,6 +23,18 @@ import locale
 import logging
 from logging.handlers import RotatingFileHandler
 
+
+class QuietNativeVideoFrameFilter(logging.Filter):
+    """Drop only the repetitive successful native-video frame refresh log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        return "Video overlay latest frame sent in" not in message
+
+
 # use current locale for date/time formatting in logs
 locale.setlocale(locale.LC_ALL, '')
 
@@ -36,6 +48,11 @@ logging.basicConfig(  # format='%(asctime)s [%(levelname)s] %(message)s in %(pat
 
 logger = logging.getLogger('turing')
 logger.setLevel(logging.DEBUG)  # Lowest log level : print all messages
+
+_quiet_native_video_frame_filter = QuietNativeVideoFrameFilter()
+logger.addFilter(_quiet_native_video_frame_filter)
+for handler in logging.getLogger().handlers:
+    handler.addFilter(_quiet_native_video_frame_filter)
 
 try:
     from library.weather_runtime_patch import install as _install_weather_runtime_patch
