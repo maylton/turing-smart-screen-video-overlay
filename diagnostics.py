@@ -17,6 +17,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from library.display_lifecycle import get_display_lifecycle_state
+
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "config.yaml"
@@ -214,6 +216,11 @@ def collect_diagnostics() -> dict[str, Any]:
         if port.get("is_usb_monitor")
     ]
     pids = monitor_pids()
+    display_lifecycle = get_display_lifecycle_state(
+        ROOT,
+        serial_ports=serial_ports,
+        monitor_processes=pids,
+    )
 
     return {
         "root": str(ROOT),
@@ -241,6 +248,7 @@ def collect_diagnostics() -> dict[str, Any]:
             "real_tty_acm": real_tty_acm,
             "usb_monitor": usb_monitor,
         },
+        "display_lifecycle": display_lifecycle.to_dict(),
     }
 
 
@@ -251,6 +259,7 @@ def render_text(payload: dict[str, Any]) -> str:
     video = theme["video"]
     runtime = payload["runtime"]
     serial = payload["serial"]
+    lifecycle = payload.get("display_lifecycle", {})
 
     lines.append("Turing Smart Screen diagnostics")
     lines.append("=" * 34)
@@ -274,6 +283,17 @@ def render_text(payload: dict[str, Any]) -> str:
     lines.append(f"- Monitor: {'running' if runtime['monitor_running'] else 'stopped'}")
     if runtime["monitor_pids"]:
         lines.append(f"- PID(s): {', '.join(map(str, runtime['monitor_pids']))}")
+    lines.append("")
+    lines.append("Display lifecycle")
+    lines.append(f"- State: {lifecycle.get('state', 'unknown')}")
+    lines.append(f"- Label: {lifecycle.get('label', 'Display: unknown')}")
+    lines.append(f"- Details: {lifecycle.get('details', 'No lifecycle details available')}")
+    if lifecycle.get("busy_pids"):
+        lines.append(f"- Busy PID(s): {', '.join(map(str, lifecycle['busy_pids']))}")
+    if lifecycle.get("warnings"):
+        lines.append("- Warning(s):")
+        for warning in lifecycle["warnings"]:
+            lines.append(f"  · {warning}")
     lines.append("")
     lines.append("Serial")
     lines.append(f"- Real ttyACM candidate(s): {', '.join(serial['real_tty_acm']) if serial['real_tty_acm'] else 'none'}")
