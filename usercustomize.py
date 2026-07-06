@@ -60,16 +60,23 @@ def _install_theme_editor_patches() -> None:
         )
 
 
-def _ensure_dashboard_polish(app_module) -> None:
-    """Install the final app shell polish even when sitecustomize was skipped.
+def _ensure_dashboard_polish(app_module, *, force: bool = False) -> None:
+    """Install or reapply the final app shell polish.
 
-    ``sitecustomize`` is still the canonical loader, but this branch adds
-    Diagnostics through ``usercustomize`` while the PR is being validated.  Run
-    the same dashboard installer here as a safety net so the app does not fall
-    back to the older Overview/Settings/Themes surfaces during local tests.
+    ``configure-gtk.py`` installs runtime/video patches after loading
+    ``configure_gtk_app.py`` and those runtime patches still replace
+    ``build_overview_page`` / ``build_settings_page`` / ``build_themes_page``.
+    Therefore, when this helper runs after the runtime patches, it must clear
+    the idempotency flag and reapply the shell polish so the app does not fall
+    back to the older surfaces.
     """
 
     try:
+        if force:
+            window_class = getattr(app_module, "SmartScreenWindow", None)
+            if window_class is not None:
+                setattr(window_class, "_dashboard_polish_installed", False)
+
         from library.main_app_dashboard_polish import install_main_app_dashboard_polish
 
         install_main_app_dashboard_polish(app_module)
@@ -116,6 +123,13 @@ def _wrap_runtime_patches_for_diagnostics() -> None:
 
     def install_runtime_patches_with_diagnostics(app, *args, **kwargs):
         result = runtime_patches(app, *args, **kwargs)
+
+        # Runtime patches are allowed to install process/video behavior, but the
+        # final app shell must win afterwards. Reapply polish after runtime so
+        # Overview, Settings, and Theme Gallery remain on the consolidated UI.
+        _ensure_dashboard_polish(app, force=True)
+        _ensure_theme_gallery_polish()
+
         try:
             from library.main_app_diagnostics_integration import (
                 install_main_app_diagnostics_integration,
