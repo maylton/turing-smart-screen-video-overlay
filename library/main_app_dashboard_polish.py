@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from gi.repository import Pango
+
 
 def _set_label(widget: Any, value: str) -> None:
     if widget is not None and hasattr(widget, "set_label"):
@@ -187,7 +189,7 @@ def _make_status_card(app: Any, title: str, icon_name: str) -> tuple[Any, Any, A
     card.append(row)
 
     value = Gtk.Label(label="—", xalign=0, wrap=True)
-    value.set_ellipsize(app.Pango.EllipsizeMode.END)
+    value.set_ellipsize(Pango.EllipsizeMode.END)
     _add_classes(value, "title-3")
     card.append(value)
 
