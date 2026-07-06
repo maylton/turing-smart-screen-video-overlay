@@ -171,7 +171,7 @@ def property_preset_options(
 
     if key in {"FONT", "AXIS_FONT"}:
         options.extend(_relative_asset_presets(fonts_dir, tuple(FONT_SUFFIXES)))
-    elif key in {"BACKGROUND_IMAGE", "PREVIEW_BACKGROUND"}:
+    elif key in {"PATH", "BACKGROUND_IMAGE", "PREVIEW_BACKGROUND"}:
         options.extend(_relative_asset_presets(theme_dir, tuple(IMAGE_SUFFIXES)))
 
     options = _deduplicate(options)

@@ -150,7 +150,7 @@ EDITABLE_KEYS = (
     "MIN_VALUE", "MAX_VALUE", "MIN_SIZE",
     "HISTORY_SIZE", "LINE_WIDTH", "AXIS_FONT_SIZE",
     "ANGLE_START", "ANGLE_END", "ANGLE_STEPS", "ANGLE_SEP",
-    "ALIGN", "ANCHOR", "TEXT", "FORMAT",
+    "ALIGN", "ANCHOR", "ORIENTATION", "TEXT", "FORMAT",
     "SHOW", "SHOW_UNIT", "SHOW_TEXT",
     "BAR_OUTLINE", "REVERSE_DIRECTION", "AUTOSCALE",
     "AXIS", "CLOCKWISE", "DRAW_BAR_BACKGROUND",
@@ -179,6 +179,65 @@ COLOR_KEYS = {
     "FONT_COLOR", "BACKGROUND_COLOR", "BAR_COLOR",
     "BAR_BACKGROUND_COLOR", "LINE_COLOR", "AXIS_COLOR",
     "DISPLAY_RGB_LED",
+}
+
+GRAPH_BAR_ORIENTATION_OPTIONS = (
+    ("Auto", "auto"),
+    ("Horizontal", "horizontal"),
+    ("Vertical", "vertical"),
+)
+
+GRAPH_BAR_DEFAULTS = (
+    ("ORIENTATION", "auto"),
+    ("DRAW_BAR_BACKGROUND", False),
+    ("BAR_BACKGROUND_COLOR", [60, 60, 60]),
+    ("BAR_OUTLINE", False),
+)
+
+GRAPH_BAR_OPTIONAL_KEYS = {key for key, _value in GRAPH_BAR_DEFAULTS}
+
+CLOSED_CHOICE_KEYS = {
+    "DISPLAY_SIZE",
+    "DISPLAY_ORIENTATION",
+    "ALIGN",
+    "ANCHOR",
+    "FORMAT",
+    "BAR_DECORATION",
+    "ORIENTATION",
+}
+
+ASSET_CHOICE_KEYS = {
+    "PATH",
+    "BACKGROUND_IMAGE",
+    "PREVIEW_BACKGROUND",
+    "FONT",
+    "AXIS_FONT",
+}
+
+CHOICE_FIELD_SUBTITLES = {
+    "DISPLAY_SIZE": "Choose the target smart screen size.",
+    "DISPLAY_ORIENTATION": "Choose the theme canvas orientation.",
+    "ALIGN": "Choose horizontal text alignment.",
+    "ANCHOR": "Choose the text anchor point used by Pillow.",
+    "FORMAT": "Choose the date/time format style.",
+    "BAR_DECORATION": "Choose the radial bar decoration style.",
+    "ORIENTATION": "Choose how this GRAPH bar fills.",
+}
+
+ASSET_FIELD_SUBTITLES = {
+    "PATH": "Choose an image from this theme folder.",
+    "BACKGROUND_IMAGE": "Choose an image from this theme folder.",
+    "PREVIEW_BACKGROUND": "Choose a preview image from this theme folder.",
+    "FONT": "Choose a font from res/fonts.",
+    "AXIS_FONT": "Choose an axis label font from res/fonts.",
+}
+
+COMPONENT_PRESET_TITLES = {
+    "text": "Text component preset",
+    "static_image": "Image component preset",
+    "graph": "Graph bar preset",
+    "radial": "Radial gauge preset",
+    "line_graph": "Line graph preset",
 }
 
 yaml = ruamel.yaml.YAML()
@@ -2320,6 +2379,8 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             widget.set_active(bool(value))
         elif getattr(widget, "_theme_color_widget", False):
             self.set_color_selector_value(widget, value)
+        elif getattr(widget, "_theme_choice_values", None) is not None:
+            self.set_choice_widget_value(widget, self.parse_value(key, value, value))
         elif hasattr(widget, "set_text"):
             widget.set_text(self.value_to_text(value))
 
@@ -2494,6 +2555,398 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         button.connect("clicked", change_selected_theme)
         return row
 
+    @staticmethod
+    def is_graph_bar_node(path, node):
+        if not isinstance(node, dict):
+            return False
+        if not path or path[-1] != "GRAPH":
+            return False
+        graph_keys = {
+            "X",
+            "Y",
+            "WIDTH",
+            "HEIGHT",
+            "MIN_VALUE",
+            "MAX_VALUE",
+            "BAR_COLOR",
+        }
+        return any(key in node for key in graph_keys)
+
+    def create_graph_bar_defaults_row(self, node):
+        if not self.is_graph_bar_node(self.selected_path, node):
+            return None
+
+        missing = [
+            key
+            for key, _value in GRAPH_BAR_DEFAULTS
+            if key not in node
+        ]
+        if not missing:
+            return None
+
+        row = Adw.ActionRow(
+            title="Graph bar controls",
+            subtitle=(
+                "Add optional orientation, track/background, and outline fields "
+                "without changing the current rendering defaults."
+            ),
+        )
+        button = Gtk.Button(
+            label="Add controls",
+            icon_name="list-add-symbolic",
+            valign=Gtk.Align.CENTER,
+        )
+        button.set_tooltip_text(
+            "Add optional GRAPH fields while preserving current appearance"
+        )
+
+        def add_defaults(*_args):
+            if self.selected_path is None:
+                return
+            current = self.node_at_path(self.selected_path)
+            if not isinstance(current, dict):
+                return
+
+            self.push_undo()
+            added = []
+            for key, value in GRAPH_BAR_DEFAULTS:
+                if key not in current:
+                    current[key] = copy.deepcopy(value)
+                    added.append(key)
+
+            if not added:
+                self.toast("Graph bar controls are already present")
+                return
+
+            if not self.save_theme_data():
+                return
+
+            self.build_property_rows()
+            self.refresh_preview()
+            self.toast("Added graph bar controls")
+
+        button.connect("clicked", add_defaults)
+        row.add_suffix(button)
+        return row
+
+    def component_kind_for_node(self, path, node):
+        if not isinstance(node, dict) or not path:
+            return None
+        if len(path) == 2 and path[0] == "static_images":
+            return "static_image"
+        if path[-1] == "GRAPH":
+            return "graph"
+        if path[-1] == "RADIAL":
+            return "radial"
+        if path[-1] == "LINE_GRAPH":
+            return "line_graph"
+        if is_text_style_node(node):
+            return "text"
+        return None
+
+    def component_preset_options(self, node):
+        kind = self.component_kind_for_node(self.selected_path, node)
+        if kind is None:
+            return []
+
+        try:
+            canvas_width, canvas_height = theme_canvas_dimensions(self.theme_data)
+        except Exception:
+            canvas_width, canvas_height = 320, 480
+
+        background = self.shared_background_name()
+
+        if kind == "text":
+            return [
+                (
+                    "Centered label",
+                    {
+                        "SHOW": True,
+                        "X": canvas_width // 2,
+                        "Y": canvas_height // 2,
+                        "WIDTH": min(260, canvas_width),
+                        "HEIGHT": 56,
+                        "FONT": "roboto-mono/RobotoMono-Regular.ttf",
+                        "FONT_SIZE": 24,
+                        "FONT_COLOR": [255, 255, 255],
+                        "BACKGROUND_IMAGE": background,
+                        "ALIGN": "center",
+                        "ANCHOR": "mm",
+                    },
+                ),
+                (
+                    "Top-left caption",
+                    {
+                        "SHOW": True,
+                        "X": 20,
+                        "Y": 20,
+                        "WIDTH": min(240, canvas_width),
+                        "HEIGHT": 36,
+                        "FONT": "roboto-mono/RobotoMono-Regular.ttf",
+                        "FONT_SIZE": 16,
+                        "FONT_COLOR": [255, 255, 255],
+                        "BACKGROUND_IMAGE": background,
+                        "ALIGN": "left",
+                        "ANCHOR": "lt",
+                    },
+                ),
+                (
+                    "Large metric value",
+                    {
+                        "SHOW": True,
+                        "X": canvas_width // 2,
+                        "Y": canvas_height // 2,
+                        "WIDTH": min(260, canvas_width),
+                        "HEIGHT": 80,
+                        "FONT": "roboto-mono/RobotoMono-Bold.ttf",
+                        "FONT_SIZE": 40,
+                        "FONT_COLOR": [255, 255, 255],
+                        "BACKGROUND_IMAGE": background,
+                        "ALIGN": "center",
+                        "ANCHOR": "mm",
+                    },
+                ),
+            ]
+
+        if kind == "static_image":
+            return [
+                (
+                    "Full-screen background",
+                    {
+                        "SHOW": True,
+                        "X": 0,
+                        "Y": 0,
+                        "WIDTH": canvas_width,
+                        "HEIGHT": canvas_height,
+                    },
+                ),
+                (
+                    "Centered card",
+                    {
+                        "SHOW": True,
+                        "X": max(0, (canvas_width - 180) // 2),
+                        "Y": max(0, (canvas_height - 180) // 2),
+                        "WIDTH": min(180, canvas_width),
+                        "HEIGHT": min(180, canvas_height),
+                    },
+                ),
+                (
+                    "Small icon",
+                    {
+                        "SHOW": True,
+                        "X": 20,
+                        "Y": 20,
+                        "WIDTH": 64,
+                        "HEIGHT": 64,
+                    },
+                ),
+            ]
+
+        if kind == "graph":
+            return [
+                (
+                    "Horizontal bar with track",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 160,
+                        "HEIGHT": 16,
+                        "ORIENTATION": "horizontal",
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [55, 55, 55],
+                        "BAR_OUTLINE": False,
+                        "REVERSE_DIRECTION": False,
+                    },
+                ),
+                (
+                    "Vertical bar with track",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 18,
+                        "HEIGHT": 140,
+                        "ORIENTATION": "vertical",
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [55, 55, 55],
+                        "BAR_OUTLINE": False,
+                        "REVERSE_DIRECTION": False,
+                    },
+                ),
+                (
+                    "Compact thin bar",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 120,
+                        "HEIGHT": 8,
+                        "ORIENTATION": "horizontal",
+                        "DRAW_BAR_BACKGROUND": False,
+                        "BAR_OUTLINE": False,
+                        "REVERSE_DIRECTION": False,
+                    },
+                ),
+            ]
+
+        if kind == "radial":
+            return [
+                (
+                    "Hero ring",
+                    {
+                        "SHOW": True,
+                        "RADIUS": 56,
+                        "WIDTH": 12,
+                        "ANGLE_START": 0,
+                        "ANGLE_END": 360,
+                        "ANGLE_STEPS": 100,
+                        "ANGLE_SEP": 0,
+                        "CLOCKWISE": True,
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [45, 45, 45],
+                    },
+                ),
+                (
+                    "Arc gauge",
+                    {
+                        "SHOW": True,
+                        "RADIUS": 46,
+                        "WIDTH": 10,
+                        "ANGLE_START": 135,
+                        "ANGLE_END": 45,
+                        "ANGLE_STEPS": 30,
+                        "ANGLE_SEP": 3,
+                        "CLOCKWISE": True,
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [45, 45, 45],
+                    },
+                ),
+                (
+                    "Compact ring",
+                    {
+                        "SHOW": True,
+                        "RADIUS": 32,
+                        "WIDTH": 6,
+                        "ANGLE_START": 0,
+                        "ANGLE_END": 360,
+                        "ANGLE_STEPS": 60,
+                        "ANGLE_SEP": 0,
+                        "CLOCKWISE": True,
+                        "DRAW_BAR_BACKGROUND": False,
+                    },
+                ),
+            ]
+
+        if kind == "line_graph":
+            return [
+                (
+                    "Minimal sparkline",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 140,
+                        "HEIGHT": 48,
+                        "HISTORY_SIZE": 60,
+                        "AUTOSCALE": True,
+                        "LINE_WIDTH": 2,
+                        "AXIS": False,
+                    },
+                ),
+                (
+                    "Axis trend graph",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 160,
+                        "HEIGHT": 72,
+                        "HISTORY_SIZE": 60,
+                        "AUTOSCALE": False,
+                        "LINE_WIDTH": 2,
+                        "AXIS": True,
+                        "AXIS_FONT_SIZE": 10,
+                    },
+                ),
+                (
+                    "Thin compact trend",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 120,
+                        "HEIGHT": 32,
+                        "HISTORY_SIZE": 30,
+                        "AUTOSCALE": True,
+                        "LINE_WIDTH": 1,
+                        "AXIS": False,
+                    },
+                ),
+            ]
+
+        return []
+
+    def create_component_preset_row(self, node):
+        options = self.component_preset_options(node)
+        if not options:
+            return None
+
+        labels = ["Choose a preset…"] + [label for label, _updates in options]
+        dropdown = Gtk.DropDown.new_from_strings(labels)
+        dropdown.set_valign(Gtk.Align.CENTER)
+        dropdown.set_size_request(220, -1)
+        dropdown.set_tooltip_text("Apply a starter layout to this component")
+        dropdown._theme_component_preset_updates = tuple(
+            copy.deepcopy(updates)
+            for _label, updates in options
+        )
+
+        button = Gtk.Button(
+            label="Apply preset",
+            icon_name="emblem-ok-symbolic",
+            valign=Gtk.Align.CENTER,
+            sensitive=False,
+        )
+
+        row = Adw.ActionRow(
+            title=COMPONENT_PRESET_TITLES.get(
+                self.component_kind_for_node(self.selected_path, node),
+                "Component preset",
+            ),
+            subtitle="Apply a safe starter layout to this selected component.",
+        )
+        row.add_suffix(dropdown)
+        row.add_suffix(button)
+
+        def preset_changed(widget, _param):
+            index = widget.get_selected()
+            button.set_sensitive(index not in (0, Gtk.INVALID_LIST_POSITION))
+
+        def apply_preset(*_args):
+            if self.selected_path is None:
+                return
+            index = dropdown.get_selected()
+            updates = dropdown._theme_component_preset_updates
+            if index in (0, Gtk.INVALID_LIST_POSITION) or index - 1 >= len(updates):
+                self.toast("Choose a component preset first")
+                return
+
+            try:
+                current = self.node_at_path(self.selected_path)
+            except Exception:
+                self.toast("Selected component is no longer available")
+                return
+            if not isinstance(current, dict):
+                return
+
+            self.push_undo()
+            for key, value in updates[index - 1].items():
+                current[key] = copy.deepcopy(value)
+
+            if not self.save_theme_data():
+                return
+
+            self.populate_elements()
+            GLib.idle_add(self.restore_tree_selection, self.selected_path)
+            self.build_property_rows()
+            self.refresh_preview()
+            dropdown.set_selected(0)
+            button.set_sensitive(False)
+            self.toast("Component preset applied")
+
+        dropdown.connect("notify::selected", preset_changed)
+        button.connect("clicked", apply_preset)
+        return row
+
     def create_image_layout_row(self, node):
         selected = self.selected_static_image(show_errors=False)
         if selected is None:
@@ -2608,6 +3061,16 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.dynamic_group.add(image_layout_row)
             self.property_rows.append(image_layout_row)
 
+        graph_bar_row = self.create_graph_bar_defaults_row(node)
+        if graph_bar_row is not None:
+            self.dynamic_group.add(graph_bar_row)
+            self.property_rows.append(graph_bar_row)
+
+        component_preset_row = self.create_component_preset_row(node)
+        if component_preset_row is not None:
+            self.dynamic_group.add(component_preset_row)
+            self.property_rows.append(component_preset_row)
+
         ordered_keys = [key for key in EDITABLE_KEYS if key in node]
         ordered_keys.extend(
             key
@@ -2633,7 +3096,12 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 key in COLOR_KEYS or key.endswith("_COLOR")
             )
 
-            if key in BOOLEAN_KEYS or isinstance(value, bool):
+            if key in CLOSED_CHOICE_KEYS or key in ASSET_CHOICE_KEYS:
+                row, widget = self.create_choice_row(
+                    key,
+                    value,
+                )
+            elif key in BOOLEAN_KEYS or isinstance(value, bool):
                 row = Adw.SwitchRow(title=key)
                 row.set_active(bool(value))
                 widget = row
@@ -2668,6 +3136,67 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             self.property_rows.append(row)
             self.property_widgets[key] = widget
 
+    def choice_options_for_property(self, key, value):
+        if key == "ORIENTATION":
+            options = list(GRAPH_BAR_ORIENTATION_OPTIONS)
+            option_values = [option_value for _label, option_value in options]
+            if value not in option_values:
+                options.insert(0, (f"Current — {value}", value))
+            return options
+        return self.property_preset_options(key, value)
+
+    def choice_subtitle_for_property(self, key):
+        if key in ASSET_FIELD_SUBTITLES:
+            return ASSET_FIELD_SUBTITLES[key]
+        return CHOICE_FIELD_SUBTITLES.get(
+            key,
+            f"Choose a value for {key}.",
+        )
+
+    def create_choice_row(self, key, value):
+        options = self.choice_options_for_property(key, value)
+        if not options:
+            fallback_label = self.value_to_text(value) or "No value"
+            options = [(f"Current — {fallback_label}", value)]
+        labels = [label for label, _option_value in options]
+        values = [option_value for _label, option_value in options]
+        dropdown = Gtk.DropDown.new_from_strings(labels)
+        dropdown.set_valign(Gtk.Align.CENTER)
+        dropdown.set_size_request(220, -1)
+        subtitle = self.choice_subtitle_for_property(key)
+        dropdown.set_tooltip_text(subtitle)
+        if hasattr(dropdown, "set_enable_search"):
+            dropdown.set_enable_search(key in ASSET_CHOICE_KEYS or len(options) > 12)
+        dropdown._theme_choice_values = tuple(values)
+
+        selected = 0
+        try:
+            normalized = self.parse_value(key, value, value)
+        except Exception:
+            normalized = value
+        for index, option_value in enumerate(values):
+            if self.same_property_value(option_value, normalized):
+                selected = index
+                break
+        dropdown.set_selected(selected)
+
+        row = Adw.ActionRow(
+            title=key,
+            subtitle=subtitle,
+        )
+        row.add_suffix(dropdown)
+        return row, dropdown
+
+    def set_choice_widget_value(self, widget, value):
+        values = getattr(widget, "_theme_choice_values", ())
+        if not values:
+            return
+        for index, option_value in enumerate(values):
+            if self.same_property_value(option_value, value):
+                widget.set_selected(index)
+                return
+        widget.set_selected(Gtk.INVALID_LIST_POSITION)
+
     @staticmethod
     def value_to_text(value):
         if isinstance(value, (list, tuple)):
@@ -2699,6 +3228,13 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             ):
                 return [float(part) for part in parts]
             return parts
+
+        if key == "ORIENTATION":
+            orientation = str(raw or "auto").strip().lower()
+            allowed = {value for _label, value in GRAPH_BAR_ORIENTATION_OPTIONS}
+            if orientation not in allowed:
+                raise ValueError("ORIENTATION must be auto, horizontal, or vertical.")
+            return orientation
 
         if old_value is None and str(raw).strip().lower() in {
             "",
@@ -2843,6 +3379,12 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             return self.parse_value(key, widget.get_active(), old_value)
         if getattr(widget, "_theme_color_widget", False):
             return self.color_selector_value(widget)
+        choice_values = getattr(widget, "_theme_choice_values", None)
+        if choice_values is not None:
+            index = widget.get_selected()
+            if index == Gtk.INVALID_LIST_POSITION or index >= len(choice_values):
+                raise ValueError(f"Choose a valid value for {key}.")
+            return self.parse_value(key, choice_values[index], old_value)
         return self.parse_value(key, widget.get_text(), old_value)
 
     def has_pending_property_edits(self):
