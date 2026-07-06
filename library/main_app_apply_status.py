@@ -58,6 +58,29 @@ def _set_label_text(widget: Any, text: str) -> bool:
         return False
 
 
+def _runtime_state(window: Any) -> Any | None:
+    controller = getattr(window, "runtime_controller", None)
+    state = getattr(controller, "state", None)
+    if not callable(state):
+        return None
+    try:
+        return state()
+    except Exception:
+        return None
+
+
+def _runtime_running_detail(window: Any) -> str:
+    state = _runtime_state(window)
+    if state is None or not getattr(state, "monitor_running", False):
+        return ""
+
+    owner = getattr(state, "owner", None)
+    pid = getattr(owner, "pid", None)
+    if pid:
+        return f"PID {pid}"
+    return "Monitor is running."
+
+
 def _update_known_status_widgets(window: Any, title: str, detail: str) -> None:
     """Best-effort persistent status update for old and polished Overview builds."""
 
@@ -154,6 +177,50 @@ def _begin_apply_progress(app: Any, window: Any) -> None:
         APPLY_STEPS[0][2],
         toast=True,
     )
+
+
+def _poll_monitor_until_running(
+    app: Any,
+    window: Any,
+    *,
+    attempts: int = 20,
+    interval_ms: int = 500,
+) -> None:
+    """Confirm monitor startup using runtime_controller.state(), not stdout/logs."""
+
+    generation = getattr(window, "_apply_sync_status_generation", 0)
+    remaining = {"value": attempts}
+
+    def check() -> bool:
+        if getattr(window, "_apply_sync_status_generation", None) != generation:
+            return False
+        if not bool(getattr(window, "_apply_sync_status_active", False)):
+            return False
+
+        detail = _runtime_running_detail(window)
+        if detail:
+            _set_operation_status(window, "Running", detail, toast=True)
+            _end_operation_status(app, window, delay_ms=1400)
+            return False
+
+        remaining["value"] -= 1
+        if remaining["value"] <= 0:
+            _set_operation_status(
+                window,
+                "Starting monitor…",
+                "Still waiting for runtime state; Overview auto-refresh will keep checking.",
+            )
+            _end_operation_status(app, window, delay_ms=1200)
+            return False
+
+        return True
+
+    # Check once immediately, then poll for a bounded time if needed.
+    if check():
+        try:
+            app.GLib.timeout_add(interval_ms, check)
+        except Exception:
+            _end_operation_status(app, window, delay_ms=1200)
 
 
 def install_main_app_apply_status(app: Any) -> None:
@@ -262,6 +329,11 @@ def install_main_app_apply_status(app: Any) -> None:
     if callable(original_start_monitor):
         def start_monitor_with_status(self, *args, **kwargs):
             self._apply_sync_status_active = True
+            self._apply_sync_status_generation = getattr(
+                self,
+                "_apply_sync_status_generation",
+                0,
+            ) + 1
             _set_operation_status(
                 self,
                 "Starting monitor…",
@@ -274,22 +346,17 @@ def install_main_app_apply_status(app: Any) -> None:
     if callable(original_finish_start):
         def finish_monitor_start_with_status(self, *args, **kwargs):
             result = original_finish_start(self, *args, **kwargs)
-            process = getattr(self, "monitor_process", None)
-            if process is not None and process.poll() is None:
-                _set_operation_status(
-                    self,
-                    "Monitor started",
-                    f"PID {process.pid}" if getattr(process, "pid", None) else "Monitor is running.",
-                    toast=True,
-                )
+            detail = _runtime_running_detail(self)
+            if detail:
+                _set_operation_status(self, "Running", detail, toast=True)
+                _end_operation_status(app, self, delay_ms=1400)
             else:
                 _set_operation_status(
                     self,
-                    "Monitor did not stay running",
-                    "Check Diagnostics for the last runtime state.",
-                    toast=True,
+                    "Starting monitor…",
+                    "Waiting for runtime state to report Running.",
                 )
-            _end_operation_status(app, self)
+                _poll_monitor_until_running(app, self)
             return result
 
         window_class.finish_monitor_start = finish_monitor_start_with_status
@@ -297,6 +364,11 @@ def install_main_app_apply_status(app: Any) -> None:
     if callable(original_stop_monitor):
         def stop_monitor_with_status(self, *args, **kwargs):
             self._apply_sync_status_active = True
+            self._apply_sync_status_generation = getattr(
+                self,
+                "_apply_sync_status_generation",
+                0,
+            ) + 1
             _set_operation_status(
                 self,
                 "Stopping monitor…",
