@@ -40,7 +40,7 @@ def _walk_widgets(widget: Any) -> Iterable[Any]:
         yield from _walk_widgets(child)
 
 
-def _find_preferences_group(root: Any, title: str) -> Any | None:
+def _find_titled_widget(root: Any, title: str) -> Any | None:
     for widget in _walk_widgets(root):
         if not hasattr(widget, "get_title"):
             continue
@@ -53,7 +53,7 @@ def _find_preferences_group(root: Any, title: str) -> Any | None:
 
 
 def _has_titled_widget(root: Any, title: str) -> bool:
-    return _find_preferences_group(root, title) is not None
+    return _find_titled_widget(root, title) is not None
 
 
 def _install_optional_integration(
@@ -101,25 +101,8 @@ def _install_runtime_ui_integrations(app: Any) -> None:
     )
 
 
-def install_main_app_diagnostics_integration(app: Any) -> None:
-    """Install the validated Main App / Diagnostics draft integrations."""
-
-    _install_runtime_ui_integrations(app)
-
-    window_class = getattr(app, "SmartScreenWindow", None)
-    if window_class is None or getattr(
-        window_class,
-        "_main_app_diagnostics_integration_installed",
-        False,
-    ):
-        return
-
-    Gtk = app.Gtk
-    Adw = app.Adw
+def _open_diagnostics_factory(app: Any):
     diagnostics_viewer = app.ROOT / "diagnostics-gtk.py"
-
-    current_build_settings_page = window_class.build_settings_page
-    original_build_settings_page = current_build_settings_page
 
     def open_diagnostics(self, *_args) -> None:
         try:
@@ -146,34 +129,75 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
                 pass
             self.toast(f"Could not open diagnostics: {exc}")
 
+    return open_diagnostics
+
+
+def _add_diagnostics_row(app: Any, window: Any, root: Any) -> bool:
+    maintenance = _find_titled_widget(root, "Maintenance")
+    if maintenance is None:
+        return False
+
+    if _has_titled_widget(maintenance, "Diagnostics"):
+        return True
+
+    diagnostics_row = app.Adw.ActionRow(
+        title="Diagnostics",
+        subtitle=(
+            "Inspect theme, video, runtime, and USB state without "
+            "opening the serial port"
+        ),
+        icon_name="utilities-system-monitor-symbolic",
+        activatable=True,
+    )
+    diagnostics_row.connect("activated", window.open_diagnostics)
+    diagnostics_row.add_suffix(app.Gtk.Image.new_from_icon_name("go-next-symbolic"))
+    maintenance.add(diagnostics_row)
+    return True
+
+
+def install_main_app_diagnostics_integration(app: Any) -> None:
+    """Install the validated Main App / Diagnostics draft integrations."""
+
+    _install_runtime_ui_integrations(app)
+
+    window_class = getattr(app, "SmartScreenWindow", None)
+    if window_class is None or getattr(
+        window_class,
+        "_main_app_diagnostics_integration_installed",
+        False,
+    ):
+        return
+
+    original_build_settings_page = window_class.build_settings_page
+    original_init = window_class.__init__
+
+    def open_diagnostics(self, *_args) -> None:
+        return _open_diagnostics_factory(app)(self, *_args)
+
     def build_settings_page(self):
         page = original_build_settings_page(self)
-        maintenance = _find_preferences_group(page, "Maintenance")
-        if maintenance is None:
-            return page
-
-        # Some installed test builds were patched by the installer before this
-        # integration became centralized. Do not add a duplicate row.
-        if _has_titled_widget(page, "Diagnostics"):
-            return page
-
-        diagnostics_row = Adw.ActionRow(
-            title="Diagnostics",
-            subtitle=(
-                "Inspect theme, video, runtime, and USB state without "
-                "opening the serial port"
-            ),
-            icon_name="utilities-system-monitor-symbolic",
-            activatable=True,
-        )
-        diagnostics_row.connect("activated", self.open_diagnostics)
-        diagnostics_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-        maintenance.add(diagnostics_row)
+        _add_diagnostics_row(app, self, page)
         return page
 
+    def init_with_diagnostics(self, application):
+        original_init(self, application)
+        # Safety net for builds where Settings was already constructed before
+        # this wrapper became active. Walk the created window and patch the
+        # existing Maintenance group directly.
+        try:
+            _add_diagnostics_row(app, self, self)
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            print(
+                f"[diagnostics] could not add Settings row after init: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+
     build_settings_page._diagnostics_integration_wrapper = True
+    init_with_diagnostics._diagnostics_init_wrapper = True
 
     window_class.open_diagnostics = open_diagnostics
     window_class.build_settings_page = build_settings_page
+    window_class.__init__ = init_with_diagnostics
     window_class._main_app_diagnostics_integration_installed = True
     window_class._diagnostics_integration_installed = True
