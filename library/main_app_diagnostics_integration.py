@@ -1,14 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Optional diagnostics integration for the main GTK configuration app.
+"""Consolidated Main App integration for Diagnostics and runtime UI polish.
 
-This module is loaded by ``usercustomize.py`` only for ``configure-gtk.py``.
-It keeps the Diagnostics viewer optional and low-risk while we validate the UI
-before merging it permanently into the main launcher code.
+This module is the single entry point for the Main App / Diagnostics draft work:
+
+- Settings → Maintenance → Diagnostics opens inline inside the main GTK app;
+- Apply + Sync + Start status messages are installed;
+- the polished Overview Monitor card refreshes automatically.
+
+The helpers are guarded and idempotent so the draft branch can still be tested
+from the installer while the source launcher is being consolidated.
 """
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+import sys
+from typing import Any, Callable, Iterable
 
 
 def _iter_widget_children(widget: Any) -> Iterable[Any]:
@@ -46,50 +52,99 @@ def _find_preferences_group(root: Any, title: str) -> Any | None:
     return None
 
 
+def _has_titled_widget(root: Any, title: str) -> bool:
+    return _find_preferences_group(root, title) is not None
+
+
+def _install_optional_integration(
+    app: Any,
+    *,
+    label: str,
+    importer: Callable[[], Callable[[Any], None]],
+) -> None:
+    try:
+        installer = importer()
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[{label}] could not import main app integration: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+
+    try:
+        installer(app)
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[{label}] could not install main app integration: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _install_runtime_ui_integrations(app: Any) -> None:
+    _install_optional_integration(
+        app,
+        label="apply-status",
+        importer=lambda: __import__(
+            "library.main_app_apply_status",
+            fromlist=["install_main_app_apply_status"],
+        ).install_main_app_apply_status,
+    )
+    _install_optional_integration(
+        app,
+        label="overview-refresh",
+        importer=lambda: __import__(
+            "library.main_app_overview_refresh",
+            fromlist=["install_main_app_overview_auto_refresh"],
+        ).install_main_app_overview_auto_refresh,
+    )
+
+
 def install_main_app_diagnostics_integration(app: Any) -> None:
-    """Add Settings → Maintenance → Diagnostics to the GTK launcher."""
+    """Install the validated Main App / Diagnostics draft integrations."""
+
+    _install_runtime_ui_integrations(app)
+
     window_class = getattr(app, "SmartScreenWindow", None)
-    if window_class is None:
+    if window_class is None or getattr(
+        window_class,
+        "_main_app_diagnostics_integration_installed",
+        False,
+    ):
         return
 
     Gtk = app.Gtk
     Adw = app.Adw
-    Gio = app.Gio
     diagnostics_viewer = app.ROOT / "diagnostics-gtk.py"
 
-    original_install_actions = getattr(
-        window_class,
-        "_diagnostics_original_install_actions",
-        window_class.install_actions,
-    )
-
     current_build_settings_page = window_class.build_settings_page
-    already_wrapped_source = getattr(
-        window_class,
-        "_diagnostics_wrapped_settings_source",
-        None,
-    )
-    if (
-        getattr(current_build_settings_page, "_diagnostics_integration_wrapper", False)
-        and already_wrapped_source is not None
-    ):
-        return
-
     original_build_settings_page = current_build_settings_page
 
     def open_diagnostics(self, *_args) -> None:
-        if not diagnostics_viewer.is_file():
-            self.toast("diagnostics-gtk.py was not found")
-            return
-        self.launch_script(diagnostics_viewer, use_system_python=True)
+        try:
+            from library.main_app_inline_diagnostics import (
+                build_inline_diagnostics_page,
+            )
 
-    def install_actions(self) -> None:
-        original_install_actions(self)
-        if hasattr(self, "lookup_action") and self.lookup_action("open-diagnostics") is not None:
-            return
-        action = Gio.SimpleAction.new("open-diagnostics", None)
-        action.connect("activate", self.open_diagnostics)
-        self.add_action(action)
+            page_name = "diagnostics"
+            page = getattr(self, "_inline_diagnostics_page", None)
+            if page is None:
+                page = build_inline_diagnostics_page(app, self)
+                self._inline_diagnostics_page = page
+                self.stack.add_named(page, page_name)
+            elif hasattr(page, "refresh_diagnostics"):
+                page.refresh_diagnostics()
+            self.stack.set_visible_child_name(page_name)
+        except Exception as exc:
+            # Keep the standalone viewer as a fallback during the draft branch.
+            try:
+                if diagnostics_viewer.is_file():
+                    self.launch_script(diagnostics_viewer, use_system_python=True)
+                    return
+            except Exception:
+                pass
+            self.toast(f"Could not open diagnostics: {exc}")
 
     def build_settings_page(self):
         page = original_build_settings_page(self)
@@ -97,13 +152,21 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
         if maintenance is None:
             return page
 
+        # Some installed test builds were patched by the installer before this
+        # integration became centralized. Do not add a duplicate row.
+        if _has_titled_widget(page, "Diagnostics"):
+            return page
+
         diagnostics_row = Adw.ActionRow(
             title="Diagnostics",
-            subtitle="Inspect theme, video, runtime, and USB state without opening the serial port",
+            subtitle=(
+                "Inspect theme, video, runtime, and USB state without "
+                "opening the serial port"
+            ),
             icon_name="utilities-system-monitor-symbolic",
             activatable=True,
         )
-        diagnostics_row.set_action_name("win.open-diagnostics")
+        diagnostics_row.connect("activated", self.open_diagnostics)
         diagnostics_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
         maintenance.add(diagnostics_row)
         return page
@@ -111,8 +174,6 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
     build_settings_page._diagnostics_integration_wrapper = True
 
     window_class.open_diagnostics = open_diagnostics
-    window_class.install_actions = install_actions
     window_class.build_settings_page = build_settings_page
-    window_class._diagnostics_original_install_actions = original_install_actions
-    window_class._diagnostics_wrapped_settings_source = original_build_settings_page
+    window_class._main_app_diagnostics_integration_installed = True
     window_class._diagnostics_integration_installed = True
