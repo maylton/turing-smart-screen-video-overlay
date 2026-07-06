@@ -1006,8 +1006,73 @@ def install_runtime_patches(app):
         backend.LcdCommRevC._theme_video_sync_bounded_hello = True
 
 
+
+    def cleanup_previous_theme_videos_for_theme_apply(manager, current_remote: str) -> list[str]:
+        """Keep the display video storage in single-theme-video mode.
+
+        The original app behavior kept only one theme video on the display at a
+        time. Recreate that behavior by deleting stale video files before
+        uploading the active theme video.
+        """
+        video_extensions = (".mp4", ".mov", ".mkv", ".avi", ".webm")
+        current_remote = str(current_remote)
+        current_name = Path(current_remote).name
+        current_base = (
+            "/root/video/"
+            if current_remote.startswith("/root/video/")
+            else "/mnt/SDCARD/video/"
+        )
+
+        locations = [
+            ("/mnt/SDCARD/video/", False),
+            ("/root/video/", True),
+        ]
+
+        removed: list[str] = []
+
+        for base, internal in locations:
+            try:
+                _directories, files = manager.list_videos(internal=internal)
+            except Exception as exc:
+                print(
+                    f"[theme-video-sync] could not list stale videos in {base}: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                continue
+
+            for item in files:
+                filename = Path(str(item).strip()).name
+                if not filename:
+                    continue
+                if not filename.casefold().endswith(video_extensions):
+                    continue
+                if base == current_base and filename == current_name:
+                    continue
+
+                remote_path = base + filename
+                try:
+                    manager.delete(remote_path)
+                    removed.append(remote_path)
+                    print(
+                        f"[theme-video-sync] removed stale display video: {remote_path}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    time.sleep(0.25)
+                except Exception as exc:
+                    print(
+                        f"[theme-video-sync] could not remove stale display video "
+                        f"{remote_path}: {exc}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+        return removed
+
+
     def sync_theme_video_via_backend_for_theme_apply(self, video: dict) -> str:
-        """Sync theme video without going through video_manager.py JSON stdout."""
+        """Sync theme video using single-video storage semantics."""
         from library.runtime import DeviceLock
 
         log_file = Path("/tmp/turing-theme-video-sync.log")
@@ -1054,32 +1119,30 @@ def install_runtime_patches(app):
                     with DeviceLock(role="theme-video-sync", root=app.ROOT):
                         manager = backend.VideoManager(com_port=com_port)
                         try:
-                            # Source of truth: ask the display for this exact remote path.
-                            # list_videos() can vary by firmware/path formatting, but get_size()
-                            # tells us whether the selected remote file already exists.
-                            try:
-                                existing_size = manager.get_size(remote)
-                            except Exception:
-                                existing_size = 0
+                            removed = cleanup_previous_theme_videos_for_theme_apply(
+                                manager,
+                                remote,
+                            )
 
-                            if existing_size and existing_size > 0:
-                                return f"Video already exists on display: {wanted}"
-
-                            try:
-                                manager.upload(
-                                    local_path=local,
-                                    remote_path=remote,
-                                    overwrite=False,
-                                    packet_delay=0.0,
-                                )
-                            except FileExistsError:
-                                return f"Video already exists on display: {wanted}"
+                            # Single-video mode: even if the target filename already
+                            # exists, replace it so the display storage mirrors the
+                            # currently selected theme.
+                            manager.upload(
+                                local_path=local,
+                                remote_path=remote,
+                                overwrite=True,
+                                packet_delay=0.0,
+                            )
 
                             try:
                                 remote_size = manager.get_size(remote)
-                                return f"Uploaded {wanted} ({remote_size} bytes)"
+                                detail = f"Uploaded {wanted} ({remote_size} bytes)"
                             except Exception:
-                                return f"Uploaded {wanted}"
+                                detail = f"Uploaded {wanted}"
+
+                            if removed:
+                                return detail + f"; removed {len(removed)} old video(s)"
+                            return detail
                         finally:
                             manager.close()
 
@@ -1100,8 +1163,6 @@ def install_runtime_patches(app):
 
                     message = str(exc).casefold()
                     if theme_apply_video_error_is_retryable(message):
-                        # Try the next candidate port first. If all fail, the
-                        # outer loop waits again and retries after USB settles.
                         continue
 
                     raise
