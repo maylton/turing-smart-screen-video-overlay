@@ -82,6 +82,23 @@ def load_app_module():
     return module
 
 
+def install_main_app_integrations(app) -> None:
+    """Install consolidated Main App integrations after runtime patches."""
+
+    try:
+        from library.main_app_diagnostics_integration import (
+            install_main_app_diagnostics_integration,
+        )
+
+        install_main_app_diagnostics_integration(app)
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[main-app-integration] could not install: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def install_runtime_patches(app):
     original_init = app.SmartScreenWindow.__init__
     original_refresh_overview = app.SmartScreenWindow.refresh_overview
@@ -601,7 +618,6 @@ def install_runtime_patches(app):
                 if candidate.name == current_name:
                     record = candidate
                     break
-
         if record is None:
             self.toast(f"Active theme was not found in gallery: {current_name}")
             return
@@ -617,7 +633,6 @@ def install_runtime_patches(app):
                 self.toast("Display is busy: " + state.owner.describe())
             update_runtime_status(self)
             return
-
         self.toast(f"Syncing video for {record.name}…")
         threading.Thread(
             target=sync_theme_video_worker,
@@ -907,7 +922,6 @@ def install_runtime_patches(app):
                     continue
 
                 raise
-
         if last_error is not None:
             raise last_error
 
@@ -924,59 +938,42 @@ def install_runtime_patches(app):
         return wanted in {str(item) for item in files}
 
     def load_video_manager_backend_for_theme_apply():
-        backend_file = app.ROOT / "video_manager_backend.py"
-        if not backend_file.is_file():
-            raise FileNotFoundError(backend_file)
-
+        backend_path = app.ROOT / "video_manager_backend.py"
         spec = importlib.util.spec_from_file_location(
-            "turing_theme_apply_video_backend",
-            backend_file,
+            "turing_theme_video_sync_backend",
+            backend_path,
         )
         if spec is None or spec.loader is None:
-            raise RuntimeError(f"Could not load {backend_file.name}")
-
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-
+            raise RuntimeError(f"Could not load {backend_path.name}")
+        backend = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = backend
+        spec.loader.exec_module(backend)
+        return backend
 
     def install_theme_video_sync_bounded_hello(backend) -> None:
-        """Prevent Rev. C hello detection from looping forever during video sync.
-
-        LcdCommRevC._hello normally retries forever when the display returns an
-        empty/invalid ID. That is OK for the long-running monitor, but during
-        theme video sync it can permanently stall the GTK worker. Bound it here
-        so the outer sync retry loop can wait, try another ttyACM candidate, or
-        fail with a visible toast.
-        """
         if getattr(backend.LcdCommRevC, "_theme_video_sync_bounded_hello", False):
             return
 
-        def bounded_hello(self):
-            import string as _string
+        original_hello = backend.LcdCommRevC._hello
 
-            self.sub_revision = self._get_sub_revision()
-            printable = set(_string.printable)
+        def bounded_hello(self):
             response = ""
-            last_error = None
+            last_error: Exception | None = None
+
+            if self.lcd_serial is None:
+                return original_hello(self)
+
+            try:
+                self.lcd_serial.timeout = min(float(getattr(self.lcd_serial, "timeout", 1.0) or 1.0), 1.0)
+                self.lcd_serial.write_timeout = min(float(getattr(self.lcd_serial, "write_timeout", 1.0) or 1.0), 1.0)
+            except Exception:
+                pass
 
             for attempt in range(6):
                 try:
-                    self.serial_flush_input()
-                    self._send_command(backend.Command.HELLO, bypass_queue=True)
-                    response = "".join(
-                        filter(
-                            lambda x: x in printable,
-                            str(self.serial_read(23).decode(errors="ignore")),
-                        )
-                    )
-                    self.serial_flush_input()
-                    print(
-                        f"[theme-video-sync] hello attempt {attempt + 1}/6 returned: {response!r}",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    if response.startswith("chs_"):
+                    self.SendLine("hello")
+                    response = self.ReadData()
+                    if response and str(response).count(".") >= 2:
                         break
                 except Exception as exc:
                     last_error = exc
@@ -1166,7 +1163,6 @@ def install_runtime_patches(app):
                         continue
 
                     raise
-
             time.sleep(min(2.0 * (attempt + 1), 8.0))
 
         if last_error is not None:
@@ -1546,6 +1542,7 @@ def install_runtime_patches(app):
 def main() -> int:
     app = load_app_module()
     install_runtime_patches(app)
+    install_main_app_integrations(app)
     return app.main()
 
 
