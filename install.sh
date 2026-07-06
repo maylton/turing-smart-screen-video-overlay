@@ -185,29 +185,9 @@ if [[ "$SELF_INSTALL" -eq 0 ]]; then
   fi
 fi
 
-# The backend venv disables Python's automatic usercustomize import.  For test
-# branch UI hooks, explicitly load the installed usercustomize.py from the
-# already-imported sitecustomize.py.  This keeps the hook scoped to the installed
-# test build and avoids depending on Python user-site behavior.
-if [[ -f "$PREFIX/sitecustomize.py" ]] && [[ -f "$PREFIX/usercustomize.py" ]]; then
-  if ! grep -q 'Test-branch optional hooks' "$PREFIX/sitecustomize.py"; then
-    $SUDO tee -a "$PREFIX/sitecustomize.py" >/dev/null <<'PY'
-
-# Test-branch optional hooks.
-try:
-    import usercustomize
-except Exception as exc:  # pragma: no cover - defensive startup guard
-    import sys
-    print(
-        f"[usercustomize] could not load optional hooks: {exc}",
-        file=sys.stderr,
-        flush=True,
-    )
-PY
-  fi
-fi
-
 # Install the latest consolidated GTK interface from this installer bundle.
+# Main App integrations must now live in source modules, not installer-time
+# text patches or usercustomize injection.
 if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
   copy_if_different "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
 elif [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
@@ -215,48 +195,6 @@ elif [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
 else
   echo "configure-gtk.py was not found." >&2
   exit 1
-fi
-
-# The runtime launcher replaces Settings after loading configure_gtk_app.py.
-# Patch the installed test launcher directly so Diagnostics opens inline inside
-# the native GTK app instead of launching a separate diagnostics window.
-if [[ -f "$PREFIX/configure-gtk.py" ]]; then
-  $SUDO /usr/bin/python3 - "$PREFIX/configure-gtk.py" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-changed = False
-
-post_runtime_marker = "install_main_app_diagnostics_integration(app)"
-if post_runtime_marker not in text and "library/main_app_diagnostics_integration.py" in text:
-    old = "    install_runtime_patches(app)\n    return app.main()\n"
-    new = """    install_runtime_patches(app)\n    try:\n        from library.main_app_diagnostics_integration import (\n            install_main_app_diagnostics_integration,\n        )\n\n        install_main_app_diagnostics_integration(app)\n    except Exception as exc:  # pragma: no cover - defensive startup guard\n        print(\n            f\"[diagnostics] could not install main app integration after runtime patches: {exc}\",\n            file=sys.stderr,\n            flush=True,\n        )\n    return app.main()\n"""
-    if old in text:
-        text = text.replace(old, new, 1)
-        changed = True
-
-inline_callback = """        def open_diagnostics_from_row(*_args):\n            try:\n                from library.main_app_inline_diagnostics import (\n                    build_inline_diagnostics_page,\n                )\n\n                page_name = \"diagnostics\"\n                page = getattr(self, \"_inline_diagnostics_page\", None)\n                if page is None:\n                    page = build_inline_diagnostics_page(app, self)\n                    self._inline_diagnostics_page = page\n                    self.stack.add_named(page, page_name)\n                elif hasattr(page, \"refresh_diagnostics\"):\n                    page.refresh_diagnostics()\n                self.stack.set_visible_child_name(page_name)\n            except Exception as exc:\n                self.toast(f\"Could not open diagnostics: {exc}\")\n\n"""
-
-if "title=\"Diagnostics\"" not in text:
-    old = """        maintenance.add(checkup_row)\n        box.append(maintenance)\n        return scrolled\n"""
-    new = """        maintenance.add(checkup_row)\n\n        diagnostics_row = app.Adw.ActionRow(\n            title=\"Diagnostics\",\n            subtitle=(\n                \"Inspect theme, video, runtime, and USB state without \"\n                \"opening the serial port\"\n            ),\n            icon_name=\"utilities-system-monitor-symbolic\",\n            activatable=True,\n        )\n\n""" + inline_callback + """        diagnostics_row.connect(\"activated\", open_diagnostics_from_row)\n        diagnostics_row.add_suffix(\n            app.Gtk.Image.new_from_icon_name(\"go-next-symbolic\")\n        )\n        maintenance.add(diagnostics_row)\n        box.append(maintenance)\n        return scrolled\n"""
-    if old not in text:
-        raise SystemExit("Could not patch configure-gtk.py Settings diagnostics row")
-    text = text.replace(old, new, 1)
-    changed = True
-else:
-    marker = '        diagnostics_row.connect("activated", open_diagnostics_from_row)\n'
-    start = text.find("        def open_diagnostics_from_row(*_args):\n")
-    end = text.find(marker, start)
-    if start != -1 and end != -1 and "build_inline_diagnostics_page" not in text[start:end]:
-        text = text[:start] + inline_callback + text[end:]
-        changed = True
-
-if changed:
-    path.write_text(text, encoding="utf-8")
-PY
 fi
 
 if [[ -f "$SOURCE_DIR/main-final.py" ]]; then
@@ -351,12 +289,15 @@ PYTHON_ENTRYPOINTS=(
   gtk-checkup.py
   diagnostics.py
   diagnostics-gtk.py
-  usercustomize.py
+  sitecustomize.py
+  library/log.py
   library/runtime.py
   library/video_media.py
   library/media_preparation.py
   library/media_profiles.py
   library/display_detection.py
+  library/main_app_apply_status.py
+  library/main_app_overview_refresh.py
   library/main_app_diagnostics_integration.py
   library/main_app_inline_diagnostics.py
   tools/turzx_extract_assets.py
@@ -445,15 +386,9 @@ if command -v update-desktop-database >/dev/null 2>&1; then
 fi
 
 if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
-  if [[ "$MODE" == "system" ]]; then
-    AUTOSTART_DIR="$HOME/.config/autostart"
-    mkdir -p "$AUTOSTART_DIR"
-    cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
-  else
-    AUTOSTART_DIR="$HOME/.config/autostart"
-    mkdir -p "$AUTOSTART_DIR"
-    cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
-  fi
+  AUTOSTART_DIR="$HOME/.config/autostart"
+  mkdir -p "$AUTOSTART_DIR"
+  cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
 fi
 
 echo
