@@ -8,6 +8,27 @@ from typing import Any, Callable, Iterable
 
 
 def _iter_widget_children(widget: Any) -> Iterable[Any]:
+    """Yield logical and widget-tree children without assuming one GTK container API.
+
+    The Settings page is returned as a Gtk.ScrolledWindow containing an Adw.Clamp,
+    which contains the actual Gtk.Box with PreferencesGroups.  Some of these
+    widgets expose their logical child through ``get_child`` rather than only
+    through the low-level sibling traversal.  Walking both APIs makes the
+    Diagnostics row insertion reliable without modifying configure-gtk.py.
+    """
+
+    seen: set[int] = set()
+
+    getter = getattr(widget, "get_child", None)
+    if callable(getter):
+        try:
+            child = getter()
+        except Exception:
+            child = None
+        if child is not None:
+            seen.add(id(child))
+            yield child
+
     child = None
     if hasattr(widget, "get_first_child"):
         try:
@@ -15,7 +36,9 @@ def _iter_widget_children(widget: Any) -> Iterable[Any]:
         except Exception:
             child = None
     while child is not None:
-        yield child
+        if id(child) not in seen:
+            seen.add(id(child))
+            yield child
         try:
             child = child.get_next_sibling()
         except Exception:
