@@ -3,6 +3,8 @@
 Themes can display current weather through `STATS / WEATHER` text components.
 The GTK theme editor can create this structure from **Theme elements → Add → Information — Weather**.
 
+Weather is a compound element. Adding it creates all editable weather sections hidden by default so the preview does not become cluttered. Enable only the fields you want, or apply a Weather preset to turn on a complete layout.
+
 ## Provider
 
 Weather now defaults to Open-Meteo, which works with latitude and longitude and does not require an API key for the normal app use case.
@@ -37,9 +39,9 @@ Type a city or place name, then choose **Use city**. The editor searches Open-Me
 
 The weather cache is cleared after changing location so the next runtime fetch uses the new coordinates.
 
-## Theme structure
+## Hidden-first creation
 
-A weather-enabled theme uses this structure:
+When Weather is added from the Theme elements catalog, the editor creates the complete structure but keeps each `TEXT` node hidden:
 
 ```yaml
 STATS:
@@ -47,22 +49,22 @@ STATS:
     INTERVAL: 600
     TEMPERATURE:
       TEXT:
-        SHOW: true
+        SHOW: false
     TEMPERATURE_FELT:
       TEXT:
         SHOW: false
     WEATHER_DESCRIPTION:
       TEXT:
-        SHOW: true
+        SHOW: false
     HUMIDITY:
       TEXT:
-        SHOW: true
+        SHOW: false
     UPDATE_TIME:
       TEXT:
-        SHOW: true
+        SHOW: false
 ```
 
-The renderer fetches weather only when at least one of these `TEXT` nodes has `SHOW: true`.
+This follows the editor rule for compound elements: create the editable structure first, then let the user enable only the pieces needed for that theme.
 
 ## Editor presets
 
@@ -73,7 +75,7 @@ After adding Weather, select `STATS / WEATHER` in the tree. The Properties panel
 - Centered glass weather card
 - Minimal warm corner
 
-These presets replace the `STATS / WEATHER` layout only. They do not change other CPU, GPU, RAM, image, or video elements.
+Applying a preset intentionally enables and positions a complete weather layout. These presets replace the `STATS / WEATHER` layout only. They do not change other CPU, GPU, RAM, image, or video elements.
 
 ## Runtime behavior
 
