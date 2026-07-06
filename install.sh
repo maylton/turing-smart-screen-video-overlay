@@ -293,6 +293,7 @@ PYTHON_ENTRYPOINTS=(
   library/media_preparation.py
   library/media_profiles.py
   library/display_detection.py
+  library/main_app_ui_integration.py
   library/main_app_dashboard_polish.py
   library/main_app_apply_status.py
   library/main_app_overview_refresh.py
