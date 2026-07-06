@@ -13,6 +13,8 @@ The patch surfaces clearer messages while the app performs the existing operatio
 - preserving single-video display storage behavior;
 - starting the monitor again.
 
+It also keeps the existing Overview status cards fresh automatically, so the Monitor card should no longer require clicking Refresh to show the current state.
+
 It does not change the runtime/video behavior itself.
 
 ## Expected visible messages
@@ -34,6 +36,17 @@ Error paths should be clearer too, for example:
 - `Could not stop monitor`
 - `Monitor did not stay running`
 
+## Overview auto-refresh expectation
+
+The Overview already has Theme, Monitor, and Display cards. This patch adds a lightweight timer that refreshes the existing Overview status while Overview is visible.
+
+Expected behavior:
+
+- start the monitor and wait up to a few seconds;
+- the Monitor card should update without clicking Refresh;
+- stop the monitor and wait up to a few seconds;
+- the Monitor card should update back without clicking Refresh.
+
 ## Local validation
 
 ```bash
@@ -42,6 +55,7 @@ python3 -m py_compile \
   diagnostics-gtk.py \
   usercustomize.py \
   library/main_app_apply_status.py \
+  library/main_app_overview_refresh.py \
   library/main_app_inline_diagnostics.py \
   library/main_app_diagnostics_integration.py
 
@@ -56,11 +70,12 @@ pkill -KILL -f 'turing-smart-screen-main.py|configure-gtk.py|configure_gtk_app.p
 
 1. Open the native app.
 2. Confirm the existing Overview cards still show Theme, Monitor, and Display.
-3. Pick/set a theme from the Theme Gallery using the flow that applies the theme, syncs video, and starts the monitor.
-4. Watch the monitor/status area and toast messages during the operation.
-5. Confirm that Settings → Maintenance → Diagnostics still opens inline.
-6. Confirm that Start Monitor and Stop Monitor still work normally.
+3. Start and stop the monitor from Overview and confirm the Monitor card updates automatically.
+4. Pick/set a theme from the Theme Gallery using the flow that applies the theme, syncs video, and starts the monitor.
+5. Watch the monitor/status area and toast messages during the operation.
+6. Confirm that Settings → Maintenance → Diagnostics still opens inline.
+7. Confirm that Start Monitor and Stop Monitor still work normally.
 
 ## Safety
 
-The message hook only wraps UI status updates around existing methods. It does not open serial ports, send commands, upload files, start/stop processes, or change lock behavior by itself.
+The message hook only wraps UI status updates around existing methods. The Overview refresh hook only calls the app's existing Overview refresh while the Overview page is visible. Neither hook opens serial ports, sends commands, uploads files, starts/stops processes, or changes lock behavior by itself.
