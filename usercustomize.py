@@ -24,7 +24,7 @@ def _should_patch_main_app() -> bool:
     return _entry_point_name() == "configure-gtk.py"
 
 
-def _install_apply_status_after_runtime_patches() -> None:
+def _install_main_app_runtime_ui_hooks(app) -> None:
     try:
         from library.main_app_apply_status import install_main_app_apply_status
     except Exception as exc:  # pragma: no cover - defensive startup guard
@@ -33,19 +33,7 @@ def _install_apply_status_after_runtime_patches() -> None:
             file=sys.stderr,
             flush=True,
         )
-        return
-
-    main_module = sys.modules.get("__main__")
-    runtime_patches = getattr(main_module, "install_runtime_patches", None)
-    if runtime_patches is None or getattr(
-        runtime_patches,
-        "_apply_status_post_runtime_wrapper",
-        False,
-    ):
-        return
-
-    def install_runtime_patches_with_apply_status(app, *args, **kwargs):
-        result = runtime_patches(app, *args, **kwargs)
+    else:
         try:
             install_main_app_apply_status(app)
         except Exception as exc:  # pragma: no cover - defensive startup guard
@@ -54,10 +42,45 @@ def _install_apply_status_after_runtime_patches() -> None:
                 file=sys.stderr,
                 flush=True,
             )
+
+    try:
+        from library.main_app_overview_refresh import (
+            install_main_app_overview_auto_refresh,
+        )
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[overview-refresh] could not import main app integration: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+    else:
+        try:
+            install_main_app_overview_auto_refresh(app)
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            print(
+                f"[overview-refresh] could not install after runtime patches: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+
+def _install_runtime_ui_hooks_after_runtime_patches() -> None:
+    main_module = sys.modules.get("__main__")
+    runtime_patches = getattr(main_module, "install_runtime_patches", None)
+    if runtime_patches is None or getattr(
+        runtime_patches,
+        "_runtime_ui_hooks_post_runtime_wrapper",
+        False,
+    ):
+        return
+
+    def install_runtime_patches_with_ui_hooks(app, *args, **kwargs):
+        result = runtime_patches(app, *args, **kwargs)
+        _install_main_app_runtime_ui_hooks(app)
         return result
 
-    install_runtime_patches_with_apply_status._apply_status_post_runtime_wrapper = True
-    main_module.install_runtime_patches = install_runtime_patches_with_apply_status
+    install_runtime_patches_with_ui_hooks._runtime_ui_hooks_post_runtime_wrapper = True
+    main_module.install_runtime_patches = install_runtime_patches_with_ui_hooks
 
 
 def _install_diagnostics_import_hook() -> None:
@@ -98,7 +121,7 @@ def _install_diagnostics_import_hook() -> None:
                     flush=True,
                 )
 
-            _install_apply_status_after_runtime_patches()
+            _install_runtime_ui_hooks_after_runtime_patches()
 
         loader.exec_module = exec_module
         return spec
