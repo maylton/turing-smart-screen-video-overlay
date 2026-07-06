@@ -114,19 +114,59 @@ def _is_preview_selectable(node: dict[str, Any]) -> bool:
     return True
 
 
+def _path_is_image(path: tuple[Any, ...], node: dict[str, Any]) -> bool:
+    if path and path[0] == "static_images":
+        return True
+    if "PATH" in node and "FONT" not in node:
+        return True
+    if "BACKGROUND_IMAGE" in node and "FONT" not in node and "TEXT" not in node:
+        return True
+    return False
+
+
+def _path_is_text_overlay(path: tuple[Any, ...], node: dict[str, Any]) -> bool:
+    if path and path[0] == "static_text":
+        return True
+    if "FONT" in node or "TEXT" in node or "FORMAT" in node:
+        return True
+    return False
+
+
+def _hit_test_priority(
+    path: tuple[Any, ...],
+    node: dict[str, Any],
+    area: float,
+    index: int,
+) -> tuple[int, float, int, int]:
+    """Sort candidates so overlays win over full-screen image backgrounds."""
+
+    if _path_is_text_overlay(path, node):
+        kind_priority = 0
+    elif _path_is_image(path, node):
+        kind_priority = 2
+    else:
+        kind_priority = 1
+
+    # Smaller boxes are more likely to be intentional click targets. Full-screen
+    # images still remain selectable when no overlay hits that point, but they
+    # no longer steal drag selection from text/metric overlays.
+    return (kind_priority, area, -len(path), -index)
+
+
 def _hit_test_preview(editor: Any, preview_x: float, preview_y: float) -> tuple[Any, ...] | None:
     point = _preview_point_to_display(editor, preview_x, preview_y)
     if point is None:
         return None
     display_x, display_y = point
 
-    candidates: list[tuple[float, int, int, tuple[Any, ...]]] = []
+    candidates: list[tuple[tuple[int, float, int, int], tuple[Any, ...]]] = []
     try:
         nodes = list(editor.iter_editable_nodes())
     except Exception:
         return None
 
     for index, (path, node) in enumerate(nodes):
+        path = tuple(path)
         if not _is_preview_selectable(node):
             continue
         bounds = _node_bounds(node)
@@ -134,15 +174,13 @@ def _hit_test_preview(editor: Any, preview_x: float, preview_y: float) -> tuple[
             continue
         left, top, width, height = bounds
         if left <= display_x <= left + width and top <= display_y <= top + height:
-            # Prefer smaller boxes, deeper paths, and later nodes because those
-            # usually represent the item visually on top.
             area = width * height
-            candidates.append((area, -len(tuple(path)), -index, tuple(path)))
+            candidates.append((_hit_test_priority(path, node, area, index), path))
 
     if not candidates:
         return None
-    candidates.sort()
-    return candidates[0][3]
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
 
 
 def _select_path_from_preview(editor: Any, path: tuple[Any, ...]) -> None:
