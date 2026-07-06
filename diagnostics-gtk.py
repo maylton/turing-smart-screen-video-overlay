@@ -13,7 +13,8 @@ try:
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
     gi.require_version("Gdk", "4.0")
-    from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+    gi.require_version("Pango", "1.0")
+    from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 except Exception as exc:  # pragma: no cover - startup guard
     print(
         "GTK4/Libadwaita could not be imported.\n"
@@ -38,10 +39,10 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         super().__init__(
             application=app,
             title="Turing Smart Screen Diagnostics",
-            default_width=1050,
-            default_height=760,
+            default_width=1080,
+            default_height=820,
         )
-        self.set_size_request(820, 560)
+        self.set_size_request(860, 620)
         self.latest_text = ""
 
         self.toast_overlay = Adw.ToastOverlay()
@@ -76,7 +77,7 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         scrolled = Gtk.ScrolledWindow()
         toolbar.set_content(scrolled)
 
-        clamp = Adw.Clamp(maximum_size=1020, tightening_threshold=760)
+        clamp = Adw.Clamp(maximum_size=1040, tightening_threshold=760)
         scrolled.set_child(clamp)
 
         content = Gtk.Box(
@@ -87,6 +88,7 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
             margin_start=28,
             margin_end=28,
         )
+        content.set_vexpand(True)
         clamp.set_child(content)
 
         intro = Gtk.Label(
@@ -100,7 +102,9 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         intro.add_css_class("dim-label")
         content.append(intro)
 
-        self.summary_grid = Gtk.Grid(column_spacing=12, row_spacing=12)
+        self.summary_grid = Gtk.Grid(column_spacing=16, row_spacing=16)
+        self.summary_grid.set_column_homogeneous(True)
+        self.summary_grid.set_row_homogeneous(True)
         self.summary_grid.set_hexpand(True)
         content.append(self.summary_grid)
 
@@ -118,14 +122,17 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
             title="Full report",
             description="Copy this report when filing bugs or comparing display states.",
         )
+        report_group.set_vexpand(True)
         content.append(report_group)
 
         report_frame = Gtk.Frame()
         report_frame.add_css_class("card")
+        report_frame.set_vexpand(True)
         report_group.add(report_frame)
 
         report_scroll = Gtk.ScrolledWindow()
-        report_scroll.set_min_content_height(310)
+        report_scroll.set_min_content_height(360)
+        report_scroll.set_vexpand(True)
         report_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         report_frame.set_child(report_scroll)
 
@@ -134,24 +141,35 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         self.report_view.set_cursor_visible(False)
         self.report_view.set_monospace(True)
         self.report_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.report_view.set_top_margin(12)
+        self.report_view.set_bottom_margin(12)
+        self.report_view.set_left_margin(12)
+        self.report_view.set_right_margin(12)
         report_scroll.set_child(self.report_view)
 
         GLib.idle_add(self.refresh_diagnostics)
 
     def _summary_card(self, title: str, icon_name: str) -> dict[str, Gtk.Widget]:
-        card = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=10,
-            margin_top=16,
-            margin_bottom=16,
-            margin_start=16,
-            margin_end=16,
-        )
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         card.add_css_class("card")
         card.set_hexpand(True)
-        card.set_size_request(-1, 132)
+        card.set_vexpand(True)
+        card.set_size_request(-1, 150)
+
+        inner = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin_top=18,
+            margin_bottom=18,
+            margin_start=20,
+            margin_end=20,
+        )
+        inner.set_hexpand(True)
+        inner.set_vexpand(True)
+        card.append(inner)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.set_hexpand(True)
         icon = Gtk.Image.new_from_icon_name(icon_name)
         header.append(icon)
 
@@ -160,16 +178,20 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         title_label.add_css_class("dim-label")
         title_label.set_hexpand(True)
         header.append(title_label)
-        card.append(header)
+        inner.append(header)
 
         value = Gtk.Label(label="—", xalign=0, wrap=True)
         value.add_css_class("title-3")
-        card.append(value)
+        value.set_ellipsize(Pango.EllipsizeMode.END)
+        value.set_lines(1)
+        inner.append(value)
 
         detail = Gtk.Label(label="", xalign=0, wrap=True)
         detail.add_css_class("caption")
         detail.add_css_class("dim-label")
-        card.append(detail)
+        detail.set_ellipsize(Pango.EllipsizeMode.END)
+        detail.set_lines(2)
+        inner.append(detail)
 
         return {"card": card, "value": value, "detail": detail}
 
