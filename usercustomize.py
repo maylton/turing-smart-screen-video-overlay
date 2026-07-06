@@ -60,6 +60,54 @@ def _install_theme_editor_patches() -> None:
         )
 
 
+def _ensure_dashboard_polish(app_module) -> None:
+    """Install the final app shell polish even when sitecustomize was skipped.
+
+    ``sitecustomize`` is still the canonical loader, but this branch adds
+    Diagnostics through ``usercustomize`` while the PR is being validated.  Run
+    the same dashboard installer here as a safety net so the app does not fall
+    back to the older Overview/Settings/Themes surfaces during local tests.
+    """
+
+    try:
+        from library.main_app_dashboard_polish import install_main_app_dashboard_polish
+
+        install_main_app_dashboard_polish(app_module)
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[main-app-shell] could not install dashboard polish: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _ensure_theme_gallery_polish() -> None:
+    """Keep the optimized/adaptive Theme Gallery card surface active."""
+
+    try:
+        from library import theme_gallery as gallery
+
+        current_card = getattr(gallery.ThemeGalleryPane, "theme_card", None)
+        if getattr(current_card, "__name__", "") == "adaptive_theme_card":
+            return
+
+        import sitecustomize as startup_hooks
+
+        compact = getattr(startup_hooks, "_install_theme_gallery_card_polish", None)
+        adaptive = getattr(startup_hooks, "_install_adaptive_theme_gallery_cards", None)
+
+        if callable(compact):
+            compact()
+        if callable(adaptive):
+            adaptive()
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[theme-gallery] could not ensure optimized cards: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def _wrap_runtime_patches_for_diagnostics() -> None:
     main_module = sys.modules.get("__main__")
     runtime_patches = getattr(main_module, "install_runtime_patches", None)
@@ -111,6 +159,8 @@ def _install_main_app_diagnostics_hook() -> None:
 
         def exec_module(module) -> None:
             original_exec_module(module)
+            _ensure_dashboard_polish(module)
+            _ensure_theme_gallery_polish()
             _wrap_runtime_patches_for_diagnostics()
 
         loader.exec_module = exec_module
