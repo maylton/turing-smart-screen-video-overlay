@@ -597,22 +597,7 @@ def install_runtime_patches(app):
             if local is None or not Path(local).is_file():
                 raise FileNotFoundError(f"Theme video file was not found: {local}")
 
-            if display_has_video_for_theme_apply(self, video):
-                message = f"Video already exists on display: {video['filename']}"
-            else:
-                args = [
-                    "upload",
-                    str(local),
-                    "--remote",
-                    str(video["remote"]),
-                    "--skip-probe",
-                ]
-                if video.get("internal"):
-                    args.append("--internal")
-
-                payload = run_video_manager_json_for_theme_apply(self, args)
-                data = payload.get("data") or {}
-                message = data.get("message") or f"Uploaded {video['filename']}"
+            message = sync_theme_video_via_backend_for_theme_apply(self, video)
 
         except Exception as exc:
             error = str(exc)
@@ -703,9 +688,52 @@ def install_runtime_patches(app):
             return False
         return True
 
-    def wait_for_serial_device_for_theme_apply(timeout: float = 15.0) -> list[Path]:
-        """Wait for the screen serial device to reappear after USB re-enumerates."""
+    def list_screen_serial_devices_for_theme_apply() -> list[Path]:
+        """Return ttyACM devices that look like the real display, not UsbMonitor."""
+        try:
+            result = subprocess.run(
+                [
+                    app.project_python(),
+                    "-c",
+                    (
+                        "import json\n"
+                        "from serial.tools import list_ports\n"
+                        "print(json.dumps([p._asdict() for p in list_ports.comports()]))\n"
+                    ),
+                ],
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                ports = json.loads(result.stdout)
+                devices = []
+                for port in ports:
+                    device = str(port.get("device") or "")
+                    haystack = " ".join(
+                        str(port.get(key) or "")
+                        for key in ("description", "manufacturer", "product", "interface")
+                    ).casefold()
+                    if not device.startswith("/dev/ttyACM"):
+                        continue
+                    if "usbmonitor" in haystack:
+                        continue
+                    if Path(device).exists():
+                        devices.append(Path(device))
+                if devices:
+                    return sorted(devices)
+        except Exception:
+            pass
+
+        # Fallback only when pyserial metadata is unavailable.
+        return sorted(Path("/dev").glob("ttyACM*"))
+
+    def wait_for_serial_device_for_theme_apply(timeout: float = 30.0) -> list[Path]:
+        """Wait until the real display serial port is visible and stable."""
         deadline = time.monotonic() + timeout
+        stable_key = None
+        stable_count = 0
 
         try:
             subprocess.run(
@@ -718,12 +746,25 @@ def install_runtime_patches(app):
             pass
 
         while time.monotonic() < deadline:
-            devices = sorted(Path("/dev").glob("ttyACM*"))
-            if devices:
-                return devices
-            time.sleep(0.35)
+            devices = list_screen_serial_devices_for_theme_apply()
+            key = tuple(str(device) for device in devices)
 
-        return sorted(Path("/dev").glob("ttyACM*"))
+            if devices and key == stable_key:
+                stable_count += 1
+            else:
+                stable_key = key
+                stable_count = 1 if devices else 0
+
+            if devices and stable_count >= 4:
+                time.sleep(1.2)
+                return devices
+
+            time.sleep(0.4)
+
+        devices = list_screen_serial_devices_for_theme_apply()
+        if devices:
+            time.sleep(1.2)
+        return devices
 
     def force_release_monitor_for_theme_apply(self, timeout: float = 18.0) -> None:
         """Stop any running main.py before video sync.
@@ -809,6 +850,8 @@ def install_runtime_patches(app):
             "failed to read serial data",
             "failed to send serial data",
             "cannot open com port",
+            "cannot find com port automatically",
+            "select com port manually",
             "could not open port",
             "arquivo ou diretório inexistente",
             "no such file or directory",
@@ -899,8 +942,13 @@ def install_runtime_patches(app):
 
         last_error: Exception | None = None
 
-        for attempt in range(3):
+        for attempt in range(5):
             force_release_monitor_for_theme_apply(self, timeout=18.0)
+            wait_for_serial_device_for_theme_apply(timeout=20.0)
+
+            if attempt:
+                time.sleep(min(1.5 * attempt, 5.0))
+                wait_for_serial_device_for_theme_apply(timeout=20.0)
 
             try:
                 backend = load_video_manager_backend_for_theme_apply()
@@ -950,13 +998,9 @@ def install_runtime_patches(app):
                     encoding="utf-8",
                 )
 
-                message = str(exc).lower()
-                if (
-                    "already in use" in message
-                    or "devicebusyerror" in message
-                    or "display is already in use" in message
-                ):
-                    time.sleep(0.8)
+                message = str(exc).casefold()
+                if theme_apply_video_error_is_retryable(message):
+                    time.sleep(min(1.5 * (attempt + 1), 6.0))
                     continue
 
                 raise
@@ -1008,33 +1052,7 @@ def install_runtime_patches(app):
                 if local is None or not Path(local).is_file():
                     raise FileNotFoundError(f"Theme video file was not found: {local}")
 
-                if display_has_video_for_theme_apply(self, video):
-                    message = f"Video already exists on display: {video['filename']}"
-                else:
-                    args = [
-                        "upload",
-                        str(local),
-                        "--remote",
-                        str(video["remote"]),
-                        "--skip-probe",
-                    ]
-                    if video.get("internal"):
-                        args.append("--internal")
-
-                    try:
-                        payload = run_video_manager_json_for_theme_apply(self, args)
-                        data = payload.get("data") or {}
-                        message = data.get("message") or f"Uploaded {video['filename']}"
-                    except Exception as exc:
-                        lowered = str(exc).casefold()
-                        if (
-                            "already exists" in lowered
-                            or "já existe um arquivo remoto" in lowered
-                            or "existe um arquivo remoto" in lowered
-                        ):
-                            message = f"Video already exists on display: {video['filename']}"
-                        else:
-                            raise
+                message = sync_theme_video_via_backend_for_theme_apply(self, video)
 
         except Exception as exc:
             error = str(exc)
