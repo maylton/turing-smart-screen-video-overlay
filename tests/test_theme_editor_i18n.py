@@ -152,7 +152,7 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         self.assertIn("_translate_dialog_title(self)", source)
         self.assertIn("translate_widget_tree(self)", source)
 
-    def test_theme_editor_uses_safe_widget_i18n_patch_at_startup(self):
+    def test_theme_editor_widget_monkeypatch_is_disabled(self):
         source = Path("library/theme_editor_widget_i18n.py").read_text(encoding="utf-8")
         startup_source = Path("usercustomize.py").read_text(encoding="utf-8")
         background_source = Path("library/theme_video_background.py").read_text(
@@ -162,16 +162,11 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("def install()", source)
-        self.assertIn("_patch_init(cls)", source)
-        self.assertIn("_patch_text_method(cls, method_name)", source)
-        self.assertIn("_patch_dialog_response", source)
-        self.assertIn("_patch_string_list(Gtk)", source)
-        self.assertIn("def _patch_dropdown_new_from_strings", source)
-        self.assertIn('getattr(Gtk, "DropDown", None)', source)
-        self.assertIn("new_from_strings_with_i18n", source)
-        self.assertIn("original_append", source)
-        self.assertIn("original_splice", source)
-        self.assertIn("library.theme_editor_preset_i18n", source)
+        self.assertIn("side-effect free", source)
+        self.assertNotIn("_patch_init", source)
+        self.assertNotIn("_patch_text_method", source)
+        self.assertNotIn("_patch_dropdown_new_from_strings", source)
+        self.assertNotIn("_patch_string_list", source)
         self.assertIn("install_theme_editor_widget_i18n()", startup_source)
         self.assertNotIn("install_theme_editor_i18n_class_hook", startup_source)
         self.assertNotIn("install_theme_editor_i18n_class_hook", background_source)
