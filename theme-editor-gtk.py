@@ -3251,6 +3251,207 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             parts.append(f"crop {width}×{height} at {x},{y}")
         return " · ".join(parts)
 
+    def selected_supports_gradient_effect(self, node):
+        if not isinstance(node, dict):
+            return False
+        return is_text_style_node(node) or self.is_graph_bar_node(self.selected_path, node)
+
+    def gradient_effect_summary(self, node):
+        effects = node.get("EFFECTS") if isinstance(node, dict) else {}
+        if not isinstance(effects, dict):
+            return "No gradient configured"
+
+        gradient = effects.get("GRADIENT", {})
+        if not isinstance(gradient, dict) or not gradient:
+            return "Add and customize a fill gradient"
+
+        enabled = bool(gradient.get("ENABLED", False))
+        start = self.value_to_text(gradient.get("START_COLOR", []))
+        end = self.value_to_text(gradient.get("END_COLOR", []))
+        direction = str(gradient.get("DIRECTION", "auto") or "auto")
+
+        state = "Enabled" if enabled else "Disabled"
+        if start or end:
+            return f"{state} · {start} → {end} · {direction}"
+        return f"{state} · {direction}"
+
+    def create_gradient_effect_row(self, node):
+        if not self.selected_supports_gradient_effect(node):
+            return None
+
+        row = Adw.ActionRow(
+            title="Gradient effect",
+            subtitle=self.gradient_effect_summary(node),
+        )
+        button = Gtk.Button(
+            label="Adjust…",
+            icon_name="color-select-symbolic",
+            valign=Gtk.Align.CENTER,
+        )
+        button.set_tooltip_text("Change gradient colors and direction")
+        button.connect("clicked", self.open_gradient_effect_editor)
+        row.add_suffix(button)
+        return row
+
+    def open_gradient_effect_editor(self, *_args):
+        if self.selected_path is None:
+            self.toast("Select a text or graph bar element first")
+            return
+
+        selected_path = tuple(self.selected_path)
+
+        try:
+            node = self.node_at_path(selected_path)
+        except Exception:
+            self.toast("Selected element is no longer available")
+            return
+
+        if not self.selected_supports_gradient_effect(node):
+            self.toast("This element does not support gradient effects")
+            return
+
+        effects = node.get("EFFECTS") if isinstance(node.get("EFFECTS"), dict) else {}
+        gradient = effects.get("GRADIENT") if isinstance(effects.get("GRADIENT"), dict) else {}
+
+        fallback_color = (
+            node.get("BAR_COLOR")
+            or node.get("FONT_COLOR")
+            or [255, 255, 255]
+        )
+
+        start_color = gradient.get("START_COLOR", fallback_color)
+        end_color = gradient.get("END_COLOR", fallback_color)
+        direction = str(gradient.get("DIRECTION", "auto") or "auto")
+
+        dialog = Adw.PreferencesDialog()
+        dialog.set_title("Gradient effect")
+        dialog.set_content_width(520)
+        dialog.set_content_height(360)
+
+        page = Adw.PreferencesPage(title="Gradient")
+        dialog.add(page)
+
+        group = Adw.PreferencesGroup(
+            title="Gradient fill",
+            description="Customize the gradient used by this text or graph bar.",
+        )
+        page.add(group)
+
+        enabled_row = Adw.SwitchRow(
+            title="Enabled",
+            subtitle="Render this element with a gradient fill.",
+        )
+        enabled_row.set_active(bool(gradient.get("ENABLED", True)))
+        group.add(enabled_row)
+
+        start_selector = self.create_color_selector(start_color)
+        start_row = Adw.ActionRow(
+            title="Start color",
+            subtitle=self.value_to_text(start_color),
+        )
+        start_row.add_suffix(start_selector)
+        group.add(start_row)
+
+        end_selector = self.create_color_selector(end_color)
+        end_row = Adw.ActionRow(
+            title="End color",
+            subtitle=self.value_to_text(end_color),
+        )
+        end_row.add_suffix(end_selector)
+        group.add(end_row)
+
+        direction_options = (
+            ("Auto", "auto"),
+            ("Horizontal", "horizontal"),
+            ("Vertical", "vertical"),
+            ("Right to left", "right-to-left"),
+            ("Bottom to top", "bottom-to-top"),
+        )
+        direction_labels = [label for label, _value in direction_options]
+        direction_values = [value for _label, value in direction_options]
+
+        direction_row = Adw.ComboRow(
+            title="Direction",
+            subtitle="Choose how the gradient flows.",
+            model=Gtk.StringList.new(direction_labels),
+        )
+        if direction in direction_values:
+            direction_row.set_selected(direction_values.index(direction))
+        else:
+            direction_row.set_selected(0)
+        group.add(direction_row)
+
+        apply_row = Adw.ActionRow(
+            title="Apply gradient",
+            subtitle="Save these gradient settings to the selected element.",
+        )
+        apply_button = Gtk.Button(
+            label="Apply",
+            valign=Gtk.Align.CENTER,
+        )
+        apply_button.add_css_class("suggested-action")
+        apply_row.add_suffix(apply_button)
+        group.add(apply_row)
+
+        def update_subtitles(*_args):
+            start_row.set_subtitle(
+                self.value_to_text(self.color_selector_value(start_selector))
+            )
+            end_row.set_subtitle(
+                self.value_to_text(self.color_selector_value(end_selector))
+            )
+
+        start_selector.connect("notify::rgba", update_subtitles)
+        end_selector.connect("notify::rgba", update_subtitles)
+
+        def apply_gradient(*_args):
+            try:
+                current = self.node_at_path(selected_path)
+            except Exception:
+                self.toast("Selected element is no longer available")
+                return
+
+            if not isinstance(current, dict):
+                return
+
+            old_effects = current.get("EFFECTS")
+            effects_data = copy.deepcopy(old_effects) if isinstance(old_effects, dict) else {}
+            old_gradient = effects_data.get("GRADIENT")
+            gradient_data = copy.deepcopy(old_gradient) if isinstance(old_gradient, dict) else {}
+
+            direction_index = direction_row.get_selected()
+            if direction_index < 0 or direction_index >= len(direction_values):
+                selected_direction = "auto"
+            else:
+                selected_direction = direction_values[direction_index]
+
+            gradient_data["ENABLED"] = bool(enabled_row.get_active())
+            gradient_data["START_COLOR"] = self.color_selector_value(start_selector)
+            gradient_data["END_COLOR"] = self.color_selector_value(end_selector)
+            gradient_data["DIRECTION"] = selected_direction
+            effects_data["GRADIENT"] = gradient_data
+
+            if current.get("EFFECTS") == effects_data:
+                self.toast("No gradient changes")
+                return
+
+            self.push_undo()
+            current["EFFECTS"] = effects_data
+
+            if not self.save_theme_data():
+                return
+
+            self.populate_elements()
+            self.selected_path = selected_path
+            GLib.idle_add(self.restore_tree_selection, selected_path)
+            self.build_property_rows()
+            self.refresh_preview()
+            self.toast("Gradient updated")
+            dialog.close()
+
+        apply_button.connect("clicked", apply_gradient)
+        dialog.present(self.dialog_parent())
+
     def build_property_rows(self):
         self.clear_property_group()
 
@@ -3306,6 +3507,11 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         if component_preset_row is not None:
             self.dynamic_group.add(component_preset_row)
             self.property_rows.append(component_preset_row)
+
+        gradient_effect_row = self.create_gradient_effect_row(node)
+        if gradient_effect_row is not None:
+            self.dynamic_group.add(gradient_effect_row)
+            self.property_rows.append(gradient_effect_row)
 
         def is_scalar_property_value(value):
             return not isinstance(value, dict) and not (
