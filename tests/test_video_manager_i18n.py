@@ -29,11 +29,12 @@ class VideoManagerI18nContractTests(unittest.TestCase):
     def test_video_manager_launcher_installs_i18n_after_backend_patch(self):
         source = Path("video-manager-gtk.py").read_text(encoding="utf-8")
         self.assertIn("def install_i18n(app)", source)
-        self.assertIn("install_structured_backend(app)", source)
-        self.assertIn("install_i18n(app)", source)
+        main_source = source[source.index("def main()") :]
+        self.assertIn("install_structured_backend(app)", main_source)
+        self.assertIn("install_i18n(app)", main_source)
         self.assertLess(
-            source.index("install_structured_backend(app)"),
-            source.index("install_i18n(app)"),
+            main_source.index("install_structured_backend(app)"),
+            main_source.index("install_i18n(app)"),
         )
 
 
