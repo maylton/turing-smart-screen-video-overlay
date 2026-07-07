@@ -53,6 +53,26 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         ):
             self.assertIn(key, source)
 
+    def test_theme_editor_preset_catalog_has_expected_translations(self):
+        source = Path("library/theme_editor_preset_i18n.py").read_text(encoding="utf-8")
+        for key in (
+            "Content",
+            "System",
+            "Custom text",
+            "Static image",
+            "CPU usage",
+            "CPU usage % bar + text",
+            "CPU temperature",
+            "RAM usage",
+            "GPU usage",
+            "GPU usage % bar + text",
+            "GPU temperature",
+            "GPU memory usage",
+            "Disk usage",
+        ):
+            self.assertIn(key, source)
+        self.assertIn('" — ".join(translated)', source)
+
     def test_theme_editor_i18n_translates_dynamic_summaries_and_catalog_choices(self):
         source = Path("library/theme_editor_i18n.py").read_text(encoding="utf-8")
         self.assertIn("def _translate_visibility_summary", source)
@@ -100,6 +120,10 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         self.assertIn("_patch_text_method(cls, method_name)", source)
         self.assertIn("_patch_dialog_response", source)
         self.assertIn("_patch_string_list(Gtk)", source)
+        self.assertIn("_patch_string_list(Gtk)", source)
+        self.assertIn("original_append", source)
+        self.assertIn("original_splice", source)
+        self.assertIn("library.theme_editor_preset_i18n", source)
         self.assertIn("install_theme_editor_widget_i18n()", startup_source)
         self.assertNotIn("install_theme_editor_i18n_class_hook", startup_source)
         self.assertNotIn("install_theme_editor_i18n_class_hook", background_source)
