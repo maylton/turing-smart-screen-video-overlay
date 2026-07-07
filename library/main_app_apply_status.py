@@ -96,9 +96,10 @@ def _update_known_status_widgets(window: Any, title: str, detail: str) -> None:
         if row is not None:
             _set_row_subtitle(row, subtitle)
 
-    # Polished dashboard builds use labels/cards. Keep this broad enough to work
-    # across the test branches, but scoped to monitor/apply/status-like names.
-    title_tokens = ("monitor", "runtime", "operation", "apply", "sync", "status")
+    # Polished dashboard builds use labels/cards. Scope operation messages to
+    # monitor/runtime/apply labels only; generic *_status_* names also include
+    # Theme and Display cards and must not be overwritten by operation text.
+    title_tokens = ("monitor", "runtime", "operation", "apply", "sync")
 
     for name, widget in vars(window).items():
         lowered = name.casefold()
