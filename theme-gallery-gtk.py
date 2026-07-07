@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 # GTK comes from the system Python on Arch/CachyOS, while the project
-# dependencies may live in the virtual environment.
+dependencies may live in the virtual environment.
 for site_dir in (
     ROOT / "venv" / "lib",
     ROOT / ".venv" / "lib",
@@ -25,7 +25,9 @@ for site_dir in (
             sys.path.insert(0, str(candidate))
 
 from library.theme_gallery import main
+from library.theme_gallery_i18n import install_theme_gallery_i18n
 
 
 if __name__ == "__main__":
+    install_theme_gallery_i18n()
     raise SystemExit(main(sys.argv))
