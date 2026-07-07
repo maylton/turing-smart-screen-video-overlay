@@ -28,6 +28,40 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         ):
             self.assertIn(key, source)
 
+    def test_theme_editor_i18n_has_tree_and_property_translation_keys(self):
+        source = Path("library/theme_editor_i18n.py").read_text(encoding="utf-8")
+        for key in (
+            "Available to add",
+            "Content",
+            "Custom text",
+            "Configuration",
+            "Video and background",
+            "System metrics",
+            "Percentage",
+            "Graph",
+            "Line graph",
+            "Frequency",
+            "Temperature",
+            "Fan speed",
+            "Weather",
+            "Active theme",
+            "Choose the target smart screen size.",
+            "DISPLAY_SIZE",
+            "DISPLAY_ORIENTATION",
+            "Landscape",
+            "Portrait",
+        ):
+            self.assertIn(key, source)
+
+    def test_theme_editor_i18n_translates_dynamic_summaries_and_catalog_choices(self):
+        source = Path("library/theme_editor_i18n.py").read_text(encoding="utf-8")
+        self.assertIn("def _translate_visibility_summary", source)
+        self.assertIn('r"(\\d+) visible · (\\d+) hidden"', source)
+        self.assertIn("def _translate_catalog_choice", source)
+        self.assertIn('" — "', source)
+        self.assertIn("_translate_theme_editor_dynamic", source)
+        self.assertIn("dynamic = _translate_theme_editor_dynamic(message)", source)
+
     def test_theme_editor_i18n_uses_class_creation_hook_but_startup_does_not_load_it(self):
         source = Path("library/theme_editor_i18n.py").read_text(encoding="utf-8")
         self.assertIn("def install_theme_editor_i18n_class_hook()", source)
