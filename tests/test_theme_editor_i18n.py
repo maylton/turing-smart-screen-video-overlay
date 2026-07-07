@@ -121,7 +121,7 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         self.assertIn("_patch_dialog_response", source)
         self.assertIn("_patch_string_list(Gtk)", source)
         self.assertIn("def _patch_dropdown_new_from_strings", source)
-        self.assertIn("Gtk.DropDown", source)
+        self.assertIn('getattr(Gtk, "DropDown", None)', source)
         self.assertIn("new_from_strings_with_i18n", source)
         self.assertIn("original_append", source)
         self.assertIn("original_splice", source)
