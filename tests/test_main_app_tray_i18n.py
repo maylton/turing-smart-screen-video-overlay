@@ -13,6 +13,14 @@ class MainAppTrayI18nContractTests(unittest.TestCase):
         )
         self.assertIn('tr("Theme: {theme}", theme=theme)', source)
 
+    def test_shell_i18n_wraps_main_window_lifecycle(self):
+        source = Path("library/main_app_i18n.py").read_text(encoding="utf-8")
+        self.assertIn("def install_main_app_shell_i18n(app)", source)
+        self.assertIn("translate_widget_tree(self)", source)
+        self.assertIn("window_class.__init__ = init_with_i18n", source)
+        self.assertIn("window_class.build_settings_page = build_settings_page_with_i18n", source)
+        self.assertIn("window_class.refresh_overview = refresh_overview_with_i18n", source)
+
     def test_tray_i18n_uses_stable_english_keys(self):
         source = Path("library/main_app_i18n.py").read_text(encoding="utf-8")
         for key in (
@@ -36,13 +44,13 @@ class MainAppTrayI18nContractTests(unittest.TestCase):
         self.assertIn("install_main_app_tray_i18n", source)
         self.assertIn("_install_tray_i18n_import_hook()", source)
 
-    def test_main_app_integrations_install_tray_i18n_directly(self):
+    def test_main_app_integrations_install_shell_i18n_directly(self):
         source = Path("library/main_app_diagnostics_integration.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('label="tray-i18n"', source)
+        self.assertIn('label="main-shell-i18n"', source)
         self.assertIn("library.main_app_i18n", source)
-        self.assertIn("install_main_app_tray_i18n", source)
+        self.assertIn("install_main_app_shell_i18n", source)
 
 
 if __name__ == "__main__":
