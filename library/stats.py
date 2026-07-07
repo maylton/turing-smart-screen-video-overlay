@@ -183,6 +183,7 @@ def display_themed_progress_bar(theme_data, value):
         orientation=theme_data.get("ORIENTATION", "auto"),
         bar_background_color=theme_data.get("BAR_BACKGROUND_COLOR", (0, 0, 0)),
         draw_bar_background=theme_data.get("DRAW_BAR_BACKGROUND", False),
+        effects=theme_data.get("EFFECTS", {}),
     )
 
 
