@@ -36,6 +36,14 @@ class MainAppTrayI18nContractTests(unittest.TestCase):
         self.assertIn("install_main_app_tray_i18n", source)
         self.assertIn("_install_tray_i18n_import_hook()", source)
 
+    def test_main_app_integrations_install_tray_i18n_directly(self):
+        source = Path("library/main_app_diagnostics_integration.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('label="tray-i18n"', source)
+        self.assertIn("library.main_app_i18n", source)
+        self.assertIn("install_main_app_tray_i18n", source)
+
 
 if __name__ == "__main__":
     unittest.main()
