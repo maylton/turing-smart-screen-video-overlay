@@ -58,6 +58,8 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         for key in (
             "Content",
             "System",
+            "Information",
+            "Network",
             "Custom text",
             "Static image",
             "CPU usage",
@@ -69,9 +71,34 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
             "GPU temperature",
             "GPU memory usage",
             "Disk usage",
+            "Internet download",
+            "Internet upload",
+            "System uptime",
         ):
             self.assertIn(key, source)
         self.assertIn('" — ".join(translated)', source)
+
+    def test_theme_editor_property_rows_have_expected_translations(self):
+        source = Path("library/theme_editor_preset_i18n.py").read_text(encoding="utf-8")
+        for key in (
+            "Radial gauge preset",
+            "Text component preset",
+            "Text style preset",
+            "Choose a preset…",
+            "No gradient configured",
+            "Apply a safe starter layout to this selected component.",
+            "Apply values to the current text fields.",
+            "BACKGROUND_IMAGE",
+            "PREVIEW_BACKGROUND",
+            "LOCAL_PATH",
+            "Current — ",
+            "Disabled",
+            "Top left",
+            "Choose an image from this theme folder.",
+        ):
+            self.assertIn(key, source)
+        self.assertIn("def _dynamic_pt", source)
+        self.assertIn('r"(\\d+) steps"', source)
 
     def test_theme_editor_i18n_translates_dynamic_summaries_and_catalog_choices(self):
         source = Path("library/theme_editor_i18n.py").read_text(encoding="utf-8")
