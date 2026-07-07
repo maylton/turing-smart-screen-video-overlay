@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 # GTK comes from the system Python on Arch/CachyOS, while the project
-dependencies may live in the virtual environment.
+# dependencies may live in the virtual environment.
 for site_dir in (
     ROOT / "venv" / "lib",
     ROOT / ".venv" / "lib",
