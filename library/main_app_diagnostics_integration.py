@@ -254,6 +254,16 @@ def _open_theme_editor_factory(app: Any):
     return open_theme_editor, open_theme_editor_record
 
 
+def _bind_existing_gallery_pane(window: Any) -> None:
+    opener = getattr(window, "open_theme_editor_record", None)
+    if not callable(opener):
+        return
+    for attr_name in ("theme_gallery", "gallery"):
+        pane = getattr(window, attr_name, None)
+        if pane is not None and hasattr(pane, "on_open_theme"):
+            pane.on_open_theme = opener
+
+
 def _install_theme_gallery_editor_route(window: Any) -> None:
     """Route Theme Gallery Edit actions to the inline editor in the main app."""
 
@@ -267,19 +277,39 @@ def _install_theme_gallery_editor_route(window: Any) -> None:
         original = getattr(gallery, "launch_theme_editor", None)
         gallery._main_app_original_launch_theme_editor = original
 
-    if not callable(original):
-        return
+    if callable(original):
+        def launch_theme_editor_inline(record, theme_editor=None):
+            opener = getattr(window, "open_theme_editor_record", None)
+            if callable(opener):
+                opener(record)
+                return None
+            if theme_editor is None:
+                return original(record)
+            return original(record, theme_editor)
 
-    def launch_theme_editor_inline(record, theme_editor=None):
-        opener = getattr(window, "open_theme_editor_record", None)
-        if callable(opener):
-            opener(record)
-            return None
-        if theme_editor is None:
-            return original(record)
-        return original(record, theme_editor)
+        gallery.launch_theme_editor = launch_theme_editor_inline
 
-    gallery.launch_theme_editor = launch_theme_editor_inline
+    pane_class = getattr(gallery, "ThemeGalleryPane", None)
+    if pane_class is not None and not getattr(
+        pane_class,
+        "_main_app_inline_editor_route_installed",
+        False,
+    ):
+        original_init = pane_class.__init__
+
+        def init_with_inline_editor_route(self, *args, **kwargs):
+            opener = getattr(window, "open_theme_editor_record", None)
+            if callable(opener):
+                if args:
+                    args = (opener, *args[1:])
+                else:
+                    kwargs["on_open_theme"] = opener
+            original_init(self, *args, **kwargs)
+
+        pane_class.__init__ = init_with_inline_editor_route
+        pane_class._main_app_inline_editor_route_installed = True
+
+    _bind_existing_gallery_pane(window)
 
 
 def _make_diagnostics_row(app: Any, window: Any) -> Any:
