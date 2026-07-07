@@ -9,13 +9,22 @@ from library.i18n import active_language
 
 
 _PT_BR = {
+    "Theme Gallery": "Galeria de temas",
+    "Browse compatible themes": "Navegue por temas compatíveis",
+    "Reload the theme list": "Recarregar lista de temas",
+    "Open Current": "Abrir atual",
+    "Open the current theme in the GTK Theme Editor": "Abrir o tema atual no Editor de Tema GTK",
+    "Theme list refreshed": "Lista de temas atualizada",
+    "No current theme": "Nenhum tema atual",
+    "config.yaml does not point to a compatible theme that exists in res/themes.": "O config.yaml não aponta para um tema compatível que exista em res/themes.",
+    "Could not open theme editor": "Não foi possível abrir o editor de tema",
     "Search compatible themes by name, path, or status": "Pesquisar temas compatíveis por nome, caminho ou status",
     "Import": "Importar",
     "Import a theme folder or .zip archive": "Importar uma pasta de tema ou arquivo .zip",
     "No compatible themes": "Nenhum tema compatível",
     "No matching compatible themes": "Nenhum tema compatível encontrado",
     "No compatible themes found": "Nenhum tema compatível encontrado",
-    "No compatible theme matches “{query}”.": "Nenhum tema compatível corresponde a “{query}”.",
+    "No compatible theme matches “{query}”.": "Nenhum tema compatível corresponde a “{query}”",
     "No installed theme declares DISPLAY_SIZE {size}\".": "Nenhum tema instalado declara DISPLAY_SIZE {size}\".",
     "Could not detect a display size, so no compatibility filter could be applied.": "Não foi possível detectar o tamanho da tela; nenhum filtro de compatibilidade foi aplicado.",
     "compatible theme": "tema compatível",
@@ -338,6 +347,69 @@ def _localize_report(report: str) -> str:
     return "\n".join(localized_lines)
 
 
+def _install_window_i18n(gallery: Any) -> None:
+    window_class = getattr(gallery, "ThemeGalleryWindow", None)
+    if window_class is None or getattr(window_class, "_theme_gallery_window_i18n_installed", False):
+        return
+
+    original_init = window_class.__init__
+    original_update_records_state = window_class.update_records_state
+    original_toast = getattr(window_class, "toast", None)
+    original_error_dialog = getattr(window_class, "error_dialog", None)
+
+    def update_records_state_i18n(self, records):
+        if not hasattr(self, "gallery"):
+            # ThemeGalleryPane emits the initial records callback while the
+            # standalone window is still assigning self.gallery. Ignore that
+            # early call; init_with_i18n below refreshes the state afterwards.
+            return None
+        result = original_update_records_state(self, records)
+        if active_language() == "pt_BR":
+            target = self.gallery.target_display_size
+            count = len(records)
+            if records and target:
+                noun = t("compatible theme") if count == 1 else t("compatible themes")
+                subtitle = f'{count} {noun} · {target}" {t("display")}'
+            elif records:
+                noun = t("compatible theme") if count == 1 else t("compatible themes")
+                subtitle = f"{count} {noun}"
+            elif target:
+                subtitle = f'{t("No compatible themes")} · {target}" {t("display")}'
+            else:
+                subtitle = t("No compatible themes found")
+            self.window_title.set_subtitle(subtitle)
+        return result
+
+    def init_with_i18n(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        translate_widget_tree(self)
+        try:
+            self.update_records_state(list(self.gallery.records))
+        except Exception:
+            pass
+
+    window_class.__init__ = init_with_i18n
+    window_class.update_records_state = update_records_state_i18n
+
+    if callable(original_toast):
+        def toast_i18n(self, message: str) -> None:
+            return original_toast(self, translate_dynamic(str(message)))
+
+        window_class.toast = toast_i18n
+
+    if callable(original_error_dialog):
+        def error_dialog_i18n(self, heading: str, body: str) -> None:
+            return original_error_dialog(
+                self,
+                translate_dynamic(str(heading)),
+                translate_dynamic(str(body)),
+            )
+
+        window_class.error_dialog = error_dialog_i18n
+
+    window_class._theme_gallery_window_i18n_installed = True
+
+
 def install_theme_gallery_i18n(app: Any | None = None) -> None:
     del app
     try:
@@ -346,6 +418,7 @@ def install_theme_gallery_i18n(app: Any | None = None) -> None:
         return
 
     _install_dialog_i18n(gallery)
+    _install_window_i18n(gallery)
 
     record_class = getattr(gallery, "ThemeRecord", None)
     if record_class is not None and not getattr(record_class, "_theme_gallery_i18n_installed", False):
