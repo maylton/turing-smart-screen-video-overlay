@@ -43,6 +43,16 @@ class MainAppInlineThemeEditorContractTests(unittest.TestCase):
         self.assertIn("opener = getattr(window, \"open_theme_editor_record\", None)", source)
         self.assertIn("_install_theme_gallery_editor_route(self)", source)
 
+    def test_theme_gallery_panes_bind_on_open_theme_to_inline_editor(self):
+        source = Path("library/main_app_diagnostics_integration.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("def _bind_existing_gallery_pane", source)
+        self.assertIn("pane.on_open_theme = opener", source)
+        self.assertIn("def init_with_inline_editor_route", source)
+        self.assertIn("kwargs[\"on_open_theme\"] = opener", source)
+        self.assertIn("pane_class.__init__ = init_with_inline_editor_route", source)
+
 
 if __name__ == "__main__":
     unittest.main()
