@@ -116,28 +116,6 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         ):
             self.assertIn(key, source)
 
-    def test_theme_editor_stacked_asset_rows_are_installed_inline(self):
-        source = Path("library/theme_editor_property_layout_i18n.py").read_text(
-            encoding="utf-8"
-        )
-        inline_source = Path("library/main_app_inline_theme_editor.py").read_text(
-            encoding="utf-8"
-        )
-        for key in (
-            "def install_theme_editor_property_layout_i18n",
-            "def _build_stacked_asset_choice_row",
-            "key in asset_keys",
-            "Gtk.Box(",
-            "row.append(title)",
-            "row.append(subtitle_label)",
-            "row.append(dropdown_box)",
-            "dropdown._theme_choice_values = tuple(values)",
-            "Video path",
-            "Choose a video from the theme folder or display storage.",
-        ):
-            self.assertIn(key, source)
-        self.assertIn("install_theme_editor_property_layout_i18n(module)", inline_source)
-
     def test_theme_editor_i18n_translates_dynamic_summaries_and_catalog_choices(self):
         source = Path("library/theme_editor_i18n.py").read_text(encoding="utf-8")
         self.assertIn("def _translate_visibility_summary", source)
@@ -180,6 +158,9 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         background_source = Path("library/theme_video_background.py").read_text(
             encoding="utf-8"
         )
+        inline_source = Path("library/main_app_inline_theme_editor.py").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("def install()", source)
         self.assertIn("_patch_init(cls)", source)
         self.assertIn("_patch_text_method(cls, method_name)", source)
@@ -194,6 +175,7 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         self.assertIn("install_theme_editor_widget_i18n()", startup_source)
         self.assertNotIn("install_theme_editor_i18n_class_hook", startup_source)
         self.assertNotIn("install_theme_editor_i18n_class_hook", background_source)
+        self.assertNotIn("theme_editor_property_layout_i18n", inline_source)
 
 
 if __name__ == "__main__":
