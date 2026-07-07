@@ -11,21 +11,6 @@ SD_VIDEO_DIR = "/mnt/SDCARD/video/"
 INTERNAL_VIDEO_DIR = "/root/video/"
 
 
-def _install_theme_editor_i18n_startup_hook() -> None:
-    """Install editor i18n before theme-editor-gtk.py defines its window."""
-
-    try:
-        from library.theme_editor_i18n import install_theme_editor_i18n_class_hook
-
-        install_theme_editor_i18n_class_hook()
-    except Exception:
-        # Keep this helper import-safe for tests and non-UI tools.
-        pass
-
-
-_install_theme_editor_i18n_startup_hook()
-
-
 def _theme_bool(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
