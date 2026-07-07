@@ -16,10 +16,6 @@ import os
 def _locale_candidates() -> list[str]:
     values: list[str] = []
 
-    override = os.environ.get("TURING_SMART_SCREEN_LANG")
-    if override:
-        values.append(override)
-
     for key in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
         value = os.environ.get(key)
         if value:
@@ -42,10 +38,20 @@ def _normalize_locale(value: str) -> str:
     return value
 
 
+def _language_for_locale(value: str) -> str:
+    normalized = _normalize_locale(value).lower()
+    if normalized.startswith("pt"):
+        return "pt_BR"
+    return "en"
+
+
 def active_language() -> str:
+    override = os.environ.get("TURING_SMART_SCREEN_LANG")
+    if override:
+        return _language_for_locale(override)
+
     for candidate in _locale_candidates():
-        normalized = _normalize_locale(candidate).lower()
-        if normalized.startswith("pt"):
+        if _language_for_locale(candidate) == "pt_BR":
             return "pt_BR"
     return "en"
 
