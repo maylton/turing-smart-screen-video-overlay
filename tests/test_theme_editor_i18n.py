@@ -55,6 +55,13 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         self.assertIn("_translate_dialog_title(self)", source)
         self.assertIn("translate_widget_tree(self)", source)
 
+    def test_theme_editor_import_path_installs_i18n_hook(self):
+        source = Path("library/theme_video_background.py").read_text(encoding="utf-8")
+        self.assertIn("def _install_theme_editor_i18n_startup_hook()", source)
+        self.assertIn('Path(sys.argv[0]).name != "theme-editor-gtk.py"', source)
+        self.assertIn("install_theme_editor_i18n_class_hook", source)
+        self.assertIn("_install_theme_editor_i18n_startup_hook()", source)
+
     def test_usercustomize_installs_theme_editor_i18n_hook(self):
         source = Path("usercustomize.py").read_text(encoding="utf-8")
         self.assertIn("install_theme_editor_i18n_class_hook", source)
