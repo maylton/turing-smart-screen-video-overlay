@@ -79,6 +79,7 @@ _PT_BR = {
     "Unknown": "Desconhecido",
     "Present": "Presente",
     "None": "Nenhum",
+    "{duration:.2f} seconds": "{duration:.2f} segundos",
     "Adjust crop, rotation, alignment, background, speed, or loops.": "Ajuste corte, rotação, alinhamento, fundo, velocidade ou loops.",
     "Loading display profiles…": "Carregando perfis da tela…",
     "The media backend returned no display profiles.": "O backend de mídia não retornou perfis de tela.",
@@ -121,6 +122,20 @@ def tr(message: str, **kwargs) -> str:
     return t(message).format(**kwargs)
 
 
+def translate_dynamic(message: str) -> str:
+    """Translate simple dynamic strings emitted by existing callbacks."""
+
+    if active_language() != "pt_BR":
+        return message
+    backend_prefix = "Required backend was not found: "
+    if message.startswith(backend_prefix):
+        return tr(
+            "Required backend was not found: {program}",
+            program=message.removeprefix(backend_prefix),
+        )
+    return t(message)
+
+
 def _iter_widget_children(widget: Any) -> Iterable[Any]:
     child = None
     if hasattr(widget, "get_first_child"):
@@ -160,7 +175,7 @@ def _translate_widget_text(widget: Any) -> None:
             continue
         if not isinstance(current, str) or not current:
             continue
-        translated = t(current)
+        translated = translate_dynamic(current)
         if translated != current:
             try:
                 setter(translated)
@@ -198,6 +213,45 @@ def _translate_static_models(app, window: Any) -> None:
             _set_string_model(app, row, values)
 
 
+def _localize_estimate(window: Any) -> None:
+    if active_language() != "pt_BR":
+        return
+    if window.exact_output_size:
+        window.estimate_row.set_subtitle(
+            tr(
+                "Actual converted size: {size}",
+                size=window.format_bytes(window.exact_output_size),
+            )
+        )
+        return
+    if not window.source_duration:
+        window.estimate_row.set_subtitle(t("Choose media to calculate"))
+        return
+
+    profile = window.selected_profile()
+    width = int(profile.get("width") or 480)
+    height = int(profile.get("height") or 480)
+    bpp = float(profile.get("estimate_bpp") or 0.075)
+    available = window.source_duration * (int(window.loop_count.get_value()) + 1)
+    start = min(window.trim_start.get_value(), available)
+    end = min(max(window.trim_end.get_value(), start), available)
+    selected = max(0.0, end - start)
+    duration = selected / max(0.25, window.speed.get_value())
+    fps = window.selected_fps()
+    middle = width * height * fps * duration * bpp / 8
+    middle += max(32768, middle * 0.02)
+    low = max(1, round(middle * 0.60))
+    high = max(low, round(middle * 1.55))
+    window.estimate_row.set_subtitle(
+        tr(
+            "{low} – {high} for about {duration:.1f} s",
+            low=window.format_bytes(low),
+            high=window.format_bytes(high),
+            duration=duration,
+        )
+    )
+
+
 def install_media_preparation_i18n(app) -> None:
     """Translate the GTK media preparation workflow after widgets are created."""
 
@@ -213,7 +267,6 @@ def install_media_preparation_i18n(app) -> None:
     original_update_profile_ui = window_class.update_profile_ui
     original_update_estimate = window_class.update_estimate
     original_on_conversion_complete = window_class.on_conversion_complete
-    original_preview_output = window_class.preview_output
     original_on_upload_complete = window_class.on_upload_complete
 
     def init_with_i18n(self, application):
@@ -225,14 +278,16 @@ def install_media_preparation_i18n(app) -> None:
         return original_run_json(self, program, arguments, t(title), on_success, *args, **kwargs)
 
     def show_error_with_i18n(self, message):
-        return original_show_error(self, t(str(message)))
+        return original_show_error(self, translate_dynamic(str(message)))
 
     def toast_with_i18n(self, text):
-        return original_toast(self, t(str(text)))
+        return original_toast(self, translate_dynamic(str(text)))
 
     def on_probe_complete_with_i18n(self, data):
         result = original_on_probe_complete(self, data)
-        self.duration_row.set_subtitle(tr("{duration:.2f} seconds", duration=self.source_duration)) if "{duration:.2f} seconds" in _PT_BR else None
+        self.duration_row.set_subtitle(
+            tr("{duration:.2f} seconds", duration=self.source_duration)
+        )
         translate_widget_tree(self)
         return result
 
@@ -252,16 +307,32 @@ def install_media_preparation_i18n(app) -> None:
 
     def update_estimate_with_i18n(self):
         result = original_update_estimate(self)
+        _localize_estimate(self)
         translate_widget_tree(self)
         return result
 
     def on_conversion_complete_with_i18n(self, data):
         result = original_on_conversion_complete(self, data)
+        profile = data.get("profile") or self.selected_profile()
+        output = data.get("output") or {}
+        size = int(output.get("size_bytes") or 0)
+        note = (
+            ""
+            if profile.get("upload_supported")
+            else t(" — preview only; upload is disabled for this profile")
+        )
+        if self.converted_path is not None:
+            self.status.set_label(
+                tr(
+                    "Prepared {name} — {size:.1f} KiB{note}",
+                    name=self.converted_path.name,
+                    size=size / 1024,
+                    note=note,
+                )
+            )
+        _localize_estimate(self)
         translate_widget_tree(self)
         return result
-
-    def preview_output_with_i18n(self, *args, **kwargs):
-        return original_preview_output(self, *args, **kwargs)
 
     def on_upload_complete_with_i18n(self, remote):
         result = original_on_upload_complete(self, remote)
@@ -276,6 +347,5 @@ def install_media_preparation_i18n(app) -> None:
     window_class.update_profile_ui = update_profile_ui_with_i18n
     window_class.update_estimate = update_estimate_with_i18n
     window_class.on_conversion_complete = on_conversion_complete_with_i18n
-    window_class.preview_output = preview_output_with_i18n
     window_class.on_upload_complete = on_upload_complete_with_i18n
     window_class._media_preparation_i18n_installed = True
