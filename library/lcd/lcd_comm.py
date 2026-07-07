@@ -655,7 +655,8 @@ class LcdComm(ABC):
                            reverse_direction: Optional[bool] = False,
                            orientation: Optional[str] = "auto",
                            bar_background_color: Color = (0, 0, 0),
-                           draw_bar_background: bool = False):
+                           draw_bar_background: bool = False,
+                           effects: Optional[dict] = None):
         # Generate a progress bar and display it
         # Provide the background image path to display progress bar with transparent background
 
