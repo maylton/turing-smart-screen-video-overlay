@@ -113,6 +113,14 @@ def _install_optional_integration(
 def _install_runtime_ui_integrations(app: Any) -> None:
     _install_optional_integration(
         app,
+        label="tray-i18n",
+        importer=lambda: __import__(
+            "library.main_app_i18n",
+            fromlist=["install_main_app_tray_i18n"],
+        ).install_main_app_tray_i18n,
+    )
+    _install_optional_integration(
+        app,
         label="apply-status",
         importer=lambda: __import__(
             "library.main_app_apply_status",
