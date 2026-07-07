@@ -5538,7 +5538,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             title="Output FPS",
             model=Gtk.StringList.new(("24 FPS", "30 FPS")),
         )
-        fps_row.set_selected(1)
+        fps_row.set_selected(0)
         output_group.add(fps_row)
         crf_spin = add_spin(output_group, "Quality (CRF)", 20, 0, 51)
 
@@ -6054,7 +6054,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             try:
                 settings = selected_settings()
                 output = prepared_output_path(
-                    cache_directory(),
+                    self.theme_dir,
                     output_name_row.get_text() or state["source_media"].filename,
                 )
                 preview_destination = preview_background_path(
@@ -6083,7 +6083,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             confirm = Adw.AlertDialog(
                 heading="Replace prepared video?",
                 body=(
-                    f"{output.name} already exists in the media-preparation cache. "
+                    f"{output.name} already exists in this theme folder. "
                     "The existing prepared copy will be replaced only after a successful conversion."
                 ),
             )
@@ -6217,7 +6217,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             label=(
                 "Videos stored on the display can be selected, played, and "
                 "used by the theme. The editor automatically searches the "
-                "media-preparation cache for the converted local copy. If it "
+                "theme folder for the prepared local copy. If it "
                 "is unavailable, choose the original file manually."
             ),
             xalign=0,

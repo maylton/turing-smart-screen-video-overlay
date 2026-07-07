@@ -94,7 +94,7 @@ class ConversionSettings:
     flip_vertical: bool = False
     start: float = 0.0
     end: float | None = None
-    fps: int = 30
+    fps: int = 24
     speed: float = 1.0
     loop_count: int = 0
     background_mode: str = "solid"
@@ -564,6 +564,16 @@ def build_conversion_command(
         "-an",
         "-c:v",
         settings.encoder,
+        "-profile:v",
+        "main",
+        "-level:v",
+        "3.1",
+        "-bf",
+        "1",
+        "-maxrate",
+        "2500k",
+        "-bufsize",
+        "5000k",
         "-preset",
         "medium",
         "-crf",
