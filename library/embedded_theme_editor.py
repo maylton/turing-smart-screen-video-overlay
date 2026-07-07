@@ -145,8 +145,53 @@ class EmbeddedThemeEditorPage(Gtk.Box):
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
+        self._install_embedded_editor_runtime_patches(module)
         self._editor_module = module
         return module
+
+    def _install_embedded_editor_runtime_patches(self, module) -> None:
+        """Apply Theme Editor runtime patches when the editor is embedded.
+
+        The standalone editor gets these through usercustomize.py because
+        sys.argv[0] is theme-editor-gtk.py. The embedded editor is loaded as a
+        normal module from configure-gtk.py, so the patch modules would otherwise
+        look at __main__ and miss ThemeEditorWindow.
+        """
+
+        main_module = sys.modules.get("__main__")
+        if main_module is None:
+            return
+
+        previous_window = getattr(main_module, "ThemeEditorWindow", None)
+        had_previous_window = hasattr(main_module, "ThemeEditorWindow")
+        setattr(main_module, "ThemeEditorWindow", module.ThemeEditorWindow)
+
+        try:
+            from library.weather_runtime_patch import install as install_weather_runtime_patch
+            from library.weather_hidden_defaults import install as install_weather_hidden_defaults
+            from library.theme_editor_tree_state_patch import install as install_tree_state_patch
+            from library.theme_editor_preview_interaction_patch import install as install_preview_interaction_patch
+            from library.theme_editor_preview_drag_fix import install as install_preview_drag_fix
+
+            install_weather_runtime_patch()
+            install_weather_hidden_defaults()
+            install_tree_state_patch()
+            install_preview_interaction_patch()
+            install_preview_drag_fix()
+        except Exception as exc:  # pragma: no cover - defensive embedded guard
+            print(
+                f"[embedded-theme-editor] could not install runtime patches: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+        finally:
+            if had_previous_window:
+                setattr(main_module, "ThemeEditorWindow", previous_window)
+            else:
+                try:
+                    delattr(main_module, "ThemeEditorWindow")
+                except AttributeError:
+                    pass
 
     def open_theme(self, theme_name: str) -> None:
         theme_name = str(theme_name or "").strip()
