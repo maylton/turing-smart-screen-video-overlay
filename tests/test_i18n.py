@@ -43,6 +43,25 @@ class I18nTests(unittest.TestCase):
         ):
             self.assertEqual(i18n.active_language_label(), "Português (Brasil)")
 
+    def test_formats_translated_messages(self):
+        with mock.patch.dict(
+            os.environ,
+            {"TURING_SMART_SCREEN_LANG": "pt_BR"},
+            clear=True,
+        ):
+            self.assertEqual(
+                i18n.tr("Theme: {theme}", theme="solar"),
+                "Tema: solar",
+            )
+
+    def test_gtk_shell_catalog_has_no_missing_portuguese_translations(self):
+        missing = i18n.missing_translations(i18n.GTK_SHELL_MESSAGES)
+        self.assertEqual(missing, [])
+
+    def test_tray_catalog_has_no_missing_portuguese_translations(self):
+        missing = i18n.missing_translations(i18n.TRAY_MESSAGES)
+        self.assertEqual(missing, [])
+
 
 if __name__ == "__main__":
     unittest.main()
