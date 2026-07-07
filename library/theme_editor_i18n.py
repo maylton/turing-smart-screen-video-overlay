@@ -10,6 +10,7 @@ then wraps the window lifecycle and translates already-created GTK widgets.
 from __future__ import annotations
 
 import builtins
+import sys
 from typing import Any, Iterable
 
 from library.i18n import active_language
@@ -94,6 +95,76 @@ _PT_BR = {
     "Choose a local/display video or generate a preview background": "Escolha um vídeo local/da tela ou gere um fundo de prévia",
     "Text effects…": "Efeitos de texto…",
     "Configure shadow, glow, and outline": "Configurar sombra, brilho e contorno",
+    "Video tools": "Ferramentas de vídeo",
+    "Preview, prepare, or manage the theme video.": "Pré-visualize, prepare ou gerencie o vídeo do tema.",
+    "Inspector": "Inspetor",
+    "Background": "Fundo",
+
+    # Gradient / style dialogs
+    "Gradient effect": "Efeito de degradê",
+    "Gradient": "Degradê",
+    "Gradient fill": "Preenchimento em degradê",
+    "Customize the gradient used by this text or graph bar.": "Personalize o degradê usado por este texto ou barra de gráfico.",
+    "Enabled": "Ativado",
+    "Render this element with a gradient fill.": "Renderiza este elemento com preenchimento em degradê.",
+    "Start color": "Cor inicial",
+    "End color": "Cor final",
+    "Direction": "Direção",
+    "Choose how the gradient flows.": "Escolha como o degradê flui.",
+    "Apply gradient": "Aplicar degradê",
+    "Save these gradient settings to the selected element.": "Salva estas configurações de degradê no elemento selecionado.",
+    "Apply": "Aplicar",
+    "Auto": "Automático",
+    "Horizontal": "Horizontal",
+    "Vertical": "Vertical",
+    "Right to left": "Direita para esquerda",
+    "Bottom to top": "Baixo para cima",
+    "No gradient changes": "Nenhuma alteração no degradê",
+    "Gradient updated": "Degradê atualizado",
+    "This element does not support gradient effects": "Este elemento não suporta efeitos de degradê",
+    "Selected element is no longer available": "O elemento selecionado não está mais disponível",
+
+    # Video/background preparation dialogs embedded in the editor
+    "Mode": "Modo",
+    "Fit": "Ajustar",
+    "Fill": "Preencher",
+    "Stretch": "Esticar",
+    "Original": "Original",
+    "Custom": "Personalizado",
+    "Zoom": "Zoom",
+    "Custom width": "Largura personalizada",
+    "Custom height": "Altura personalizada",
+    "Horizontal alignment": "Alinhamento horizontal",
+    "Vertical alignment": "Alinhamento vertical",
+    "Left": "Esquerda",
+    "Center": "Centro",
+    "Right": "Direita",
+    "Top": "Superior",
+    "Bottom": "Inferior",
+    "Rotation": "Rotação",
+    "Mirror horizontally": "Espelhar horizontalmente",
+    "Flip the foreground video left-to-right before scaling.": "Espelha o vídeo em primeiro plano da esquerda para a direita antes do redimensionamento.",
+    "Mirror vertically": "Espelhar verticalmente",
+    "Flip the foreground video top-to-bottom before scaling.": "Espelha o vídeo em primeiro plano de cima para baixo antes do redimensionamento.",
+    "Crop left": "Cortar à esquerda",
+    "Crop right": "Cortar à direita",
+    "Crop top": "Cortar acima",
+    "Crop bottom": "Cortar abaixo",
+    "Trim start (seconds)": "Início do corte (segundos)",
+    "Trim end (0 = full source)": "Fim do corte (0 = origem completa)",
+    "Playback speed": "Velocidade de reprodução",
+    "Loop count": "Quantidade de loops",
+    "Background mode": "Modo do fundo",
+    "Solid color": "Cor sólida",
+    "Blurred source": "Origem desfocada",
+    "Image": "Imagem",
+    "Solid background RGB": "RGB sólido do fundo",
+    "Blur strength": "Intensidade do desfoque",
+    "Background image": "Imagem de fundo",
+    "Choose image…": "Escolher imagem…",
+    "Image file": "Arquivo de imagem",
+    "Output FPS": "FPS de saída",
+    "Quality (CRF)": "Qualidade (CRF)",
 
     # Common dialogs / file actions
     "Close": "Fechar",
@@ -111,6 +182,10 @@ _PT_BR = {
     "Windows theme assets extracted": "Assets do tema do Windows extraídos",
     "No assets found": "Nenhum asset encontrado",
     "Windows theme asset manifest path": "Caminho do manifesto de assets do tema do Windows",
+    "Open theme.yaml externally?": "Abrir theme.yaml externamente?",
+    "Open YAML": "Abrir YAML",
+    "Could not open theme.yaml": "Não foi possível abrir theme.yaml",
+    "Could not reload theme": "Não foi possível recarregar o tema",
 
     # Toasts / runtime hints
     "Select a static image first": "Selecione uma imagem estática primeiro",
@@ -211,6 +286,80 @@ def _translate_static_models(window: Any) -> None:
         _set_string_model(app_module, row, _STATE_FILTER_KEYS)
 
 
+def _translate_dialog_title(dialog: Any) -> None:
+    for getter_name, setter_name in (("get_title", "set_title"),):
+        getter = getattr(dialog, getter_name, None)
+        setter = getattr(dialog, setter_name, None)
+        if not callable(getter) or not callable(setter):
+            continue
+        try:
+            current = getter()
+        except Exception:
+            continue
+        if isinstance(current, str) and current:
+            try:
+                setter(t(current))
+            except Exception:
+                pass
+
+
+def install_theme_editor_dialog_i18n(app_module: Any) -> None:
+    """Translate dialogs/popovers that are constructed after window startup."""
+
+    Adw = getattr(app_module, "Adw", None)
+    Gtk = getattr(app_module, "Gtk", None)
+    if Adw is None:
+        return
+
+    dialog_classes = []
+    for name in ("AlertDialog", "PreferencesDialog"):
+        cls = getattr(Adw, name, None)
+        if cls is not None:
+            dialog_classes.append(cls)
+
+    for cls in dialog_classes:
+        if not getattr(cls, "_theme_editor_i18n_present_installed", False):
+            original_present = getattr(cls, "present", None)
+            if callable(original_present):
+                def present_with_i18n(self, *args, __original_present=original_present, **kwargs):
+                    _translate_dialog_title(self)
+                    translate_widget_tree(self)
+                    return __original_present(self, *args, **kwargs)
+
+                try:
+                    cls.present = present_with_i18n
+                    cls._theme_editor_i18n_present_installed = True
+                except Exception:
+                    pass
+
+        if not getattr(cls, "_theme_editor_i18n_response_installed", False):
+            original_add_response = getattr(cls, "add_response", None)
+            if callable(original_add_response):
+                def add_response_with_i18n(self, response_id, label, __original_add_response=original_add_response):
+                    return __original_add_response(self, response_id, t(str(label)))
+
+                try:
+                    cls.add_response = add_response_with_i18n
+                    cls._theme_editor_i18n_response_installed = True
+                except Exception:
+                    pass
+
+    if Gtk is not None:
+        window_class = getattr(Gtk, "Window", None)
+        if window_class is not None and not getattr(window_class, "_theme_editor_i18n_present_installed", False):
+            original_present = getattr(window_class, "present", None)
+            if callable(original_present):
+                def gtk_window_present_with_i18n(self, *args, __original_present=original_present, **kwargs):
+                    translate_widget_tree(self)
+                    return __original_present(self, *args, **kwargs)
+
+                try:
+                    window_class.present = gtk_window_present_with_i18n
+                    window_class._theme_editor_i18n_present_installed = True
+                except Exception:
+                    pass
+
+
 def _wrap_method(window_class: type, method_name: str, translator) -> None:
     original = getattr(window_class, method_name, None)
     if not callable(original):
@@ -232,6 +381,10 @@ def install_theme_editor_i18n(window_class: type) -> None:
 
     if getattr(window_class, "_theme_editor_i18n_installed", False):
         return
+
+    app_module = sys.modules.get(window_class.__module__)
+    if app_module is not None:
+        install_theme_editor_dialog_i18n(app_module)
 
     original_init = window_class.__init__
 
@@ -258,6 +411,11 @@ def install_theme_editor_i18n(window_class: type) -> None:
         "update_elements_summary",
         "update_actions_sensitivity",
         "refresh_preview",
+        "open_gradient_effect_editor",
+        "open_video_tools",
+        "open_video_inspector",
+        "open_generated_media_manager",
+        "confirm_open_theme_yaml",
     ):
         _wrap_method(window_class, method_name, translate_result)
 
