@@ -5,10 +5,28 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 SD_VIDEO_DIR = "/mnt/SDCARD/video/"
 INTERNAL_VIDEO_DIR = "/root/video/"
+
+
+def _install_theme_editor_i18n_startup_hook() -> None:
+    """Install editor i18n when this module is imported by theme-editor-gtk.py."""
+
+    if Path(sys.argv[0]).name != "theme-editor-gtk.py":
+        return
+    try:
+        from library.theme_editor_i18n import install_theme_editor_i18n_class_hook
+
+        install_theme_editor_i18n_class_hook()
+    except Exception:
+        # Keep this helper import-safe for tests and non-UI tools.
+        pass
+
+
+_install_theme_editor_i18n_startup_hook()
 
 
 def _theme_bool(value) -> bool:
@@ -131,6 +149,7 @@ def generate_background(
         temporary.unlink(missing_ok=True)
 
     return destination
+
 
 def prepared_media_directories() -> tuple[Path, ...]:
     cache_home = Path(
