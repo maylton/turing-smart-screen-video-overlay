@@ -3,13 +3,14 @@ import unittest
 
 
 class ThemeEditorI18nValueSafetyContractTests(unittest.TestCase):
-    def test_widget_i18n_does_not_patch_entry_text_values(self):
+    def test_widget_i18n_does_not_patch_data_or_widget_methods(self):
         source = Path("library/theme_editor_widget_i18n.py").read_text(encoding="utf-8")
         self.assertNotIn('"set_text"', source)
         self.assertNotIn("set_text,", source)
-        self.assertIn("set_label", source)
-        self.assertIn("set_title", source)
-        self.assertIn("set_subtitle", source)
+        self.assertNotIn("set_label", source)
+        self.assertNotIn("set_title", source)
+        self.assertNotIn("set_subtitle", source)
+        self.assertIn("side-effect free", source)
 
     def test_component_presets_save_updates_not_translated_labels(self):
         source = Path("theme-editor-gtk.py").read_text(encoding="utf-8")
