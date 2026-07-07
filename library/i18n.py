@@ -181,6 +181,33 @@ MAIN_APP_POLISH_MESSAGES = (
 )
 
 
+THEME_GALLERY_MESSAGES = (
+    "Current",
+    "Use",
+    "Set this theme as current",
+    "Edit",
+    "More actions",
+    "Duplicate",
+    "Rename",
+    "Export",
+    "Open folder",
+    "Diagnostics",
+    "Delete",
+    "No preview",
+    "Video",
+    "TURZX",
+    "Sync video",
+    "Cancel",
+    "Export Anyway",
+    "OK",
+    "Cannot export {theme}",
+    "Export {theme} with warnings?",
+    "The export preflight found blocking issues. Review the report below before trying again.",
+    "Some referenced assets may not be included or may need attention. Review the report before continuing.",
+    "Could not inspect theme export",
+)
+
+
 TRAY_MESSAGES = (
     "Show window",
     "Hide window",
@@ -363,6 +390,34 @@ _PT_BR = {
     "Display is free": "A tela está livre",
     "Unknown": "Desconhecido",
     "display": "display",
+
+    # Theme gallery
+    "Current": "Atual",
+    "Use": "Usar",
+    "Set this theme as current": "Definir este tema como atual",
+    "Edit": "Editar",
+    "More actions": "Mais ações",
+    "Duplicate": "Duplicar",
+    "Rename": "Renomear",
+    "Export": "Exportar",
+    "Open folder": "Abrir pasta",
+    "Diagnostics": "Diagnósticos",
+    "Delete": "Excluir",
+    "No preview": "Sem prévia",
+    "Video": "Vídeo",
+    "TURZX": "TURZX",
+    "Cancel": "Cancelar",
+    "Export Anyway": "Exportar mesmo",
+    "OK": "OK",
+    "Cannot export {theme}": "Não é possível exportar {theme}",
+    "Export {theme} with warnings?": "Exportar {theme} com avisos?",
+    "The export preflight found blocking issues. Review the report below before trying again.": (
+        "A verificação de exportação encontrou problemas bloqueantes. Revise o relatório abaixo antes de tentar novamente."
+    ),
+    "Some referenced assets may not be included or may need attention. Review the report before continuing.": (
+        "Alguns assets referenciados podem não ser incluídos ou podem exigir atenção. Revise o relatório antes de continuar."
+    ),
+    "Could not inspect theme export": "Não foi possível inspecionar a exportação do tema",
 
     # Tray menu
     "Show window": "Mostrar janela",
