@@ -2526,7 +2526,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             return None
 
         dropdown = Gtk.DropDown.new_from_strings(theme_names)
-        dropdown.set_size_request(190, -1)
+        dropdown.set_size_request(220, -1)
         dropdown.set_valign(Gtk.Align.CENTER)
         if self.theme_name in theme_names:
             dropdown.set_selected(theme_names.index(self.theme_name))
@@ -3095,6 +3095,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             preset_row = self.create_text_style_preset_row(node)
             if preset_row is not None:
                 self.dynamic_group.add(preset_row)
+                self.property_rows.append(preset_row)
                 self.property_rows.append(preset_row)
 
         for key in ordered_keys:
