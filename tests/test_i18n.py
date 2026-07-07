@@ -1,0 +1,48 @@
+import os
+import unittest
+from unittest import mock
+
+from library import i18n
+
+
+class I18nTests(unittest.TestCase):
+    def test_defaults_to_english_when_locale_is_not_portuguese(self):
+        with mock.patch.dict(
+            os.environ,
+            {"TURING_SMART_SCREEN_LANG": "en_US"},
+            clear=True,
+        ):
+            self.assertEqual(i18n.active_language(), "en")
+            self.assertEqual(i18n.t("Settings"), "Settings")
+            self.assertEqual(i18n.t("Show window"), "Show window")
+
+    def test_uses_portuguese_from_override_locale(self):
+        with mock.patch.dict(
+            os.environ,
+            {"TURING_SMART_SCREEN_LANG": "pt_BR"},
+            clear=True,
+        ):
+            self.assertEqual(i18n.active_language(), "pt_BR")
+            self.assertEqual(i18n.t("Settings"), "Configurações")
+            self.assertEqual(i18n.t("Show window"), "Mostrar janela")
+            self.assertEqual(i18n.t("Turn off screen"), "Desligar tela")
+
+    def test_uses_portuguese_from_system_locale_environment(self):
+        with mock.patch.dict(
+            os.environ,
+            {"LANG": "pt_BR.UTF-8"},
+            clear=True,
+        ):
+            self.assertEqual(i18n.active_language(), "pt_BR")
+
+    def test_language_label_is_translated_locale_name(self):
+        with mock.patch.dict(
+            os.environ,
+            {"TURING_SMART_SCREEN_LANG": "pt-BR"},
+            clear=True,
+        ):
+            self.assertEqual(i18n.active_language_label(), "Português (Brasil)")
+
+
+if __name__ == "__main__":
+    unittest.main()
