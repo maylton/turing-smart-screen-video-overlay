@@ -57,6 +57,82 @@ def active_language_label() -> str:
     }.get(active_language(), "English")
 
 
+GTK_SHELL_MESSAGES = (
+    "Linux configuration center",
+    "Main menu",
+    "Open classic interface",
+    "About",
+    "Navigation",
+    "Overview",
+    "Themes",
+    "Settings",
+    "Configuration app",
+    "Manage your display, active theme, videos, and monitor process.",
+    "Status",
+    "Active theme",
+    "Monitor process",
+    "Connected display",
+    "Detection has not run yet",
+    "Detect now",
+    "Edit theme",
+    "Refresh",
+    "Turn off display",
+    "Stop the monitor process and switch off the LCD backlight",
+    "Quick actions",
+    "Theme editor",
+    "Edit the active theme layout and components.",
+    "Video manager",
+    "Upload, delete, and play native videos.",
+    "Start monitor",
+    "Run main.py using the project environment.",
+    "Stop monitor",
+    "Stop the process started from this window.",
+    "Classic configuration",
+    "Open the original Tkinter configuration window.",
+    "Appearance",
+    "Choose the application appearance. The selection is saved for the next session.",
+    "Color scheme",
+    "Follow system",
+    "Light",
+    "Dark",
+    "Start minimized to tray",
+    "Open in the background and keep only the system tray icon visible",
+    "Language",
+    "Automatic from system locale: {language}",
+    "Maintenance",
+    "Verify GTK, Python dependencies, project files, and theme YAML files.",
+    "Program check",
+    "Verify dependencies, project files, themes, and Python syntax",
+    "Could not change appearance: {error}",
+    "Following system appearance",
+    "Light appearance enabled",
+    "Dark appearance enabled",
+    "Could not save startup preference: {error}",
+    "Application will start minimized to tray",
+    "Application will open normally",
+    "Running program check…",
+    "Program check completed",
+    "Program check found problems",
+    "Close",
+    "No active theme",
+    "Running",
+    "Stopped",
+)
+
+
+TRAY_MESSAGES = (
+    "Show window",
+    "Hide window",
+    "Start screen",
+    "Turn off screen",
+    "Open theme editor",
+    "Open video manager",
+    "Quit",
+    "Theme: {theme}",
+    "not selected",
+)
+
+
 _PT_BR = {
     # App shell / header
     "Linux configuration center": "Central de configuração Linux",
@@ -175,6 +251,25 @@ _TRANSLATIONS = {
 }
 
 
+def translation_catalog(language: str = "pt_BR") -> dict[str, str]:
+    """Return a copy of the catalog for tests and diagnostics."""
+    return dict(_TRANSLATIONS.get(language, {}))
+
+
+def missing_translations(
+    messages: tuple[str, ...] | list[str],
+    language: str = "pt_BR",
+) -> list[str]:
+    """Return stable message keys missing from a translation catalog."""
+    catalog = _TRANSLATIONS.get(language, {})
+    return [message for message in messages if message not in catalog]
+
+
 def t(message: str) -> str:
     """Translate a stable English message key for the active runtime language."""
     return _TRANSLATIONS.get(active_language(), {}).get(message, message)
+
+
+def tr(message: str, **kwargs) -> str:
+    """Translate and format a stable English message key."""
+    return t(message).format(**kwargs)
