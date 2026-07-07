@@ -35,6 +35,7 @@ except Exception as exc:
 APP_ID = "io.github.turing.SmartScreen"
 APP_NAME = "Turing Smart Screen"
 TRAY_OBJECT_PATH = "/StatusNotifierItem"
+DBUSMENU_OBJECT_PATH = "/StatusNotifierItem/Menu"
 ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "config.yaml"
 THEMES_DIR = ROOT / "res" / "themes"
@@ -1478,6 +1479,332 @@ STATUS_NOTIFIER_XML = """
 </node>
 """
 
+DBUSMENU_XML = """
+<node>
+  <interface name="com.canonical.dbusmenu">
+    <property name="Version" type="u" access="read"/>
+    <property name="TextDirection" type="s" access="read"/>
+    <property name="Status" type="s" access="read"/>
+    <property name="IconThemePath" type="as" access="read"/>
+
+    <method name="GetLayout">
+      <arg name="parentId" type="i" direction="in"/>
+      <arg name="recursionDepth" type="i" direction="in"/>
+      <arg name="propertyNames" type="as" direction="in"/>
+      <arg name="revision" type="u" direction="out"/>
+      <arg name="layout" type="(ia{sv}av)" direction="out"/>
+    </method>
+
+    <method name="GetGroupProperties">
+      <arg name="ids" type="ai" direction="in"/>
+      <arg name="propertyNames" type="as" direction="in"/>
+      <arg name="properties" type="a(ia{sv})" direction="out"/>
+    </method>
+
+    <method name="GetProperty">
+      <arg name="id" type="i" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="value" type="v" direction="out"/>
+    </method>
+
+    <method name="Event">
+      <arg name="id" type="i" direction="in"/>
+      <arg name="eventId" type="s" direction="in"/>
+      <arg name="data" type="v" direction="in"/>
+      <arg name="timestamp" type="u" direction="in"/>
+    </method>
+
+    <method name="EventGroup">
+      <arg name="events" type="a(isvu)" direction="in"/>
+      <arg name="idErrors" type="ai" direction="out"/>
+    </method>
+
+    <method name="AboutToShow">
+      <arg name="id" type="i" direction="in"/>
+      <arg name="needUpdate" type="b" direction="out"/>
+    </method>
+
+    <method name="AboutToShowGroup">
+      <arg name="ids" type="ai" direction="in"/>
+      <arg name="updatesNeeded" type="ai" direction="out"/>
+      <arg name="idErrors" type="ai" direction="out"/>
+    </method>
+
+    <signal name="LayoutUpdated">
+      <arg name="revision" type="u"/>
+      <arg name="parent" type="i"/>
+    </signal>
+  </interface>
+</node>
+"""
+
+
+class StatusNotifierMenu:
+    """Small DBusMenu implementation for the StatusNotifier tray icon."""
+
+    MENU_ITEMS = (
+        (1, "show-hide-window"),
+        (2, "start-screen"),
+        (3, "turn-off-screen"),
+        (4, "open-theme-editor"),
+        (5, "open-video-manager"),
+        (6, "quit"),
+    )
+
+    def __init__(self, app: "SmartScreenApplication"):
+        self.app = app
+        self.connection = None
+        self.registration_id = 0
+        self.revision = 1
+        self.node_info = Gio.DBusNodeInfo.new_for_xml(DBUSMENU_XML)
+        self.interface_info = self.node_info.interfaces[0]
+
+    def register(self, connection):
+        self.connection = connection
+        try:
+            self.registration_id = self.connection.register_object(
+                DBUSMENU_OBJECT_PATH,
+                self.interface_info,
+                self._on_method_call,
+                self._on_get_property,
+                None,
+            )
+        except Exception as exc:
+            self.registration_id = 0
+            print(f"Tray menu registration failed: {exc}", file=sys.stderr)
+
+    def stop(self):
+        if self.connection is not None and self.registration_id:
+            try:
+                self.connection.unregister_object(self.registration_id)
+            except Exception:
+                pass
+        self.registration_id = 0
+        self.connection = None
+
+    def window_visible(self) -> bool:
+        window = self.app.props.active_window
+        return bool(window is not None and window.get_visible())
+
+    def menu_label(self, action: str) -> str:
+        labels = {
+            "show-hide-window": "Ocultar janela" if self.window_visible() else "Mostrar janela",
+            "start-screen": "Iniciar tela",
+            "turn-off-screen": "Desligar tela",
+            "open-theme-editor": "Abrir editor de tema",
+            "open-video-manager": "Abrir gerenciador de vídeos",
+            "quit": "Sair",
+        }
+        return labels.get(action, action)
+
+    def action_for_id(self, item_id: int) -> str | None:
+        for candidate_id, action in self.MENU_ITEMS:
+            if candidate_id == item_id:
+                return action
+        return None
+
+    def item_properties(self, item_id: int, property_names=()):
+        properties = {}
+
+        if item_id == 0:
+            properties["children-display"] = GLib.Variant("s", "submenu")
+            return self.filter_properties(properties, property_names)
+
+        action = self.action_for_id(item_id)
+        if action is None:
+            return {}
+
+        properties["label"] = GLib.Variant("s", self.menu_label(action))
+        properties["enabled"] = GLib.Variant("b", True)
+        properties["visible"] = GLib.Variant("b", True)
+
+        return self.filter_properties(properties, property_names)
+
+    @staticmethod
+    def filter_properties(properties, property_names):
+        if not property_names:
+            return properties
+        wanted = set(property_names)
+        return {
+            key: value
+            for key, value in properties.items()
+            if key in wanted
+        }
+
+    def layout_tuple(self, item_id: int = 0, property_names=()):
+        properties = self.item_properties(item_id, property_names)
+
+        if item_id == 0:
+            children = [
+                GLib.Variant(
+                    "(ia{sv}av)",
+                    self.layout_tuple(child_id, property_names),
+                )
+                for child_id, _action in self.MENU_ITEMS
+            ]
+        else:
+            children = []
+
+        return item_id, properties, children
+
+    def emit_layout_updated(self):
+        if self.connection is None or not self.registration_id:
+            return
+        self.revision += 1
+        try:
+            self.connection.emit_signal(
+                None,
+                DBUSMENU_OBJECT_PATH,
+                "com.canonical.dbusmenu",
+                "LayoutUpdated",
+                GLib.Variant("(ui)", (self.revision, 0)),
+            )
+        except Exception:
+            pass
+
+    def _ensure_window(self):
+        window = self.app.props.active_window
+        if window is None:
+            self.app.activate()
+            window = self.app.props.active_window
+        return window
+
+    def _show_window(self):
+        self.app.activate()
+        window = self.app.props.active_window
+        if window is not None:
+            window.present()
+
+    def _hide_window(self):
+        window = self.app.props.active_window
+        if window is not None:
+            window.set_visible(False)
+
+    def _toggle_window(self):
+        if self.window_visible():
+            self._hide_window()
+        else:
+            self._show_window()
+        self.emit_layout_updated()
+
+    def _run_window_action(self, method_name: str):
+        window = self._ensure_window()
+        if window is None:
+            return
+        method = getattr(window, method_name, None)
+        if callable(method):
+            method()
+
+    def activate_item(self, item_id: int):
+        action = self.action_for_id(item_id)
+        if action is None:
+            return
+
+        def run():
+            try:
+                if action == "show-hide-window":
+                    self._toggle_window()
+                elif action == "start-screen":
+                    self._run_window_action("start_monitor")
+                elif action == "turn-off-screen":
+                    self._run_window_action("turn_off_display")
+                elif action == "open-theme-editor":
+                    self._run_window_action("open_theme_editor")
+                elif action == "open-video-manager":
+                    self._run_window_action("open_video_manager")
+                elif action == "quit":
+                    self.app.quit()
+            except Exception as exc:
+                print(f"Tray menu action failed: {exc}", file=sys.stderr)
+            return False
+
+        GLib.idle_add(run)
+
+    def _on_method_call(
+        self,
+        _connection,
+        _sender,
+        _object_path,
+        _interface_name,
+        method_name,
+        parameters,
+        invocation,
+    ):
+        if method_name == "GetLayout":
+            _parent_id, _depth, property_names = parameters.unpack()
+            invocation.return_value(
+                GLib.Variant(
+                    "(u(ia{sv}av))",
+                    (self.revision, self.layout_tuple(0, property_names)),
+                )
+            )
+            return
+
+        if method_name == "GetGroupProperties":
+            ids, property_names = parameters.unpack()
+            result = [
+                (int(item_id), self.item_properties(int(item_id), property_names))
+                for item_id in ids
+            ]
+            invocation.return_value(GLib.Variant("(a(ia{sv}))", (result,)))
+            return
+
+        if method_name == "GetProperty":
+            item_id, name = parameters.unpack()
+            value = self.item_properties(int(item_id)).get(
+                name,
+                GLib.Variant("s", ""),
+            )
+            invocation.return_value(GLib.Variant("(v)", (value,)))
+            return
+
+        if method_name == "Event":
+            item_id, event_id, _data, _timestamp = parameters.unpack()
+            if event_id in {"clicked", "activated"}:
+                self.activate_item(int(item_id))
+            invocation.return_value(None)
+            return
+
+        if method_name == "EventGroup":
+            events, = parameters.unpack()
+            for item_id, event_id, _data, _timestamp in events:
+                if event_id in {"clicked", "activated"}:
+                    self.activate_item(int(item_id))
+            invocation.return_value(GLib.Variant("(ai)", ([],)))
+            return
+
+        if method_name == "AboutToShow":
+            _item_id, = parameters.unpack()
+            invocation.return_value(GLib.Variant("(b)", (True,)))
+            return
+
+        if method_name == "AboutToShowGroup":
+            ids, = parameters.unpack()
+            invocation.return_value(GLib.Variant("(aiai)", (list(ids), [])))
+            return
+
+        invocation.return_error_literal(
+            Gio.IOErrorEnum.quark(),
+            Gio.IOErrorEnum.NOT_SUPPORTED,
+            f"Unsupported DBusMenu method: {method_name}",
+        )
+
+    def _on_get_property(
+        self,
+        _connection,
+        _sender,
+        _object_path,
+        _interface_name,
+        property_name,
+    ):
+        values = {
+            "Version": GLib.Variant("u", 4),
+            "TextDirection": GLib.Variant("s", "ltr"),
+            "Status": GLib.Variant("s", "normal"),
+            "IconThemePath": GLib.Variant("as", []),
+        }
+        return values.get(property_name)
+
 
 class StatusNotifierItem:
     """Minimal StatusNotifierItem understood by Noctalia and other SNI trays."""
@@ -1490,6 +1817,7 @@ class StatusNotifierItem:
         self.bus_name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
         self.node_info = Gio.DBusNodeInfo.new_for_xml(STATUS_NOTIFIER_XML)
         self.interface_info = self.node_info.interfaces[0]
+        self.menu = StatusNotifierMenu(app)
 
     def start(self):
         Gio.bus_get(
@@ -1499,6 +1827,8 @@ class StatusNotifierItem:
         )
 
     def stop(self):
+        self.menu.stop()
+
         if self.connection is not None and self.registration_id:
             try:
                 self.connection.unregister_object(self.registration_id)
@@ -1515,6 +1845,8 @@ class StatusNotifierItem:
     def _on_bus_ready(self, _source, result):
         try:
             self.connection = Gio.bus_get_finish(result)
+            self.menu.register(self.connection)
+
             self.registration_id = self.connection.register_object(
                 TRAY_OBJECT_PATH,
                 self.interface_info,
@@ -1543,8 +1875,6 @@ class StatusNotifierItem:
         if self.connection is None:
             return
 
-        # Noctalia exposes a StatusNotifierWatcher. Registering the service name
-        # is the most compatible form across KDE, Waybar, and Quickshell hosts.
         self.connection.call(
             "org.kde.StatusNotifierWatcher",
             "/StatusNotifierWatcher",
@@ -1562,17 +1892,36 @@ class StatusNotifierItem:
         try:
             connection.call_finish(result)
         except Exception as exc:
-            # This is non-fatal: the app may have started before the shell tray.
             print(
                 f"StatusNotifierWatcher is not available yet: {exc}",
                 file=sys.stderr,
             )
 
-    def _activate_app(self):
+    def _toggle_app_window(self):
+        window = self.app.props.active_window
+        if window is not None and window.get_visible():
+            window.set_visible(False)
+        else:
+            self.app.activate()
+            window = self.app.props.active_window
+            if window is not None:
+                window.present()
+
+        self.menu.emit_layout_updated()
+
+    def _toggle_monitor(self):
         self.app.activate()
         window = self.app.props.active_window
-        if window is not None:
-            window.present()
+        if window is None:
+            return
+        running = (
+            window.monitor_process is not None
+            and window.monitor_process.poll() is None
+        )
+        if running:
+            window.stop_monitor()
+        else:
+            window.start_monitor()
 
     def _on_method_call(
         self,
@@ -1584,12 +1933,13 @@ class StatusNotifierItem:
         _parameters,
         invocation,
     ):
-        if method_name in {
-            "Activate",
-            "SecondaryActivate",
-            "ContextMenu",
-        }:
-            GLib.idle_add(lambda: (self._activate_app(), False)[1])
+        if method_name == "Activate":
+            GLib.idle_add(lambda: (self._toggle_app_window(), False)[1])
+        elif method_name == "SecondaryActivate":
+            GLib.idle_add(lambda: (self._toggle_monitor(), False)[1])
+        elif method_name == "ContextMenu":
+            # The shell opens DBusMenu through the Menu property.
+            pass
 
         invocation.return_value(None)
 
@@ -1617,11 +1967,11 @@ class StatusNotifierItem:
                     APP_ID,
                     [],
                     APP_NAME,
-                    "Turing Smart Screen is running",
+                    f"Theme: {read_current_theme() or 'not selected'}",
                 ),
             ),
             "ItemIsMenu": GLib.Variant("b", False),
-            "Menu": GLib.Variant("o", "/"),
+            "Menu": GLib.Variant("o", DBUSMENU_OBJECT_PATH),
         }
         return values.get(property_name)
 

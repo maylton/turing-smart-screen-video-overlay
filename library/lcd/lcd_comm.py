@@ -416,6 +416,17 @@ class LcdComm(ABC):
                 logger.debug(f"Auto detected COM port: {self.com_port}")
         else:
             logger.debug(f"Static COM port: {self.com_port}")
+            if (
+                isinstance(self.com_port, str)
+                and self.com_port.startswith("/dev/")
+                and not os.path.exists(self.com_port)
+            ):
+                logger.warning(
+                    f"Static COM port {self.com_port} disappeared; "
+                    "falling back to AUTO detection"
+                )
+                self.com_port = "AUTO"
+                return self.openSerial()
 
         try:
             self.lcd_serial = serial.Serial(self.com_port, 115200, timeout=1, rtscts=True)
