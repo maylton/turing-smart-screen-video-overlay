@@ -29,6 +29,17 @@ def _load_theme_editor_module(app: Any):
     return module
 
 
+def _install_inline_theme_editor_integrations(module: Any) -> None:
+    try:
+        from library.theme_editor_property_layout_i18n import (
+            install_theme_editor_property_layout_i18n,
+        )
+
+        install_theme_editor_property_layout_i18n(module)
+    except Exception:
+        pass
+
+
 def build_inline_theme_editor_page(app: Any, window: Any, theme_name: str):
     """Build an embeddable Theme Editor page for ``SmartScreenWindow.stack``."""
 
@@ -42,6 +53,7 @@ def build_inline_theme_editor_page(app: Any, window: Any, theme_name: str):
         pass
 
     module = _load_theme_editor_module(app)
+    _install_inline_theme_editor_integrations(module)
     editor_class = getattr(module, "ThemeEditorWindow")
     application = window.get_application() if hasattr(window, "get_application") else None
     editor = editor_class(application, theme_name)
