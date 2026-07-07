@@ -84,6 +84,7 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
             "Radial gauge preset",
             "Text component preset",
             "Text style preset",
+            "Graph bar preset",
             "Choose a preset…",
             "No gradient configured",
             "Apply a safe starter layout to this selected component.",
@@ -99,6 +100,43 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
             self.assertIn(key, source)
         self.assertIn("def _dynamic_pt", source)
         self.assertIn('r"(\\d+) steps"', source)
+
+    def test_theme_editor_graph_bar_property_labels_are_translated(self):
+        source = Path("library/theme_editor_preset_i18n.py").read_text(encoding="utf-8")
+        for key in (
+            "BAR_BACKGROUND_COLOR",
+            "ORIENTATION",
+            "BAR_OUTLINE",
+            "REVERSE_DIRECTION",
+            "DRAW_BAR_BACKGROUND",
+            "Choose how this GRAPH bar fills.",
+            "Horizontal",
+            "Vertical",
+            "Auto",
+        ):
+            self.assertIn(key, source)
+
+    def test_theme_editor_stacked_asset_rows_are_installed_inline(self):
+        source = Path("library/theme_editor_property_layout_i18n.py").read_text(
+            encoding="utf-8"
+        )
+        inline_source = Path("library/main_app_inline_theme_editor.py").read_text(
+            encoding="utf-8"
+        )
+        for key in (
+            "def install_theme_editor_property_layout_i18n",
+            "def _build_stacked_asset_choice_row",
+            "key in asset_keys",
+            "Gtk.Box(",
+            "row.append(title)",
+            "row.append(subtitle_label)",
+            "row.append(dropdown_box)",
+            "dropdown._theme_choice_values = tuple(values)",
+            "Video path",
+            "Choose a video from the theme folder or display storage.",
+        ):
+            self.assertIn(key, source)
+        self.assertIn("install_theme_editor_property_layout_i18n(module)", inline_source)
 
     def test_theme_editor_i18n_translates_dynamic_summaries_and_catalog_choices(self):
         source = Path("library/theme_editor_i18n.py").read_text(encoding="utf-8")
