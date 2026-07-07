@@ -186,3 +186,10 @@ config.yaml.original-da-branch
 
 # Runtime backup created by automatic display detection
 config.yaml.autodetect-backup
+
+# Local cleanup artifacts
+.video-manager-backups/
+tmp/
+*.video-working
+video_native_test.py
+video_overlay_test.py

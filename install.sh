@@ -185,14 +185,17 @@ if [[ "$SELF_INSTALL" -eq 0 ]]; then
   fi
 fi
 
-# Install the latest consolidated GTK interface from this installer bundle.
-if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
-  copy_if_different "$SOURCE_DIR/configure-gtk-final.py" "$PREFIX/configure-gtk.py"
-elif [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
-  :
+# Install the tracked GTK interface from this branch. Do not prefer local
+# configure-gtk-final.py files; those are stale developer artifacts.
+if [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
+  copy_if_different "$SOURCE_DIR/configure-gtk.py" "$PREFIX/configure-gtk.py"
 else
   echo "configure-gtk.py was not found." >&2
   exit 1
+fi
+
+if [[ -f "$SOURCE_DIR/configure-gtk-final.py" ]]; then
+  echo "Ignoring stale local configure-gtk-final.py; installing tracked configure-gtk.py." >&2
 fi
 
 if [[ -f "$SOURCE_DIR/main-final.py" ]]; then

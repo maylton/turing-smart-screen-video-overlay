@@ -1543,9 +1543,68 @@ def install_runtime_patches(app):
     app.SmartScreenWindow.finish_turn_off_display = finish_turn_off_display
 
 
+def install_main_app_integrations(app) -> None:
+    """Install optional Main App integrations after runtime patches."""
+
+    # Runtime patches may overwrite parts of the app shell after sitecustomize
+    # has already run. Reapply the final dashboard polish here so Overview and
+    # Themes keep the current consolidated UI.
+    try:
+        from library.main_app_dashboard_polish import install_main_app_dashboard_polish
+
+        window_class = getattr(app, "SmartScreenWindow", None)
+        if window_class is not None:
+            setattr(window_class, "_dashboard_polish_installed", False)
+
+        install_main_app_dashboard_polish(app)
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[main-app-shell] could not install dashboard polish: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    # Keep the optimized/adaptive Theme Gallery cards active even when the app
+    # shell was assembled through the launcher/runtime patch sequence.
+    try:
+        from library import theme_gallery as gallery
+
+        current_card = getattr(gallery.ThemeGalleryPane, "theme_card", None)
+        if getattr(current_card, "__name__", "") != "adaptive_theme_card":
+            import sitecustomize as startup_hooks
+
+            compact = getattr(startup_hooks, "_install_theme_gallery_card_polish", None)
+            adaptive = getattr(startup_hooks, "_install_adaptive_theme_gallery_cards", None)
+
+            if callable(compact):
+                compact()
+            if callable(adaptive):
+                adaptive()
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[theme-gallery] could not install optimized cards: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    try:
+        from library.main_app_diagnostics_integration import (
+            install_main_app_diagnostics_integration,
+        )
+
+        install_main_app_diagnostics_integration(app)
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[main-app-integration] could not install: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def main() -> int:
     app = load_app_module()
     install_runtime_patches(app)
+    install_main_app_integrations(app)
     return app.main()
 
 

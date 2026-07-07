@@ -142,6 +142,125 @@ class LcdComm(ABC):
     def _effect_enabled(config):
         return isinstance(config, dict) and bool(config.get("ENABLED", False))
 
+
+    def _gradient_image(
+        self,
+        size,
+        start_color,
+        end_color,
+        direction="horizontal",
+        *,
+        auto_orientation="horizontal",
+    ):
+        width = max(1, int(size[0]))
+        height = max(1, int(size[1]))
+        start = self._effect_rgba(start_color, (255, 255, 255, 255))
+        end = self._effect_rgba(end_color, (255, 255, 255, 255))
+
+        direction = str(direction or "horizontal").strip().lower()
+        if direction == "auto":
+            direction = auto_orientation
+
+        vertical = direction in {
+            "vertical",
+            "top-to-bottom",
+            "bottom-to-top",
+        }
+        reverse = direction in {
+            "right-to-left",
+            "bottom-to-top",
+            "reverse",
+        }
+
+        denom = max(1, (height - 1) if vertical else (width - 1))
+        pixels = []
+        for y in range(height):
+            for x in range(width):
+                ratio = (y if vertical else x) / denom
+                if reverse:
+                    ratio = 1.0 - ratio
+                pixels.append(tuple(
+                    round(start[index] + (end[index] - start[index]) * ratio)
+                    for index in range(4)
+                ))
+
+        image = Image.new("RGBA", (width, height))
+        image.putdata(pixels)
+        return image
+
+    def _draw_progress_bar_fill(
+        self,
+        image,
+        rect,
+        bar_color,
+        effects,
+        orientation,
+    ):
+        effects = effects if isinstance(effects, dict) else {}
+        canvas = image.convert("RGBA")
+        width, height = canvas.size
+        x1, y1, x2, y2 = [int(round(value)) for value in rect]
+        x1, x2 = sorted((x1, x2))
+        y1, y2 = sorted((y1, y2))
+        x1 = max(0, min(width - 1, x1))
+        x2 = max(0, min(width - 1, x2))
+        y1 = max(0, min(height - 1, y1))
+        y2 = max(0, min(height - 1, y2))
+        if x2 < x1 or y2 < y1:
+            return canvas
+
+        shadow = effects.get("SHADOW", {})
+        if self._effect_enabled(shadow):
+            dx = int(shadow.get("OFFSET_X", 2))
+            dy = int(shadow.get("OFFSET_Y", 2))
+            blur = max(0.0, float(shadow.get("BLUR_RADIUS", 4)))
+            mask = Image.new("L", (width, height), 0)
+            ImageDraw.Draw(mask).rectangle(
+                [x1 + dx, y1 + dy, x2 + dx, y2 + dy],
+                fill=255,
+            )
+            if blur:
+                mask = mask.filter(ImageFilter.GaussianBlur(blur))
+            color = self._effect_rgba(shadow.get("COLOR"), (0, 0, 0, 150))
+            layer = Image.new("RGBA", (width, height), color)
+            layer.putalpha(mask.point(lambda value: value * color[3] // 255))
+            canvas = Image.alpha_composite(canvas, layer)
+
+        glow = effects.get("GLOW", {})
+        if self._effect_enabled(glow):
+            blur = max(0.0, float(glow.get("BLUR_RADIUS", 6)))
+            intensity = max(1, min(4, int(glow.get("INTENSITY", 1))))
+            mask = Image.new("L", (width, height), 0)
+            ImageDraw.Draw(mask).rectangle([x1, y1, x2, y2], fill=255)
+            if blur:
+                mask = mask.filter(ImageFilter.GaussianBlur(blur))
+            color = self._effect_rgba(glow.get("COLOR"), (255, 255, 255, 120))
+            for _ in range(intensity):
+                layer = Image.new("RGBA", (width, height), color)
+                layer.putalpha(mask.point(lambda value: value * color[3] // 255))
+                canvas = Image.alpha_composite(canvas, layer)
+
+        gradient = effects.get("GRADIENT", {})
+        if self._effect_enabled(gradient):
+            fill = self._gradient_image(
+                (x2 - x1 + 1, y2 - y1 + 1),
+                gradient.get("START_COLOR", bar_color),
+                gradient.get("END_COLOR", bar_color),
+                gradient.get("DIRECTION", "auto"),
+                auto_orientation=orientation,
+            )
+            layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            layer.paste(fill, (x1, y1))
+            canvas = Image.alpha_composite(canvas, layer)
+        else:
+            ImageDraw.Draw(canvas).rectangle(
+                [x1, y1, x2, y2],
+                fill=bar_color,
+                outline=bar_color,
+            )
+
+        return canvas
+
     def _draw_text_effects(
         self,
         image,
@@ -209,16 +328,48 @@ class LcdComm(ABC):
                 (0, 0, 0, 255),
             )
 
-        ImageDraw.Draw(canvas).text(
-            position,
-            text,
-            font=font,
-            fill=self._effect_rgba(font_color, (255, 255, 255, 255)),
-            align=align,
-            anchor=anchor,
-            stroke_width=stroke_width,
-            stroke_fill=stroke_fill,
-        )
+        gradient = effects.get("GRADIENT", {})
+        if self._effect_enabled(gradient):
+            if stroke_width and stroke_fill is not None:
+                ImageDraw.Draw(canvas).text(
+                    position,
+                    text,
+                    font=font,
+                    fill=(0, 0, 0, 0),
+                    align=align,
+                    anchor=anchor,
+                    stroke_width=stroke_width,
+                    stroke_fill=stroke_fill,
+                )
+
+            mask = Image.new("L", (width, height), 0)
+            ImageDraw.Draw(mask).text(
+                position,
+                text,
+                font=font,
+                fill=255,
+                align=align,
+                anchor=anchor,
+            )
+            gradient_layer = self._gradient_image(
+                (width, height),
+                gradient.get("START_COLOR", font_color),
+                gradient.get("END_COLOR", font_color),
+                gradient.get("DIRECTION", "horizontal"),
+            )
+            gradient_layer.putalpha(mask)
+            canvas = Image.alpha_composite(canvas, gradient_layer)
+        else:
+            ImageDraw.Draw(canvas).text(
+                position,
+                text,
+                font=font,
+                fill=self._effect_rgba(font_color, (255, 255, 255, 255)),
+                align=align,
+                anchor=anchor,
+                stroke_width=stroke_width,
+                stroke_fill=stroke_fill,
+            )
         return canvas
 
     @staticmethod
@@ -504,7 +655,8 @@ class LcdComm(ABC):
                            reverse_direction: Optional[bool] = False,
                            orientation: Optional[str] = "auto",
                            bar_background_color: Color = (0, 0, 0),
-                           draw_bar_background: bool = False):
+                           draw_bar_background: bool = False,
+                           effects: Optional[dict] = None):
         # Generate a progress bar and display it
         # Provide the background image path to display progress bar with transparent background
 
@@ -517,6 +669,8 @@ class LcdComm(ABC):
                 f"Unknown progress bar ORIENTATION '{orientation}', using auto"
             )
             orientation = "auto"
+
+        effects = effects if isinstance(effects, dict) else {}
 
         assert x <= self.get_width(), 'Progress bar X coordinate must be <= display width'
         assert y <= self.get_height(), 'Progress bar Y coordinate must be <= display height'
@@ -589,7 +743,14 @@ class LcdComm(ABC):
                 y2 = bar_filled_height
             else:
                 y1 = height - 1 - bar_filled_height
-        draw.rectangle([x1, y1, x2, y2], fill=bar_color, outline=bar_color)
+        bar_image = self._draw_progress_bar_fill(
+            bar_image,
+            [x1, y1, x2, y2],
+            bar_color,
+            effects,
+            "horizontal" if is_horizontal else "vertical",
+        )
+        draw = ImageDraw.Draw(bar_image)
 
         if bar_outline:
             # Draw outline

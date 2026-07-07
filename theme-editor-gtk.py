@@ -2526,7 +2526,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             return None
 
         dropdown = Gtk.DropDown.new_from_strings(theme_names)
-        dropdown.set_size_request(190, -1)
+        dropdown.set_size_request(220, -1)
         dropdown.set_valign(Gtk.Align.CENTER)
         if self.theme_name in theme_names:
             dropdown.set_selected(theme_names.index(self.theme_name))
@@ -2706,7 +2706,106 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                         "ANCHOR": "mm",
                     },
                 ),
-            ]
+                        (
+                    "Centered blue gradient",
+                    {
+                        "SHOW": True,
+                        "X": canvas_width // 2,
+                        "Y": canvas_height // 2,
+                        "WIDTH": min(280, canvas_width),
+                        "HEIGHT": 72,
+                        "FONT": "roboto-mono/RobotoMono-Bold.ttf",
+                        "FONT_SIZE": 34,
+                        "FONT_COLOR": [255, 255, 255],
+                        "BACKGROUND_IMAGE": background,
+                        "ALIGN": "center",
+                        "ANCHOR": "mm",
+                        "EFFECTS": {
+                            "GRADIENT": {
+                                "ENABLED": True,
+                                "START_COLOR": [255, 255, 255],
+                                "END_COLOR": [96, 180, 255],
+                                "DIRECTION": "horizontal",
+                            },
+                            "SHADOW": {
+                                "ENABLED": True,
+                                "COLOR": [0, 0, 0, 150],
+                                "OFFSET_X": 2,
+                                "OFFSET_Y": 2,
+                                "BLUR_RADIUS": 4,
+                            },
+                        },
+                    },
+                ),
+                (
+                    "Warm gradient label",
+                    {
+                        "SHOW": True,
+                        "X": canvas_width // 2,
+                        "Y": canvas_height // 2,
+                        "WIDTH": min(280, canvas_width),
+                        "HEIGHT": 64,
+                        "FONT": "roboto-mono/RobotoMono-Bold.ttf",
+                        "FONT_SIZE": 30,
+                        "FONT_COLOR": [255, 235, 180],
+                        "BACKGROUND_IMAGE": background,
+                        "ALIGN": "center",
+                        "ANCHOR": "mm",
+                        "EFFECTS": {
+                            "GRADIENT": {
+                                "ENABLED": True,
+                                "START_COLOR": [255, 235, 160],
+                                "END_COLOR": [255, 110, 120],
+                                "DIRECTION": "horizontal",
+                            },
+                            "SHADOW": {
+                                "ENABLED": True,
+                                "COLOR": [0, 0, 0, 140],
+                                "OFFSET_X": 2,
+                                "OFFSET_Y": 2,
+                                "BLUR_RADIUS": 3,
+                            },
+                        },
+                    },
+                ),
+                (
+                    "Neon gradient value",
+                    {
+                        "SHOW": True,
+                        "X": canvas_width // 2,
+                        "Y": canvas_height // 2,
+                        "WIDTH": min(280, canvas_width),
+                        "HEIGHT": 78,
+                        "FONT": "roboto-mono/RobotoMono-Bold.ttf",
+                        "FONT_SIZE": 38,
+                        "FONT_COLOR": [150, 240, 255],
+                        "BACKGROUND_IMAGE": background,
+                        "ALIGN": "center",
+                        "ANCHOR": "mm",
+                        "EFFECTS": {
+                            "GRADIENT": {
+                                "ENABLED": True,
+                                "START_COLOR": [140, 255, 255],
+                                "END_COLOR": [190, 110, 255],
+                                "DIRECTION": "horizontal",
+                            },
+                            "GLOW": {
+                                "ENABLED": True,
+                                "COLOR": [120, 220, 255, 140],
+                                "BLUR_RADIUS": 8,
+                                "INTENSITY": 2,
+                            },
+                            "SHADOW": {
+                                "ENABLED": True,
+                                "COLOR": [0, 0, 0, 160],
+                                "OFFSET_X": 2,
+                                "OFFSET_Y": 2,
+                                "BLUR_RADIUS": 4,
+                            },
+                        },
+                    },
+                ),
+    ]
 
         if kind == "static_image":
             return [
@@ -2782,7 +2881,143 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                         "REVERSE_DIRECTION": False,
                     },
                 ),
-            ]
+                        (
+                    "Material warm gradient bar",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 168,
+                        "HEIGHT": 16,
+                        "ORIENTATION": "horizontal",
+                        "BAR_COLOR": [255, 190, 90],
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [38, 34, 31],
+                        "BAR_OUTLINE": False,
+                        "REVERSE_DIRECTION": False,
+                        "EFFECTS": {
+                            "GRADIENT": {
+                                "ENABLED": True,
+                                "START_COLOR": [255, 220, 120],
+                                "END_COLOR": [255, 96, 125],
+                                "DIRECTION": "auto",
+                            },
+                            "SHADOW": {
+                                "ENABLED": True,
+                                "COLOR": [0, 0, 0, 120],
+                                "OFFSET_X": 2,
+                                "OFFSET_Y": 2,
+                                "BLUR_RADIUS": 4,
+                            },
+                        },
+                    },
+                ),
+                (
+                    "Neon glow bar",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 168,
+                        "HEIGHT": 14,
+                        "ORIENTATION": "horizontal",
+                        "BAR_COLOR": [80, 220, 255],
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [18, 24, 34],
+                        "BAR_OUTLINE": False,
+                        "REVERSE_DIRECTION": False,
+                        "EFFECTS": {
+                            "GRADIENT": {
+                                "ENABLED": True,
+                                "START_COLOR": [120, 255, 255],
+                                "END_COLOR": [160, 100, 255],
+                                "DIRECTION": "auto",
+                            },
+                            "GLOW": {
+                                "ENABLED": True,
+                                "COLOR": [90, 220, 255, 130],
+                                "BLUR_RADIUS": 7,
+                                "INTENSITY": 2,
+                            },
+                        },
+                    },
+                ),
+                (
+                    "Soft shadow track",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 160,
+                        "HEIGHT": 18,
+                        "ORIENTATION": "horizontal",
+                        "BAR_COLOR": [235, 235, 245],
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [50, 50, 58],
+                        "BAR_OUTLINE": False,
+                        "REVERSE_DIRECTION": False,
+                        "EFFECTS": {
+                            "SHADOW": {
+                                "ENABLED": True,
+                                "COLOR": [0, 0, 0, 150],
+                                "OFFSET_X": 3,
+                                "OFFSET_Y": 3,
+                                "BLUR_RADIUS": 5,
+                            },
+                        },
+                    },
+                ),
+                (
+                    "Glass blue bar",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 168,
+                        "HEIGHT": 16,
+                        "ORIENTATION": "horizontal",
+                        "BAR_COLOR": [130, 190, 255],
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [32, 38, 48],
+                        "BAR_OUTLINE": True,
+                        "REVERSE_DIRECTION": False,
+                        "EFFECTS": {
+                            "GRADIENT": {
+                                "ENABLED": True,
+                                "START_COLOR": [220, 245, 255],
+                                "END_COLOR": [90, 140, 255],
+                                "DIRECTION": "auto",
+                            },
+                            "GLOW": {
+                                "ENABLED": True,
+                                "COLOR": [120, 180, 255, 90],
+                                "BLUR_RADIUS": 4,
+                                "INTENSITY": 1,
+                            },
+                        },
+                    },
+                ),
+                (
+                    "Warning heat bar",
+                    {
+                        "SHOW": True,
+                        "WIDTH": 168,
+                        "HEIGHT": 16,
+                        "ORIENTATION": "horizontal",
+                        "BAR_COLOR": [255, 120, 60],
+                        "DRAW_BAR_BACKGROUND": True,
+                        "BAR_BACKGROUND_COLOR": [45, 25, 20],
+                        "BAR_OUTLINE": False,
+                        "REVERSE_DIRECTION": False,
+                        "EFFECTS": {
+                            "GRADIENT": {
+                                "ENABLED": True,
+                                "START_COLOR": [255, 220, 60],
+                                "END_COLOR": [255, 50, 70],
+                                "DIRECTION": "auto",
+                            },
+                            "GLOW": {
+                                "ENABLED": True,
+                                "COLOR": [255, 100, 80, 90],
+                                "BLUR_RADIUS": 5,
+                                "INTENSITY": 1,
+                            },
+                        },
+                    },
+                ),
+    ]
 
         if kind == "radial":
             return [
@@ -3095,6 +3330,7 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
             preset_row = self.create_text_style_preset_row(node)
             if preset_row is not None:
                 self.dynamic_group.add(preset_row)
+                self.property_rows.append(preset_row)
                 self.property_rows.append(preset_row)
 
         for key in ordered_keys:
@@ -5302,7 +5538,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             title="Output FPS",
             model=Gtk.StringList.new(("24 FPS", "30 FPS")),
         )
-        fps_row.set_selected(1)
+        fps_row.set_selected(0)
         output_group.add(fps_row)
         crf_spin = add_spin(output_group, "Quality (CRF)", 20, 0, 51)
 
@@ -5818,7 +6054,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             try:
                 settings = selected_settings()
                 output = prepared_output_path(
-                    cache_directory(),
+                    self.theme_dir,
                     output_name_row.get_text() or state["source_media"].filename,
                 )
                 preview_destination = preview_background_path(
@@ -5847,7 +6083,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             confirm = Adw.AlertDialog(
                 heading="Replace prepared video?",
                 body=(
-                    f"{output.name} already exists in the media-preparation cache. "
+                    f"{output.name} already exists in this theme folder. "
                     "The existing prepared copy will be replaced only after a successful conversion."
                 ),
             )
@@ -5981,7 +6217,7 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             label=(
                 "Videos stored on the display can be selected, played, and "
                 "used by the theme. The editor automatically searches the "
-                "media-preparation cache for the converted local copy. If it "
+                "theme folder for the prepared local copy. If it "
                 "is unavailable, choose the original file manually."
             ),
             xalign=0,
