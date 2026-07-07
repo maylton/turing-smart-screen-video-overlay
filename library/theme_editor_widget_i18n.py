@@ -2,8 +2,9 @@
 """Safe widget-level i18n patch for the GTK Theme Editor.
 
 This intentionally avoids the previous ``__build_class__`` hook. It only wraps
-GTK/Libadwaita widget constructors, text setters, dialog response labels, and
-StringList creation/updates while ``theme-editor-gtk.py`` is starting up.
+GTK/Libadwaita widget constructors, text setters, dialog response labels,
+DropDown string factories, and StringList creation/updates while
+``theme-editor-gtk.py`` is starting up.
 """
 
 from __future__ import annotations
@@ -102,6 +103,24 @@ def _patch_dialog_response(cls: Any) -> None:
     add_response_with_i18n._theme_editor_widget_i18n = True
     try:
         cls.add_response = add_response_with_i18n
+    except Exception:
+        pass
+
+
+def _patch_dropdown_new_from_strings(Gtk: Any) -> None:
+    cls = getattr(Gtk, "DropDown", None)
+    if cls is None:
+        return
+    original = getattr(cls, "new_from_strings", None)
+    if not callable(original) or getattr(original, "_theme_editor_widget_i18n", False):
+        return
+
+    def new_from_strings_with_i18n(strings: Iterable[str] | None = None):
+        return original(_translated_strings(strings))
+
+    new_from_strings_with_i18n._theme_editor_widget_i18n = True
+    try:
+        cls.new_from_strings = staticmethod(new_from_strings_with_i18n)
     except Exception:
         pass
 
@@ -219,5 +238,6 @@ def install() -> None:
     if alert_dialog is not None:
         _patch_dialog_response(alert_dialog)
 
+    _patch_dropdown_new_from_strings(Gtk)
     _patch_string_list(Gtk)
     _INSTALLED = True
