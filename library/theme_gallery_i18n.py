@@ -15,8 +15,8 @@ _PT_BR = {
     "No compatible themes": "Nenhum tema compatível",
     "No matching compatible themes": "Nenhum tema compatível encontrado",
     "No compatible themes found": "Nenhum tema compatível encontrado",
-    "No compatible theme matches “{query}”.": "Nenhum tema compatível corresponde a “{query}”",
-    "No installed theme declares DISPLAY_SIZE {size}”.": "Nenhum tema instalado declara DISPLAY_SIZE {size}”",
+    "No compatible theme matches “{query}”.": "Nenhum tema compatível corresponde a “{query}”.",
+    "No installed theme declares DISPLAY_SIZE {size}\".": "Nenhum tema instalado declara DISPLAY_SIZE {size}\".",
     "Could not detect a display size, so no compatibility filter could be applied.": "Não foi possível detectar o tamanho da tela; nenhum filtro de compatibilidade foi aplicado.",
     "compatible theme": "tema compatível",
     "compatible themes": "temas compatíveis",
@@ -70,7 +70,6 @@ _PT_BR = {
     "Theme Gallery Diagnostics": "Diagnóstico da Galeria de Temas",
     "Theme": "Tema",
     "Status": "Status",
-    "Current theme": "Tema atual",
     "Target display": "Tela alvo",
     "Theme display": "Tela do tema",
     "Theme folder": "Pasta do tema",
@@ -127,7 +126,10 @@ def translate_dynamic(message: str) -> str:
         if template == "Type {theme} exactly to delete this theme.":
             suffix = " exactly to delete this theme."
             if message.endswith(suffix):
-                return tr(template, theme=message.removeprefix(prefix).removesuffix(suffix))
+                return tr(
+                    template,
+                    theme=message.removeprefix(prefix).removesuffix(suffix),
+                )
             continue
         theme = message.removeprefix(prefix).removesuffix("?")
         return tr(template, theme=theme)
@@ -138,7 +140,7 @@ def translate_dynamic(message: str) -> str:
 
     if message.startswith("No installed theme declares DISPLAY_SIZE ") and message.endswith("\"."):
         size = message.removeprefix("No installed theme declares DISPLAY_SIZE ").removesuffix("\".")
-        return tr("No installed theme declares DISPLAY_SIZE {size}”.", size=size)
+        return tr("No installed theme declares DISPLAY_SIZE {size}\".", size=size)
 
     return t(message)
 
@@ -260,8 +262,17 @@ def _install_dialog_i18n(gallery: Any) -> None:
     if not getattr(cls, "_theme_gallery_i18n_response_installed", False):
         original_add_response = getattr(cls, "add_response", None)
         if callable(original_add_response):
-            def add_response_with_i18n(self, response_id, label, __original_add_response=original_add_response):
-                return __original_add_response(self, response_id, translate_dynamic(str(label)))
+            def add_response_with_i18n(
+                self,
+                response_id,
+                label,
+                __original_add_response=original_add_response,
+            ):
+                return __original_add_response(
+                    self,
+                    response_id,
+                    translate_dynamic(str(label)),
+                )
 
             try:
                 cls.add_response = add_response_with_i18n
@@ -273,7 +284,8 @@ def _install_dialog_i18n(gallery: Any) -> None:
 def _localize_report(report: str) -> str:
     if active_language() != "pt_BR":
         return report
-    replacements = {
+
+    label_replacements = {
         "Theme Gallery Diagnostics": t("Theme Gallery Diagnostics"),
         "Theme:": f"{t('Theme')}:",
         "Status:": f"{t('Status')}:",
@@ -296,6 +308,8 @@ def _localize_report(report: str) -> str:
         "Has preview image:": f"{t('Has preview image')}:",
         "Has theme.yaml/theme.yml:": f"{t('Has theme.yaml/theme.yml')}:",
         "Blocking issue:": f"{t('Blocking issue')}:",
+    }
+    value_replacements = {
         "yes": t("yes"),
         "no": t("no"),
         "unknown": t("unknown"),
@@ -305,10 +319,23 @@ def _localize_report(report: str) -> str:
         "Missing theme.yaml": t("Missing theme.yaml"),
         "Missing DISPLAY_SIZE": t("Missing DISPLAY_SIZE"),
     }
-    text = report
-    for source, target in replacements.items():
-        text = text.replace(source, target)
-    return text
+
+    localized_lines: list[str] = []
+    for original_line in report.splitlines():
+        line = original_line
+        for source, target in label_replacements.items():
+            if line.startswith(source):
+                line = target + line[len(source):]
+                break
+            bullet = f"- {source}"
+            if line.startswith(bullet):
+                line = f"- {target}" + line[len(bullet):]
+                break
+        for source, target in value_replacements.items():
+            line = line.replace(f": {source}", f": {target}")
+            line = line.replace(f" {source}", f" {target}")
+        localized_lines.append(line)
+    return "\n".join(localized_lines)
 
 
 def install_theme_gallery_i18n(app: Any | None = None) -> None:
@@ -368,7 +395,11 @@ def install_theme_gallery_i18n(app: Any | None = None) -> None:
                 display = f' para {self.target_display_size}"' if self.target_display_size else ""
                 self.result_label.set_text(f"{t('No compatible themes')}{display}")
             elif self.filter_query:
-                self.result_label.set_text(f"{visible} de {total}" if active_language() == "pt_BR" else f"{visible} of {total}")
+                self.result_label.set_text(
+                    f"{visible} de {total}"
+                    if active_language() == "pt_BR"
+                    else f"{visible} of {total}"
+                )
             elif active_language() == "pt_BR":
                 display = f' · {self.target_display_size}"' if self.target_display_size else ""
                 noun = t("compatible theme") if total == 1 else t("compatible themes")
@@ -400,7 +431,11 @@ def install_theme_gallery_i18n(app: Any | None = None) -> None:
     original_show_error = getattr(pane_class, "show_error_dialog", None)
     if callable(original_show_error):
         def show_error_dialog_i18n(self, heading: str, body: str) -> None:
-            return original_show_error(self, translate_dynamic(str(heading)), translate_dynamic(str(body)))
+            return original_show_error(
+                self,
+                translate_dynamic(str(heading)),
+                translate_dynamic(str(body)),
+            )
 
         pane_class.show_error_dialog = show_error_dialog_i18n
 
