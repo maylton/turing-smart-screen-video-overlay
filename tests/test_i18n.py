@@ -28,6 +28,9 @@ class I18nTests(unittest.TestCase):
             self.assertEqual(i18n.t("Turn off screen"), "Desligar tela")
             self.assertEqual(i18n.t("Gallery"), "Galeria")
             self.assertEqual(i18n.t("Apply + Start"), "Aplicar + Iniciar")
+            self.assertEqual(i18n.t("Use"), "Usar")
+            self.assertEqual(i18n.t("More actions"), "Mais ações")
+            self.assertEqual(i18n.t("Export Anyway"), "Exportar mesmo")
 
     def test_uses_portuguese_from_system_locale_environment(self):
         with mock.patch.dict(
@@ -62,6 +65,10 @@ class I18nTests(unittest.TestCase):
 
     def test_main_app_polish_catalog_has_no_missing_portuguese_translations(self):
         missing = i18n.missing_translations(i18n.MAIN_APP_POLISH_MESSAGES)
+        self.assertEqual(missing, [])
+
+    def test_theme_gallery_catalog_has_no_missing_portuguese_translations(self):
+        missing = i18n.missing_translations(i18n.THEME_GALLERY_MESSAGES)
         self.assertEqual(missing, [])
 
     def test_tray_catalog_has_no_missing_portuguese_translations(self):
