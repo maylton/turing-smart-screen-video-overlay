@@ -60,9 +60,24 @@ def _widget_label(widget: Any) -> str:
     return ""
 
 
+def _translated_values(value: str) -> set[str]:
+    values = {value}
+    try:
+        from library.i18n import t as _
+
+        values.add(_(value))
+    except Exception:
+        pass
+    return values
+
+
+def _matches_translated_value(actual: str, expected: str) -> bool:
+    return actual in _translated_values(expected)
+
+
 def _find_titled_widget(root: Any, title: str) -> Any | None:
     for widget in _walk_widgets(root):
-        if _widget_title(widget) == title:
+        if _matches_translated_value(_widget_title(widget), title):
             return widget
     return None
 
@@ -79,7 +94,7 @@ def _find_settings_content_box(app: Any, root: Any) -> Any | None:
         if not isinstance(widget, Gtk.Box):
             continue
         for child in _iter_widget_children(widget):
-            if _widget_label(child) == "Settings":
+            if _matches_translated_value(_widget_label(child), "Settings"):
                 return widget
     return None
 
