@@ -16,6 +16,12 @@ from pathlib import Path
 _THEME_EDITOR_ENTRY_POINTS = {
     "theme-editor-gtk.py",
 }
+_GTK_SHELL_ENTRY_POINTS = {
+    "configure-gtk.py",
+    "turing-smart-screen",
+    "turing-smart-screen-gtk.py",
+    "turing-smart-screen-main.py",
+}
 _TRAY_I18N_HOOK_INSTALLED = False
 
 
@@ -28,7 +34,7 @@ def _should_patch_theme_editor() -> bool:
 
 
 def _should_patch_tray_i18n() -> bool:
-    return _entry_point_name() == "configure-gtk.py"
+    return _entry_point_name() in _GTK_SHELL_ENTRY_POINTS
 
 
 def _install_theme_editor_patches() -> None:
