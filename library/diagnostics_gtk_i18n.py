@@ -10,9 +10,16 @@ _PT_BR = {
     "Turing Smart Screen Diagnostics": "Diagnóstico da Turing Smart Screen",
     "Diagnostics": "Diagnóstico",
     "Safe display, theme, runtime, and serial report": "Relatório seguro da tela, tema, execução e serial",
+    "Safe display, theme, runtime, and serial report. This page does not open the display serial port.": (
+        "Relatório seguro da tela, tema, execução e serial. Esta página não abre a porta serial da tela."
+    ),
+    "Back to Settings": "Voltar para Configurações",
+    "Return to Settings": "Retornar para Configurações",
     "Refresh diagnostics": "Atualizar diagnóstico",
     "Copy text diagnostics report": "Copiar relatório de diagnóstico em texto",
     "Copy machine-readable diagnostics JSON": "Copiar JSON de diagnóstico legível por máquina",
+    "Copy diagnostics report": "Copiar relatório de diagnóstico",
+    "Copy diagnostics JSON": "Copiar JSON de diagnóstico",
     "This page reads configuration, theme metadata, monitor process state, and USB descriptors without opening the display serial port.": (
         "Esta página lê configuração, metadados do tema, estado do processo da tela e descritores USB sem abrir a porta serial da tela."
     ),
