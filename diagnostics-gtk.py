@@ -26,20 +26,17 @@ except Exception as exc:  # pragma: no cover - startup guard
     raise SystemExit(1)
 
 from diagnostics import collect_diagnostics, render_text
+from library.diagnostics_gtk_i18n import status_text, t as _, tr
 
 
 APP_ID = "io.github.turing.SmartScreen.Diagnostics"
-
-
-def _status_text(ok: bool, good: str = "OK", bad: str = "Needs attention") -> str:
-    return good if ok else bad
 
 
 class DiagnosticsWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application):
         super().__init__(
             application=app,
-            title="Turing Smart Screen Diagnostics",
+            title=_("Turing Smart Screen Diagnostics"),
             default_width=1040,
             default_height=760,
         )
@@ -56,29 +53,29 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(
             Adw.WindowTitle(
-                title="Diagnostics",
-                subtitle="Safe display, theme, runtime, and serial report",
+                title=_("Diagnostics"),
+                subtitle=_("Safe display, theme, runtime, and serial report"),
             )
         )
         toolbar.add_top_bar(header)
 
         refresh_button = Gtk.Button(
             icon_name="view-refresh-symbolic",
-            tooltip_text="Refresh diagnostics",
+            tooltip_text=_("Refresh diagnostics"),
         )
         refresh_button.connect("clicked", lambda *_: self.refresh_diagnostics())
         header.pack_end(refresh_button)
 
         copy_button = Gtk.Button(
             icon_name="edit-copy-symbolic",
-            tooltip_text="Copy text diagnostics report",
+            tooltip_text=_("Copy text diagnostics report"),
         )
         copy_button.connect("clicked", lambda *_: self.copy_report())
         header.pack_end(copy_button)
 
         copy_json_button = Gtk.Button(
             label="JSON",
-            tooltip_text="Copy machine-readable diagnostics JSON",
+            tooltip_text=_("Copy machine-readable diagnostics JSON"),
         )
         copy_json_button.connect("clicked", lambda *_: self.copy_json_report())
         header.pack_end(copy_json_button)
@@ -101,7 +98,7 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         clamp.set_child(content)
 
         intro = Gtk.Label(
-            label=(
+            label=_(
                 "This page reads configuration, theme metadata, monitor process "
                 "state, and USB descriptors without opening the display serial port."
             ),
@@ -116,10 +113,10 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         self.summary_grid.set_hexpand(True)
         content.append(self.summary_grid)
 
-        self.theme_card = self._summary_card("Theme", "applications-graphics-symbolic")
-        self.video_card = self._summary_card("Video", "video-x-generic-symbolic")
-        self.runtime_card = self._summary_card("Runtime", "media-playback-start-symbolic")
-        self.serial_card = self._summary_card("Serial", "network-wired-symbolic")
+        self.theme_card = self._summary_card(_("Theme"), "applications-graphics-symbolic")
+        self.video_card = self._summary_card(_("Video"), "video-x-generic-symbolic")
+        self.runtime_card = self._summary_card(_("Runtime"), "media-playback-start-symbolic")
+        self.serial_card = self._summary_card(_("Serial"), "network-wired-symbolic")
 
         self.summary_grid.attach(self.theme_card["card"], 0, 0, 1, 1)
         self.summary_grid.attach(self.video_card["card"], 1, 0, 1, 1)
@@ -127,8 +124,10 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         self.summary_grid.attach(self.serial_card["card"], 1, 1, 1, 1)
 
         report_group = Adw.PreferencesGroup(
-            title="Full report",
-            description="Copy this report when filing bugs or comparing display states.",
+            title=_("Full report"),
+            description=_(
+                "Copy this report when filing bugs or comparing display states."
+            ),
         )
         report_group.set_vexpand(True)
         content.append(report_group)
@@ -212,9 +211,9 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
             self.latest_json = json.dumps(payload, indent=2, sort_keys=True)
             self._render_payload(payload)
             self.report_view.get_buffer().set_text(self.latest_text)
-            self.toast("Diagnostics refreshed")
+            self.toast(_("Diagnostics refreshed"))
         except Exception as exc:
-            self.latest_text = f"Diagnostics failed: {exc}"
+            self.latest_text = tr("Diagnostics failed: {error}", error=exc)
             self.latest_json = ""
             self.report_view.get_buffer().set_text(self.latest_text)
             self.toast(self.latest_text)
@@ -227,29 +226,30 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         runtime = payload.get("runtime", {})
         serial = payload.get("serial", {})
 
-        theme_name = config.get("theme") or "No theme"
+        theme_name = config.get("theme") or _("No theme")
         theme_ok = bool(theme.get("directory_exists") and theme.get("yaml_exists"))
-        preview_text = "preview OK" if theme.get("preview_exists") else "preview missing"
+        preview_text = _("preview OK") if theme.get("preview_exists") else _("preview missing")
         self._set_card(
             self.theme_card,
             theme_name,
-            f"{_status_text(theme_ok)} · {preview_text}",
+            f"{status_text(theme_ok)} · {preview_text}",
         )
 
         if video.get("configured"):
-            value = "Configured"
-            detail = "local file OK" if video.get("local_exists") else "local file missing"
+            value = _("Configured")
+            detail = _("local file OK") if video.get("local_exists") else _("local file missing")
         else:
-            value = "Not configured"
-            detail = str(video.get("reason") or "video block missing or disabled")
+            value = _("Not configured")
+            detail = str(video.get("reason") or _("video block missing or disabled"))
         self._set_card(self.video_card, value, detail)
 
         running = bool(runtime.get("monitor_running"))
         pids = runtime.get("monitor_pids") or []
         self._set_card(
             self.runtime_card,
-            "Running" if running else "Stopped",
-            "PID " + ", ".join(map(str, pids)) if pids else "No monitor process detected",
+            _("Running") if running else _("Stopped"),
+            tr("PID {pids}", pids=", ".join(map(str, pids)))
+            if pids else _("No monitor process detected"),
         )
 
         real = serial.get("real_tty_acm") or []
@@ -257,19 +257,22 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         if real:
             serial_value = ", ".join(real)
         elif usb_monitor:
-            serial_value = "UsbMonitor only"
+            serial_value = _("UsbMonitor only")
         else:
-            serial_value = "No ttyACM display"
+            serial_value = _("No ttyACM display")
         self._set_card(
             self.serial_card,
             serial_value,
-            f"UsbMonitor: {', '.join(usb_monitor) if usb_monitor else 'none'}",
+            tr(
+                "UsbMonitor: {devices}",
+                devices=", ".join(usb_monitor) if usb_monitor else _("none"),
+            ),
         )
 
     def copy_to_clipboard(self, text: str, message: str) -> None:
         display = Gdk.Display.get_default()
         if display is None:
-            self.toast("Clipboard is not available")
+            self.toast(_("Clipboard is not available"))
             return
         display.get_clipboard().set(text)
         self.toast(message)
@@ -277,12 +280,12 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
     def copy_report(self, *_args) -> None:
         if not self.latest_text:
             self.refresh_diagnostics()
-        self.copy_to_clipboard(self.latest_text, "Diagnostics copied")
+        self.copy_to_clipboard(self.latest_text, _("Diagnostics copied"))
 
     def copy_json_report(self, *_args) -> None:
         if not self.latest_json:
             self.refresh_diagnostics()
-        self.copy_to_clipboard(self.latest_json, "Diagnostics JSON copied")
+        self.copy_to_clipboard(self.latest_json, _("Diagnostics JSON copied"))
 
     def toast(self, message: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=message, timeout=3))
