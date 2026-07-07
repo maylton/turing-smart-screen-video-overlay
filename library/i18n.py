@@ -102,9 +102,15 @@ GTK_SHELL_MESSAGES = (
     "Light",
     "Dark",
     "Start minimized to tray",
+    "Start application minimized to tray",
+    "Controls only the GTK window. It does not start the display monitor.",
     "Open in the background and keep only the system tray icon visible",
     "Language",
     "Automatic from system locale: {language}",
+    "Runtime",
+    "The monitor owns the display connection exclusively while it is running.",
+    "Start monitor automatically",
+    "Start main.py when this application opens. Keep this disabled to start the monitor manually.",
     "Maintenance",
     "Verify GTK, Python dependencies, project files, and theme YAML files.",
     "Program check",
@@ -114,8 +120,19 @@ GTK_SHELL_MESSAGES = (
     "Light appearance enabled",
     "Dark appearance enabled",
     "Could not save startup preference: {error}",
+    "Could not save monitor startup preference: {error}",
     "Application will start minimized to tray",
     "Application will open normally",
+    "Monitor will start with the application",
+    "Monitor will be started manually",
+    "No saved theme to start automatically",
+    "Monitor is already running",
+    "Monitor is starting",
+    "Monitor is not running",
+    "Monitor stop is already in progress",
+    "Stopping monitor…",
+    "Turning off display…",
+    "Another runtime operation is already in progress",
     "Running program check…",
     "Program check completed",
     "Program check found problems",
@@ -123,6 +140,44 @@ GTK_SHELL_MESSAGES = (
     "No active theme",
     "Running",
     "Stopped",
+)
+
+
+MAIN_APP_POLISH_MESSAGES = (
+    "Control the active theme, display state, video overlay, and monitor process from one place.",
+    "Refresh status and preview",
+    "Theme",
+    "Monitor",
+    "Display",
+    "Edit theme",
+    "Open the active theme in the Theme Editor.",
+    "Sync video",
+    "Sync the active theme video to the display",
+    "Apply + Start",
+    "Apply, sync video, then start the monitor",
+    "Gallery",
+    "Open the theme gallery to browse, import, edit, or manage themes.",
+    "Videos",
+    "Open the video manager to upload, delete, or inspect display videos.",
+    "Turn off",
+    "Stop the monitor and turn off the physical display safely.",
+    "Choose a compatible theme from the gallery to begin.",
+    "CURRENT",
+    "NO THEME",
+    "VIDEO",
+    "STATIC",
+    "DISPLAY",
+    "TURZX import hints detected",
+    "Native video configured",
+    "Ready",
+    "Busy",
+    "Starting",
+    "Monitor owns the display",
+    "Display lock is owned",
+    "Process launched from this window",
+    "Display is free",
+    "Unknown",
+    "display",
 )
 
 
@@ -201,12 +256,24 @@ _PT_BR = {
     "Light": "Claro",
     "Dark": "Escuro",
     "Start minimized to tray": "Iniciar minimizado na bandeja",
+    "Start application minimized to tray": "Iniciar aplicativo minimizado na bandeja",
+    "Controls only the GTK window. It does not start the display monitor.": (
+        "Controla apenas a janela GTK. Não inicia a atualização da tela."
+    ),
     "Open in the background and keep only the system tray icon visible": (
         "Abre em segundo plano e mantém apenas o ícone da bandeja visível"
     ),
     "Language": "Idioma",
     "Automatic from system locale: {language}": (
         "Automático pelo locale do sistema: {language}"
+    ),
+    "Runtime": "Execução",
+    "The monitor owns the display connection exclusively while it is running.": (
+        "Enquanto está em execução, o monitor usa a conexão da tela com exclusividade."
+    ),
+    "Start monitor automatically": "Iniciar tela automaticamente",
+    "Start main.py when this application opens. Keep this disabled to start the monitor manually.": (
+        "Inicia o main.py quando este aplicativo abre. Mantenha desativado para iniciar manualmente."
     ),
     "Maintenance": "Manutenção",
     "Verify GTK, Python dependencies, project files, and theme YAML files.": (
@@ -225,10 +292,23 @@ _PT_BR = {
     "Could not save startup preference: {error}": (
         "Não foi possível salvar a preferência de inicialização: {error}"
     ),
+    "Could not save monitor startup preference: {error}": (
+        "Não foi possível salvar a preferência de inicialização da tela: {error}"
+    ),
     "Application will start minimized to tray": (
         "O aplicativo iniciará minimizado na bandeja"
     ),
     "Application will open normally": "O aplicativo abrirá normalmente",
+    "Monitor will start with the application": "A tela iniciará junto com o aplicativo",
+    "Monitor will be started manually": "A tela será iniciada manualmente",
+    "No saved theme to start automatically": "Nenhum tema salvo para iniciar automaticamente",
+    "Monitor is already running": "A tela já está em execução",
+    "Monitor is starting": "A tela está iniciando",
+    "Monitor is not running": "A tela não está em execução",
+    "Monitor stop is already in progress": "A parada da tela já está em andamento",
+    "Stopping monitor…": "Parando tela…",
+    "Turning off display…": "Desligando tela…",
+    "Another runtime operation is already in progress": "Outra operação de execução já está em andamento",
     "Running program check…": "Executando verificação do programa…",
     "Program check completed": "Verificação concluída",
     "Program check found problems": "A verificação encontrou problemas",
@@ -238,6 +318,51 @@ _PT_BR = {
     "No active theme": "Nenhum tema ativo",
     "Running": "Em execução",
     "Stopped": "Parado",
+
+    # Dashboard polish
+    "Control the active theme, display state, video overlay, and monitor process from one place.": (
+        "Controle tema ativo, estado da tela, vídeo e processo de atualização em um só lugar."
+    ),
+    "Refresh status and preview": "Atualizar status e prévia",
+    "Theme": "Tema",
+    "Monitor": "Tela",
+    "Display": "Display",
+    "Open the active theme in the Theme Editor.": "Abre o tema ativo no Editor de Tema.",
+    "Sync video": "Sincronizar vídeo",
+    "Sync the active theme video to the display": "Sincroniza o vídeo do tema ativo com a tela",
+    "Apply + Start": "Aplicar + Iniciar",
+    "Apply, sync video, then start the monitor": "Aplica, sincroniza o vídeo e inicia a tela",
+    "Gallery": "Galeria",
+    "Open the theme gallery to browse, import, edit, or manage themes.": (
+        "Abre a galeria para navegar, importar, editar ou gerenciar temas."
+    ),
+    "Videos": "Vídeos",
+    "Open the video manager to upload, delete, or inspect display videos.": (
+        "Abre o gerenciador para enviar, excluir ou inspecionar vídeos da tela."
+    ),
+    "Turn off": "Desligar",
+    "Stop the monitor and turn off the physical display safely.": (
+        "Para a atualização e desliga a tela física com segurança."
+    ),
+    "Choose a compatible theme from the gallery to begin.": (
+        "Escolha um tema compatível na galeria para começar."
+    ),
+    "CURRENT": "ATUAL",
+    "NO THEME": "SEM TEMA",
+    "VIDEO": "VÍDEO",
+    "STATIC": "ESTÁTICO",
+    "DISPLAY": "DISPLAY",
+    "TURZX import hints detected": "Dicas de importação TURZX detectadas",
+    "Native video configured": "Vídeo nativo configurado",
+    "Ready": "Pronto",
+    "Busy": "Ocupado",
+    "Starting": "Iniciando",
+    "Monitor owns the display": "A tela está em uso pelo monitor",
+    "Display lock is owned": "A conexão da tela está em uso",
+    "Process launched from this window": "Processo iniciado por esta janela",
+    "Display is free": "A tela está livre",
+    "Unknown": "Desconhecido",
+    "display": "display",
 
     # Tray menu
     "Show window": "Mostrar janela",
