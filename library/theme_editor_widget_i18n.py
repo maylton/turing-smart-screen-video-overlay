@@ -3,7 +3,7 @@
 
 This intentionally avoids the previous ``__build_class__`` hook. It only wraps
 GTK/Libadwaita widget constructors, text setters, dialog response labels, and
-StringList creation while ``theme-editor-gtk.py`` is starting up.
+StringList creation/updates while ``theme-editor-gtk.py`` is starting up.
 """
 
 from __future__ import annotations
@@ -29,7 +29,15 @@ def _translate(value: Any) -> Any:
     try:
         from library.theme_editor_i18n import t
 
-        return t(value)
+        translated = t(value)
+        if translated != value:
+            return translated
+    except Exception:
+        pass
+    try:
+        from library.theme_editor_preset_i18n import t as preset_t
+
+        return preset_t(value)
     except Exception:
         return value
 
@@ -42,6 +50,15 @@ def _translated_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         if key in translated:
             translated[key] = _translate(translated[key])
     return translated
+
+
+def _translated_strings(strings: Iterable[str] | None):
+    if strings is None:
+        return strings
+    try:
+        return [_translate(item) for item in strings]
+    except Exception:
+        return strings
 
 
 def _patch_init(cls: Any) -> None:
@@ -91,26 +108,50 @@ def _patch_dialog_response(cls: Any) -> None:
 
 def _patch_string_list(Gtk: Any) -> None:
     cls = getattr(Gtk, "StringList", None)
-    if cls is None:
-        return
-    original = getattr(cls, "new", None)
-    if not callable(original) or getattr(original, "_theme_editor_widget_i18n", False):
+    if cls is None or getattr(cls, "_theme_editor_widget_i18n", False):
         return
 
-    def new_with_i18n(strings: Iterable[str] | None = None):
-        if strings is None:
-            return original(strings)
+    original_new = getattr(cls, "new", None)
+    if callable(original_new):
+        def new_with_i18n(strings: Iterable[str] | None = None):
+            return original_new(_translated_strings(strings))
+
+        new_with_i18n._theme_editor_widget_i18n = True
         try:
-            strings = [_translate(item) for item in strings]
+            cls.new = staticmethod(new_with_i18n)
         except Exception:
             pass
-        return original(strings)
 
-    new_with_i18n._theme_editor_widget_i18n = True
-    try:
-        cls.new = staticmethod(new_with_i18n)
-    except Exception:
-        pass
+    original_append = getattr(cls, "append", None)
+    if callable(original_append):
+        def append_with_i18n(self, string, *args, **kwargs):
+            return original_append(self, _translate(string), *args, **kwargs)
+
+        append_with_i18n._theme_editor_widget_i18n = True
+        try:
+            cls.append = append_with_i18n
+        except Exception:
+            pass
+
+    original_splice = getattr(cls, "splice", None)
+    if callable(original_splice):
+        def splice_with_i18n(self, position, n_removals, additions, *args, **kwargs):
+            return original_splice(
+                self,
+                position,
+                n_removals,
+                _translated_strings(additions),
+                *args,
+                **kwargs,
+            )
+
+        splice_with_i18n._theme_editor_widget_i18n = True
+        try:
+            cls.splice = splice_with_i18n
+        except Exception:
+            pass
+
+    cls._theme_editor_widget_i18n = True
 
 
 def install() -> None:
