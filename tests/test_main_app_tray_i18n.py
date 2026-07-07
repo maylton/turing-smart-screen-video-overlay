@@ -27,9 +27,12 @@ class MainAppTrayI18nContractTests(unittest.TestCase):
         ):
             self.assertIn(key, source)
 
-    def test_usercustomize_loads_tray_i18n_for_configure_gtk_only(self):
+    def test_usercustomize_loads_tray_i18n_for_gtk_shell_entrypoints(self):
         source = Path("usercustomize.py").read_text(encoding="utf-8")
-        self.assertIn('return _entry_point_name() == "configure-gtk.py"', source)
+        self.assertIn("_GTK_SHELL_ENTRY_POINTS", source)
+        self.assertIn('"configure-gtk.py"', source)
+        self.assertIn('"turing-smart-screen"', source)
+        self.assertIn("return _entry_point_name() in _GTK_SHELL_ENTRY_POINTS", source)
         self.assertIn("install_main_app_tray_i18n", source)
         self.assertIn("_install_tray_i18n_import_hook()", source)
 
