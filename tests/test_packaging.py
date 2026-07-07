@@ -14,13 +14,13 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn('"$PREFIX/venv/bin/python3" -m pip', text)
         self.assertIn("System GTK4 and Libadwaita imports OK", text)
         self.assertIn(
-            "Project venv GTK, Pillow, PyYAML and ruamel.yaml imports OK",
+            "Project venv GTK, Pillow, pyserial, Babel and ruamel.yaml imports OK",
             text,
         )
 
     def test_installer_runs_the_installed_checkup(self):
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
-        self.assertIn('/usr/bin/python3 "$PREFIX/gtk-checkup.py" "$PREFIX"', text)
+        self.assertIn('"$PREFIX/venv/bin/python3" "$PREFIX/gtk-checkup.py" "$PREFIX"', text)
 
     def test_fork_documentation_exists(self):
         for relative in (

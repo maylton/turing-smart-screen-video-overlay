@@ -16,6 +16,8 @@
 
 ## What is this?
 
+<!-- MAYLTON_FORK_OVERVIEW -->
+
 This repository is a **Linux-focused experimental fork** of
 [`mathoudebine/turing-smart-screen-python`](https://github.com/mathoudebine/turing-smart-screen-python).
 
@@ -220,6 +222,18 @@ for:
 - rendering transparent overlays above native video backgrounds.
 
 This is the most hardware-specific and risky area of the fork.
+
+---
+
+## Release readiness validation
+
+Before publishing or promoting a branch, run the release-readiness helper:
+
+```bash
+./scripts/verify-release-readiness.sh
+```
+
+This check is intended to catch packaging, documentation, test, and install-readiness regressions before a release candidate is shared.
 
 ---
 
