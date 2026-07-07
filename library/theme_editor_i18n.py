@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Runtime i18n integration for the GTK Theme Editor.
 
-The editor is currently a large script executed as ``__main__``. To keep this
-phase small and avoid editing the whole file, usercustomize installs a class
-creation hook before theme-editor-gtk.py defines ThemeEditorWindow. This module
-then wraps the window lifecycle and translates already-created GTK widgets.
+The inline main-app editor now installs safe widget-level translation hooks before
+``theme-editor-gtk.py`` builds the editor content. This helper keeps the Theme
+Editor-specific translation catalog and small dynamic translation rules used by
+those hooks.
 """
 
 from __future__ import annotations
 
 import builtins
+import re
 import sys
 from typing import Any, Iterable
 
@@ -56,6 +57,7 @@ _PT_BR = {
     "Hidden": "Ocultos",
     "Mixed": "Misturados",
     "Structure": "Estrutura",
+    "Available to add": "Disponível para adicionar",
     "Expand all": "Expandir tudo",
     "Expand every group in the component tree": "Expandir todos os grupos da árvore de componentes",
     "Collapse all": "Recolher tudo",
@@ -82,9 +84,34 @@ _PT_BR = {
     "Delete custom elements; sensors are disabled after confirmation": "Exclui elementos personalizados; sensores são desativados após confirmação",
     "Legacy editor access moved to More theme actions → Advanced / Legacy Editor…": "O acesso ao editor legado foi movido para Mais ações do tema → Editor avançado / legado…",
 
+    # Element tree labels and statuses
+    "Display": "Tela",
+    "display": "tela",
+    "Configuration": "Configuração",
+    "Content": "Conteúdo",
+    "Custom text": "Texto personalizado",
+    "Video and background": "Vídeo e fundo",
+    "System metrics": "Métricas do sistema",
+    "CPU": "CPU",
+    "Percentage": "Percentual",
+    "Text": "Texto",
+    "Graph": "Gráfico",
+    "Radial": "Radial",
+    "Line graph": "Gráfico de linha",
+    "Frequency": "Frequência",
+    "Load": "Carga",
+    "Temperature": "Temperatura",
+    "Fan speed": "Velocidade da ventoinha",
+    "Weather": "Clima",
+    "Custom image": "Imagem personalizada",
+    "Static image": "Imagem estática",
+    "Background image": "Imagem de fundo",
+    "Image layout": "Layout da imagem",
+
     # Preview and properties
     "Live preview": "Prévia ao vivo",
     "Select an element with X/Y, then drag it directly on the preview.": "Selecione um elemento com X/Y e arraste-o diretamente na prévia.",
+    "Select an element with X/Y and drag it directly on the preview.": "Selecione um elemento com X/Y e arraste-o diretamente na prévia.",
     "Properties": "Propriedades",
     "Select an element": "Selecione um elemento",
     "Apply property changes": "Aplicar alterações de propriedade",
@@ -99,6 +126,18 @@ _PT_BR = {
     "Preview, prepare, or manage the theme video.": "Pré-visualize, prepare ou gerencie o vídeo do tema.",
     "Inspector": "Inspetor",
     "Background": "Fundo",
+
+    # Common display/property rows
+    "Active theme": "Tema ativo",
+    "Choose the target smart screen size.": "Escolha o tamanho da tela smart de destino.",
+    "Choose the theme canvas orientation.": "Escolha a orientação da área do tema.",
+    "DISPLAY_SIZE": "Tamanho da tela",
+    "DISPLAY_ORIENTATION": "Orientação da tela",
+    "Landscape": "Paisagem",
+    "Portrait": "Retrato",
+    "landscape": "paisagem",
+    "portrait": "retrato",
+    "solar": "solar",
 
     # Gradient / style dialogs
     "Gradient effect": "Efeito de degradê",
@@ -202,15 +241,63 @@ _STATE_FILTER_KEYS = [
     "Structure",
 ]
 
-
 _THEME_EDITOR_HOOK_INSTALLED = False
 _ORIGINAL_BUILD_CLASS = None
 
 
+def _plural_pt(count: int, singular: str, plural: str) -> str:
+    return singular if count == 1 else plural
+
+
+def _translate_visibility_summary(message: str) -> str | None:
+    match = re.fullmatch(r"(\d+) visible · (\d+) hidden", message)
+    if match:
+        visible = int(match.group(1))
+        hidden = int(match.group(2))
+        return (
+            f"{visible} {_plural_pt(visible, 'visível', 'visíveis')} · "
+            f"{hidden} {_plural_pt(hidden, 'oculto', 'ocultos')}"
+        )
+
+    match = re.fullmatch(r"(\d+) visible", message)
+    if match:
+        visible = int(match.group(1))
+        return f"{visible} {_plural_pt(visible, 'visível', 'visíveis')}"
+
+    match = re.fullmatch(r"(\d+) hidden", message)
+    if match:
+        hidden = int(match.group(1))
+        return f"{hidden} {_plural_pt(hidden, 'oculto', 'ocultos')}"
+
+    return None
+
+
+def _translate_catalog_choice(message: str) -> str | None:
+    # Examples: "Content — Custom text", "Media — Static image".
+    if " — " not in message:
+        return None
+    parts = message.split(" — ")
+    translated = [t(part) for part in parts]
+    if translated != parts:
+        return " — ".join(translated)
+    return None
+
+
+def _translate_theme_editor_dynamic(message: str) -> str | None:
+    for translator in (_translate_visibility_summary, _translate_catalog_choice):
+        translated = translator(message)
+        if translated is not None:
+            return translated
+    return None
+
+
 def t(message: str) -> str:
-    if active_language() == "pt_BR":
-        return _PT_BR.get(message, message)
-    return message
+    if active_language() != "pt_BR":
+        return message
+    dynamic = _translate_theme_editor_dynamic(message)
+    if dynamic is not None:
+        return dynamic
+    return _PT_BR.get(message, message)
 
 
 def _iter_widget_children(widget: Any) -> Iterable[Any]:
@@ -381,7 +468,6 @@ def install_theme_editor_i18n(window_class: type) -> None:
 
     if getattr(window_class, "_theme_editor_i18n_installed", False):
         return
-
     app_module = sys.modules.get(window_class.__module__)
     if app_module is not None:
         install_theme_editor_dialog_i18n(app_module)
