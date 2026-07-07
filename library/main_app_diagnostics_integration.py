@@ -4,6 +4,7 @@
 This module is the single entry point for the Main App / Diagnostics draft work:
 
 - Settings → Maintenance → Diagnostics opens inline inside the main GTK app;
+- theme editing routes through an inline Theme Editor page when possible;
 - Apply + Sync + Start status messages are installed;
 - the polished Overview Monitor card refreshes automatically.
 
@@ -183,6 +184,104 @@ def _open_diagnostics_factory(app: Any):
     return open_diagnostics
 
 
+def _remove_stack_page(stack: Any, page_name: str) -> None:
+    existing = None
+    getter = getattr(stack, "get_child_by_name", None)
+    if callable(getter):
+        try:
+            existing = getter(page_name)
+        except Exception:
+            existing = None
+    if existing is None:
+        return
+    remover = getattr(stack, "remove", None)
+    if callable(remover):
+        try:
+            remover(existing)
+        except Exception:
+            pass
+
+
+def _open_theme_editor_factory(app: Any):
+    standalone_editor = app.THEME_EDITOR
+
+    def open_theme_editor_theme(self, theme_name: str) -> None:
+        theme_name = str(theme_name or "").strip()
+        if not theme_name:
+            self.toast("No active theme configured")
+            return
+        try:
+            from library.main_app_inline_theme_editor import (
+                build_inline_theme_editor_page,
+            )
+
+            page_name = "theme-editor"
+            current_page = getattr(self, "_inline_theme_editor_page", None)
+            if (
+                current_page is not None
+                and getattr(current_page, "_theme_name", None) == theme_name
+            ):
+                self.stack.set_visible_child_name(page_name)
+                return
+
+            _remove_stack_page(self.stack, page_name)
+            page = build_inline_theme_editor_page(app, self, theme_name)
+            self._inline_theme_editor_page = page
+            self.stack.add_named(page, page_name)
+            self.stack.set_visible_child_name(page_name)
+        except Exception as exc:
+            # Keep the separate editor as a fallback until inline editing is fully
+            # proven on the installed app path.
+            try:
+                if standalone_editor.is_file():
+                    self.launch_script(
+                        standalone_editor,
+                        theme_name,
+                        use_system_python=True,
+                    )
+                    return
+            except Exception:
+                pass
+            self.toast(f"Could not open theme editor: {exc}")
+
+    def open_theme_editor(self, *_args) -> None:
+        theme = app.read_current_theme()
+        open_theme_editor_theme(self, theme)
+
+    def open_theme_editor_record(self, record, *_args) -> None:
+        open_theme_editor_theme(self, getattr(record, "name", ""))
+
+    return open_theme_editor, open_theme_editor_record
+
+
+def _install_theme_gallery_editor_route(window: Any) -> None:
+    """Route Theme Gallery Edit actions to the inline editor in the main app."""
+
+    try:
+        from library import theme_gallery as gallery
+    except Exception:
+        return
+
+    original = getattr(gallery, "_main_app_original_launch_theme_editor", None)
+    if original is None:
+        original = getattr(gallery, "launch_theme_editor", None)
+        gallery._main_app_original_launch_theme_editor = original
+
+    if not callable(original):
+        return
+
+    def launch_theme_editor_inline(record, theme_editor=None):
+        opener = getattr(window, "open_theme_editor_record", None)
+        if callable(opener):
+            opener(record)
+            return None
+        if theme_editor is None:
+            return original(record)
+        return original(record, theme_editor)
+
+    gallery.launch_theme_editor = launch_theme_editor_inline
+
+
 def _make_diagnostics_row(app: Any, window: Any) -> Any:
     diagnostics_row = app.Adw.ActionRow(
         title="Diagnostics",
@@ -241,6 +340,7 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
 
     original_build_settings_page = window_class.build_settings_page
     original_init = window_class.__init__
+    open_theme_editor, open_theme_editor_record = _open_theme_editor_factory(app)
 
     def open_diagnostics(self, *_args) -> None:
         return _open_diagnostics_factory(app)(self, *_args)
@@ -257,6 +357,7 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
 
     def init_with_diagnostics(self, application):
         original_init(self, application)
+        _install_theme_gallery_editor_route(self)
         # Safety net for builds where Settings was already constructed before
         # this wrapper became active. Walk the created window and patch the
         # existing Settings page directly.
@@ -278,6 +379,8 @@ def install_main_app_diagnostics_integration(app: Any) -> None:
     init_with_diagnostics._diagnostics_init_wrapper = True
 
     window_class.open_diagnostics = open_diagnostics
+    window_class.open_theme_editor = open_theme_editor
+    window_class.open_theme_editor_record = open_theme_editor_record
     window_class.build_settings_page = build_settings_page
     window_class.__init__ = init_with_diagnostics
     window_class._main_app_diagnostics_integration_installed = True
