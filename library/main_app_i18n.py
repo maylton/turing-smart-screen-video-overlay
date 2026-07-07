@@ -62,6 +62,51 @@ def translate_widget_tree(root: Any) -> None:
         _translate_widget_text(widget, _)
 
 
+def install_theme_gallery_i18n(app) -> None:
+    """Localize theme gallery cards and popover actions created after startup."""
+
+    from library.i18n import t as _
+
+    try:
+        from library import theme_gallery as gallery
+    except Exception:
+        return
+
+    ThemeGalleryPane = getattr(gallery, "ThemeGalleryPane", None)
+    if ThemeGalleryPane is None or getattr(ThemeGalleryPane, "_theme_gallery_i18n_installed", False):
+        return
+
+    original_menu_action_button = getattr(ThemeGalleryPane, "_menu_action_button", None)
+    if callable(original_menu_action_button):
+        def menu_action_button_i18n(self, label: str, *args, **kwargs):
+            button = original_menu_action_button(self, _(label), *args, **kwargs)
+            translate_widget_tree(button)
+            return button
+
+        ThemeGalleryPane._menu_action_button = menu_action_button_i18n
+
+    for method_name in (
+        "preview_widget",
+        "theme_actions_popover",
+        "theme_card",
+    ):
+        original_method = getattr(ThemeGalleryPane, method_name, None)
+        if not callable(original_method):
+            continue
+
+        def make_wrapper(method):
+            def wrapper(self, *args, **kwargs):
+                widget = method(self, *args, **kwargs)
+                translate_widget_tree(widget)
+                return widget
+
+            return wrapper
+
+        setattr(ThemeGalleryPane, method_name, make_wrapper(original_method))
+
+    ThemeGalleryPane._theme_gallery_i18n_installed = True
+
+
 def install_main_app_tray_i18n(app) -> None:
     """Localize the StatusNotifier tray menu without changing tray behavior."""
 
@@ -127,6 +172,7 @@ def install_main_app_shell_i18n(app) -> None:
     """Localize the main GTK shell after each affected UI build/refresh."""
 
     install_main_app_tray_i18n(app)
+    install_theme_gallery_i18n(app)
 
     window_class = getattr(app, "SmartScreenWindow", None)
     if window_class is None or getattr(window_class, "_main_app_shell_i18n_installed", False):
