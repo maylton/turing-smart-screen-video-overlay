@@ -63,6 +63,28 @@ def _install_theme_editor_patches() -> None:
         )
 
 
+def _install_gtk_ctrl_c_handler(app_module) -> None:
+    """Return 130 from GTK app.run() on Ctrl-C instead of printing a traceback."""
+
+    gio = getattr(app_module, "Gio", None)
+    application_class = getattr(gio, "Application", None)
+    if application_class is None:
+        return
+
+    original_run = getattr(application_class, "run", None)
+    if not callable(original_run) or getattr(original_run, "_turing_ctrl_c_handler", False):
+        return
+
+    def run_without_keyboard_interrupt_traceback(self, argv=None):
+        try:
+            return original_run(self, argv)
+        except KeyboardInterrupt:
+            return 130
+
+    run_without_keyboard_interrupt_traceback._turing_ctrl_c_handler = True
+    application_class.run = run_without_keyboard_interrupt_traceback
+
+
 def _install_tray_i18n_import_hook() -> None:
     """Install tray i18n after configure_gtk_app.py is loaded."""
 
@@ -90,6 +112,14 @@ def _install_tray_i18n_import_hook() -> None:
 
         def exec_module(module) -> None:
             original_exec_module(module)
+            try:
+                _install_gtk_ctrl_c_handler(module)
+            except Exception as exc:  # pragma: no cover - defensive startup guard
+                print(
+                    f"[gtk] could not install Ctrl-C handler: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             try:
                 from library.main_app_i18n import install_main_app_tray_i18n
 
