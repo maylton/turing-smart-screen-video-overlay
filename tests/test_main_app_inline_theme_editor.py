@@ -15,14 +15,16 @@ class MainAppInlineThemeEditorContractTests(unittest.TestCase):
         self.assertIn("page._theme_editor_window = editor", source)
         self.assertIn("editor._embedded_dialog_parent = page", source)
 
-    def test_inline_theme_editor_installs_widget_i18n_explicitly(self):
+    def test_inline_theme_editor_installs_safe_class_i18n_explicitly(self):
         source = Path("library/main_app_inline_theme_editor.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("from library.theme_editor_widget_i18n import install as install_widget_i18n", source)
-        self.assertIn("install_widget_i18n()", source)
-        self.assertIn("from library.theme_editor_i18n import translate_widget_tree", source)
+        self.assertIn("def _install_inline_theme_editor_i18n", source)
+        self.assertIn("install_theme_editor_i18n", source)
+        self.assertIn("install_theme_editor_i18n(editor_class)", source)
+        self.assertIn("_install_inline_theme_editor_i18n(editor_class)", source)
         self.assertIn("translate_widget_tree(page)", source)
+        self.assertNotIn("theme_editor_property_layout_i18n", source)
 
     def test_main_app_routes_theme_editor_actions_inline(self):
         source = Path("library/main_app_diagnostics_integration.py").read_text(
