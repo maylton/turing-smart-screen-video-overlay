@@ -108,6 +108,44 @@ def _set_string_model(app_module: Any, dropdown: Any, labels: list[str]) -> None
         pass
 
 
+def _dropdown_description_label(app_module: Any, subtitle: str):
+    label = app_module.Gtk.Label(label=subtitle, xalign=0, wrap=True)
+    label.add_css_class("dim-label")
+    if hasattr(label, "set_wrap_mode"):
+        try:
+            label.set_wrap_mode(app_module.Pango.WrapMode.WORD_CHAR)
+        except Exception:
+            pass
+    if hasattr(label, "set_max_width_chars"):
+        label.set_max_width_chars(34)
+    return label
+
+
+def _dropdown_suffix_stack(app_module: Any, subtitle: str, *controls: Any):
+    Gtk = app_module.Gtk
+    stack = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+    stack.set_valign(Gtk.Align.CENTER)
+    stack.set_size_request(240, -1)
+
+    if subtitle:
+        stack.append(_dropdown_description_label(app_module, subtitle))
+
+    if len(controls) == 1:
+        control = controls[0]
+        if hasattr(control, "set_hexpand"):
+            control.set_hexpand(True)
+        stack.append(control)
+        return stack
+
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    for control in controls:
+        if hasattr(control, "set_hexpand") and control is controls[0]:
+            control.set_hexpand(True)
+        row.append(control)
+    stack.append(row)
+    return stack
+
+
 def _install_elements_panel_i18n(app_module: Any, window_class: type) -> None:
     if getattr(window_class, "_theme_editor_safe_elements_i18n_installed", False):
         return
@@ -231,11 +269,8 @@ def _install_choice_row_i18n(app_module: Any, window_class: type) -> None:
                 break
         dropdown.set_selected(selected)
 
-        row = Adw.ActionRow(
-            title=_choice_title(self, key),
-            subtitle=subtitle,
-        )
-        row.add_suffix(dropdown)
+        row = Adw.ActionRow(title=_choice_title(self, key))
+        row.add_suffix(_dropdown_suffix_stack(app_module, subtitle, dropdown))
         return row, dropdown
 
     create_choice_row_i18n._theme_editor_safe_i18n_wrapper = True
@@ -343,11 +378,9 @@ def _install_text_style_preset_i18n(app_module: Any, window_class: type) -> None
         dropdown.set_tooltip_text(_translate("Fill available text fields"))
         dropdown._theme_resetting_text_style = False
 
-        row = Adw.ActionRow(
-            title=_translate("Text style preset"),
-            subtitle=_translate("Apply values to the current text fields."),
-        )
-        row.add_suffix(dropdown)
+        subtitle = _translate("Apply values to the current text fields.")
+        row = Adw.ActionRow(title=_translate("Text style preset"))
+        row.add_suffix(_dropdown_suffix_stack(app_module, subtitle, dropdown))
 
         def preset_changed(widget, _param):
             if getattr(widget, "_theme_resetting_text_style", False):
@@ -414,12 +447,14 @@ def _install_component_preset_i18n(app_module: Any, window_class: type) -> None:
         )
 
         button = Gtk.Button(
-            label=_translate("Apply preset"),
+            label="",
             icon_name="emblem-ok-symbolic",
             valign=Gtk.Align.CENTER,
             sensitive=False,
         )
+        button.set_tooltip_text(_translate("Apply preset"))
 
+        subtitle = _translate("Apply a safe starter layout to this selected component.")
         row = Adw.ActionRow(
             title=_translate(
                 component_preset_titles.get(
@@ -427,12 +462,8 @@ def _install_component_preset_i18n(app_module: Any, window_class: type) -> None:
                     "Component preset",
                 )
             ),
-            subtitle=_translate(
-                "Apply a safe starter layout to this selected component."
-            ),
         )
-        row.add_suffix(dropdown)
-        row.add_suffix(button)
+        row.add_suffix(_dropdown_suffix_stack(app_module, subtitle, dropdown, button))
 
         def preset_changed(widget, _param):
             index = widget.get_selected()
