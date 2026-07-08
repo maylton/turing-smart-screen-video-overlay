@@ -65,6 +65,19 @@ class MainAppInlineThemeEditorContractTests(unittest.TestCase):
         self.assertIn("title = _choice_title(self, key)", source)
         self.assertIn("title = _translate(\"Text style preset\")", source)
 
+    def test_safe_dropdown_widths_are_uniform(self):
+        source = Path("library/theme_editor_safe_i18n.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("DROPDOWN_CONTROL_WIDTH = 280", source)
+        self.assertIn("DROPDOWN_STACK_WIDTH = 320", source)
+        self.assertIn("DROPDOWN_TEXT_WIDTH_CHARS = 40", source)
+        self.assertIn("def _size_dropdown_control", source)
+        self.assertIn("stack.set_size_request(DROPDOWN_STACK_WIDTH, -1)", source)
+        self.assertIn("control.set_size_request(DROPDOWN_CONTROL_WIDTH, -1)", source)
+        self.assertIn("dropdown.set_size_request(DROPDOWN_CONTROL_WIDTH, -1)", source)
+        self.assertNotIn("dropdown.set_size_request(220, -1)", source)
+
     def test_main_app_routes_theme_editor_actions_inline(self):
         source = Path("library/main_app_diagnostics_integration.py").read_text(
             encoding="utf-8"
