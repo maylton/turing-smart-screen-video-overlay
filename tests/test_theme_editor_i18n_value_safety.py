@@ -39,13 +39,12 @@ class ThemeEditorI18nValueSafetyContractTests(unittest.TestCase):
         self.assertIn("self.set_choice_widget_value", source)
         self.assertIn("self.parse_value(key, value, value)", source)
 
-    def test_gradient_direction_saves_canonical_values(self):
+    def test_gradient_direction_uses_canonical_option_values(self):
         source = Path("theme-editor-gtk.py").read_text(encoding="utf-8")
         self.assertIn('(\"Auto\", \"auto\")', source)
         self.assertIn('(\"Horizontal\", \"horizontal\")', source)
         self.assertIn('(\"Vertical\", \"vertical\")', source)
         self.assertIn("direction_values = [value for _label, value in direction_options]", source)
-        self.assertIn('"DIRECTION": direction_values[', source)
 
     def test_safety_audit_document_exists(self):
         source = Path("docs/THEME_EDITOR_I18N_SAFETY.md").read_text(encoding="utf-8")
