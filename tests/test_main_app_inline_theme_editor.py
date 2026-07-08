@@ -22,9 +22,25 @@ class MainAppInlineThemeEditorContractTests(unittest.TestCase):
         self.assertIn("def _install_inline_theme_editor_i18n", source)
         self.assertIn("install_theme_editor_i18n", source)
         self.assertIn("install_theme_editor_i18n(editor_class)", source)
-        self.assertIn("_install_inline_theme_editor_i18n(editor_class)", source)
+        self.assertIn("install_theme_editor_safe_i18n", source)
+        self.assertIn("install_theme_editor_safe_i18n(app_module)", source)
+        self.assertIn("_install_inline_theme_editor_i18n(module, editor_class)", source)
         self.assertIn("translate_widget_tree(page)", source)
         self.assertNotIn("theme_editor_property_layout_i18n", source)
+
+    def test_safe_direct_i18n_wraps_only_theme_editor_methods(self):
+        source = Path("library/theme_editor_safe_i18n.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("def install_theme_editor_safe_i18n", source)
+        self.assertIn("create_choice_row_i18n", source)
+        self.assertIn("create_component_preset_row_i18n", source)
+        self.assertIn("window_class.create_choice_row = create_choice_row_i18n", source)
+        self.assertIn("window_class.create_component_preset_row = create_component_preset_row_i18n", source)
+        self.assertIn("dropdown._theme_choice_values = tuple(values)", source)
+        self.assertIn("dropdown._theme_component_preset_updates", source)
+        self.assertNotIn("Gtk.DropDown.new_from_strings =", source)
+        self.assertNotIn("Gtk.StringList.new =", source)
 
     def test_main_app_routes_theme_editor_actions_inline(self):
         source = Path("library/main_app_diagnostics_integration.py").read_text(
