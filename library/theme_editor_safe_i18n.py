@@ -11,6 +11,11 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 
+DROPDOWN_CONTROL_WIDTH = 280
+DROPDOWN_STACK_WIDTH = 320
+DROPDOWN_TEXT_WIDTH_CHARS = 40
+
+
 def _translate(message: Any) -> Any:
     if not isinstance(message, str) or not message:
         return message
@@ -117,7 +122,7 @@ def _dropdown_title_label(app_module: Any, title: str):
         except Exception:
             pass
     if hasattr(label, "set_max_width_chars"):
-        label.set_max_width_chars(34)
+        label.set_max_width_chars(DROPDOWN_TEXT_WIDTH_CHARS)
     return label
 
 
@@ -130,15 +135,23 @@ def _dropdown_description_label(app_module: Any, subtitle: str):
         except Exception:
             pass
     if hasattr(label, "set_max_width_chars"):
-        label.set_max_width_chars(34)
+        label.set_max_width_chars(DROPDOWN_TEXT_WIDTH_CHARS)
     return label
+
+
+def _size_dropdown_control(control: Any) -> None:
+    if hasattr(control, "set_hexpand"):
+        control.set_hexpand(True)
+    if hasattr(control, "set_size_request"):
+        control.set_size_request(DROPDOWN_CONTROL_WIDTH, -1)
 
 
 def _dropdown_suffix_stack(app_module: Any, title: str, subtitle: str, *controls: Any):
     Gtk = app_module.Gtk
     stack = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
     stack.set_valign(Gtk.Align.CENTER)
-    stack.set_size_request(260, -1)
+    stack.set_hexpand(True)
+    stack.set_size_request(DROPDOWN_STACK_WIDTH, -1)
 
     if title:
         stack.append(_dropdown_title_label(app_module, title))
@@ -147,15 +160,15 @@ def _dropdown_suffix_stack(app_module: Any, title: str, subtitle: str, *controls
 
     if len(controls) == 1:
         control = controls[0]
-        if hasattr(control, "set_hexpand"):
-            control.set_hexpand(True)
+        _size_dropdown_control(control)
         stack.append(control)
         return stack
 
     row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    row.set_hexpand(True)
     for control in controls:
-        if hasattr(control, "set_hexpand") and control is controls[0]:
-            control.set_hexpand(True)
+        if control is controls[0]:
+            _size_dropdown_control(control)
         row.append(control)
     stack.append(row)
     return stack
@@ -266,7 +279,7 @@ def _install_choice_row_i18n(app_module: Any, window_class: type) -> None:
         values = [option_value for _label, option_value in options]
         dropdown = Gtk.DropDown.new_from_strings(labels)
         dropdown.set_valign(Gtk.Align.CENTER)
-        dropdown.set_size_request(220, -1)
+        dropdown.set_size_request(DROPDOWN_CONTROL_WIDTH, -1)
         title = _choice_title(self, key)
         subtitle = _choice_subtitle(self, key)
         dropdown.set_tooltip_text(subtitle)
@@ -316,7 +329,7 @@ def _install_property_preset_i18n(app_module: Any, window_class: type) -> None:
         labels = tuple(_translate(label) for label, _value in options)
         values = tuple(value for _label, value in options)
         dropdown = Gtk.DropDown.new_from_strings(labels)
-        dropdown.set_size_request(220, -1)
+        dropdown.set_size_request(DROPDOWN_CONTROL_WIDTH, -1)
         dropdown.set_valign(Gtk.Align.CENTER)
         dropdown.set_tooltip_text(
             _translate("Choose a common value, or type a custom value in the field.")
@@ -389,7 +402,7 @@ def _install_text_style_preset_i18n(app_module: Any, window_class: type) -> None
             for name in preset_names
         ]
         dropdown = Gtk.DropDown.new_from_strings(labels)
-        dropdown.set_size_request(220, -1)
+        dropdown.set_size_request(DROPDOWN_CONTROL_WIDTH, -1)
         dropdown.set_valign(Gtk.Align.CENTER)
         dropdown.set_tooltip_text(_translate("Fill available text fields"))
         dropdown._theme_resetting_text_style = False
@@ -454,7 +467,7 @@ def _install_component_preset_i18n(app_module: Any, window_class: type) -> None:
         ]
         dropdown = Gtk.DropDown.new_from_strings(labels)
         dropdown.set_valign(Gtk.Align.CENTER)
-        dropdown.set_size_request(220, -1)
+        dropdown.set_size_request(DROPDOWN_CONTROL_WIDTH, -1)
         dropdown.set_tooltip_text(
             _translate("Apply a starter layout to this component")
         )
