@@ -8,7 +8,7 @@ canonical theme values separate from translated labels.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 
 def _translate(message: Any) -> Any:
@@ -30,6 +30,59 @@ def _translate(message: Any) -> Any:
         return message
 
 
+def _iter_widget_children(widget: Any) -> Iterable[Any]:
+    child = None
+    if hasattr(widget, "get_first_child"):
+        try:
+            child = widget.get_first_child()
+        except Exception:
+            child = None
+
+    while child is not None:
+        yield child
+        try:
+            child = child.get_next_sibling()
+        except Exception:
+            child = None
+
+
+def _walk_widgets(widget: Any) -> Iterable[Any]:
+    yield widget
+    for child in _iter_widget_children(widget):
+        yield from _walk_widgets(child)
+
+
+def _translate_widget_text(widget: Any) -> None:
+    for getter_name, setter_name in (
+        ("get_label", "set_label"),
+        ("get_title", "set_title"),
+        ("get_subtitle", "set_subtitle"),
+        ("get_tooltip_text", "set_tooltip_text"),
+        ("get_placeholder_text", "set_placeholder_text"),
+    ):
+        getter = getattr(widget, getter_name, None)
+        setter = getattr(widget, setter_name, None)
+        if not callable(getter) or not callable(setter):
+            continue
+        try:
+            current = getter()
+        except Exception:
+            continue
+        if not isinstance(current, str) or not current:
+            continue
+        translated = _translate(current)
+        if translated != current:
+            try:
+                setter(translated)
+            except Exception:
+                pass
+
+
+def _translate_widget_tree(root: Any) -> None:
+    for widget in _walk_widgets(root):
+        _translate_widget_text(widget)
+
+
 def _choice_title(window: Any, key: str) -> str:
     if key == "PATH" and getattr(window, "selected_path", None) == ("video",):
         return _translate("Video path")
@@ -40,6 +93,102 @@ def _choice_subtitle(window: Any, key: str) -> str:
     if key == "PATH" and getattr(window, "selected_path", None) == ("video",):
         return _translate("Choose a video from the theme folder or display storage.")
     return _translate(window.choice_subtitle_for_property(key))
+
+
+def _set_string_model(app_module: Any, dropdown: Any, labels: list[str]) -> None:
+    selected = 0
+    try:
+        selected = dropdown.get_selected()
+    except Exception:
+        pass
+    dropdown.set_model(app_module.Gtk.StringList.new([_translate(label) for label in labels]))
+    try:
+        dropdown.set_selected(selected)
+    except Exception:
+        pass
+
+
+def _install_elements_panel_i18n(app_module: Any, window_class: type) -> None:
+    if getattr(window_class, "_theme_editor_safe_elements_i18n_installed", False):
+        return
+
+    original_build_elements_panel = getattr(window_class, "build_elements_panel", None)
+    if not callable(original_build_elements_panel):
+        return
+
+    def build_elements_panel_i18n(self, *args, **kwargs):
+        panel = original_build_elements_panel(self, *args, **kwargs)
+        dropdown = getattr(self, "add_element_dropdown", None)
+        labels = getattr(self, "catalog_labels", None)
+        if dropdown is not None and isinstance(labels, list):
+            try:
+                _set_string_model(app_module, dropdown, labels)
+            except Exception:
+                pass
+        state_dropdown = getattr(self, "state_filter_dropdown", None)
+        state_labels = getattr(self, "state_filter_labels", None)
+        if state_dropdown is not None and isinstance(state_labels, list):
+            try:
+                _set_string_model(app_module, state_dropdown, state_labels)
+            except Exception:
+                pass
+        _translate_widget_tree(panel)
+        return panel
+
+    build_elements_panel_i18n._theme_editor_safe_i18n_wrapper = True
+    build_elements_panel_i18n._theme_editor_original = original_build_elements_panel
+    window_class.build_elements_panel = build_elements_panel_i18n
+    window_class._theme_editor_safe_elements_i18n_installed = True
+
+
+def _install_tree_item_i18n(window_class: type) -> None:
+    if getattr(window_class, "_theme_editor_safe_tree_i18n_installed", False):
+        return
+
+    original_bind_tree_item = getattr(window_class, "bind_tree_item", None)
+    if not callable(original_bind_tree_item):
+        return
+
+    def bind_tree_item_i18n(self, factory, list_item):
+        result = original_bind_tree_item(self, factory, list_item)
+        try:
+            _translate_widget_tree(list_item.get_child())
+        except Exception:
+            pass
+        return result
+
+    bind_tree_item_i18n._theme_editor_safe_i18n_wrapper = True
+    bind_tree_item_i18n._theme_editor_original = original_bind_tree_item
+    window_class.bind_tree_item = bind_tree_item_i18n
+    window_class._theme_editor_safe_tree_i18n_installed = True
+
+
+def _install_property_rows_i18n(window_class: type) -> None:
+    if getattr(window_class, "_theme_editor_safe_property_rows_i18n_installed", False):
+        return
+
+    original_build_property_rows = getattr(window_class, "build_property_rows", None)
+    if not callable(original_build_property_rows):
+        return
+
+    def build_property_rows_i18n(self, *args, **kwargs):
+        # During early GTK construction, selection notifications can fire before
+        # the right-side property widgets exist. Skipping this early callback is
+        # safer than letting the editor enter a repeated traceback loop.
+        if not hasattr(self, "path_label") or not hasattr(self, "dynamic_group"):
+            return None
+        result = original_build_property_rows(self, *args, **kwargs)
+        for row in getattr(self, "property_rows", []):
+            try:
+                _translate_widget_tree(row)
+            except Exception:
+                pass
+        return result
+
+    build_property_rows_i18n._theme_editor_safe_i18n_wrapper = True
+    build_property_rows_i18n._theme_editor_original = original_build_property_rows
+    window_class.build_property_rows = build_property_rows_i18n
+    window_class._theme_editor_safe_property_rows_i18n_installed = True
 
 
 def _install_choice_row_i18n(app_module: Any, window_class: type) -> None:
@@ -93,6 +242,137 @@ def _install_choice_row_i18n(app_module: Any, window_class: type) -> None:
     create_choice_row_i18n._theme_editor_original = original_create_choice_row
     window_class.create_choice_row = create_choice_row_i18n
     window_class._theme_editor_safe_choice_i18n_installed = True
+
+
+def _install_property_preset_i18n(app_module: Any, window_class: type) -> None:
+    if getattr(window_class, "_theme_editor_safe_property_preset_i18n_installed", False):
+        return
+
+    Gtk = app_module.Gtk
+    original_create_property_preset_dropdown = getattr(
+        window_class,
+        "create_property_preset_dropdown",
+        None,
+    )
+    if not callable(original_create_property_preset_dropdown):
+        return
+
+    def create_property_preset_dropdown_i18n(self, key, current_value, target_entry):
+        options = self.property_preset_options(key, current_value)
+        if len(options) < 2:
+            return None
+
+        labels = tuple(_translate(label) for label, _value in options)
+        values = tuple(value for _label, value in options)
+        dropdown = Gtk.DropDown.new_from_strings(labels)
+        dropdown.set_size_request(220, -1)
+        dropdown.set_valign(Gtk.Align.CENTER)
+        dropdown.set_tooltip_text(
+            _translate("Choose a common value, or type a custom value in the field.")
+        )
+        if hasattr(dropdown, "set_enable_search"):
+            dropdown.set_enable_search(len(options) > 12)
+
+        selected = 0
+        for index, value in enumerate(values):
+            if value == current_value:
+                selected = index
+                break
+            if (
+                isinstance(value, (int, float))
+                and isinstance(current_value, (int, float))
+                and not isinstance(value, bool)
+                and not isinstance(current_value, bool)
+                and float(value) == float(current_value)
+            ):
+                selected = index
+                break
+
+        dropdown.set_selected(selected)
+        dropdown._theme_preset_values = values
+
+        def preset_changed(widget, _param):
+            index = widget.get_selected()
+            if index == Gtk.INVALID_LIST_POSITION:
+                return
+            preset_values = widget._theme_preset_values
+            if index < 0 or index >= len(preset_values):
+                return
+            target_entry.set_text(
+                self.value_to_text(preset_values[index])
+            )
+
+        dropdown.connect("notify::selected", preset_changed)
+        return dropdown
+
+    create_property_preset_dropdown_i18n._theme_editor_safe_i18n_wrapper = True
+    create_property_preset_dropdown_i18n._theme_editor_original = original_create_property_preset_dropdown
+    window_class.create_property_preset_dropdown = create_property_preset_dropdown_i18n
+    window_class._theme_editor_safe_property_preset_i18n_installed = True
+
+
+def _install_text_style_preset_i18n(app_module: Any, window_class: type) -> None:
+    if getattr(window_class, "_theme_editor_safe_text_style_i18n_installed", False):
+        return
+
+    Gtk = app_module.Gtk
+    Adw = app_module.Adw
+    text_style_preset_names = app_module.text_style_preset_names
+    text_style_updates = app_module.text_style_updates
+
+    original_create_text_style_preset_row = getattr(
+        window_class,
+        "create_text_style_preset_row",
+        None,
+    )
+    if not callable(original_create_text_style_preset_row):
+        return
+
+    def create_text_style_preset_row_i18n(self, node):
+        preset_names = text_style_preset_names(node, self.selected_path)
+        if not preset_names:
+            return None
+
+        labels = [_translate("Choose a preset…")] + [
+            _translate(name)
+            for name in preset_names
+        ]
+        dropdown = Gtk.DropDown.new_from_strings(labels)
+        dropdown.set_size_request(220, -1)
+        dropdown.set_valign(Gtk.Align.CENTER)
+        dropdown.set_tooltip_text(_translate("Fill available text fields"))
+        dropdown._theme_resetting_text_style = False
+
+        row = Adw.ActionRow(
+            title=_translate("Text style preset"),
+            subtitle=_translate("Apply values to the current text fields."),
+        )
+        row.add_suffix(dropdown)
+
+        def preset_changed(widget, _param):
+            if getattr(widget, "_theme_resetting_text_style", False):
+                return
+            index = widget.get_selected()
+            if index in (0, Gtk.INVALID_LIST_POSITION):
+                return
+            if index - 1 >= len(preset_names):
+                return
+
+            updates = text_style_updates(preset_names[index - 1], node)
+            for key, value in updates.items():
+                self.set_property_widget_value(key, value)
+
+            widget._theme_resetting_text_style = True
+            widget.set_selected(0)
+            widget._theme_resetting_text_style = False
+
+        dropdown.connect("notify::selected", preset_changed)
+        return row
+
+    create_text_style_preset_row_i18n._theme_editor_safe_i18n_wrapper = True
+    create_text_style_preset_row_i18n._theme_editor_original = original_create_text_style_preset_row
+    window_class.create_text_style_preset_row = create_text_style_preset_row_i18n
+    window_class._theme_editor_safe_text_style_i18n_installed = True
 
 
 def _install_component_preset_i18n(app_module: Any, window_class: type) -> None:
@@ -207,5 +487,10 @@ def install_theme_editor_safe_i18n(app_module: Any) -> None:
     if window_class is None:
         return
 
+    _install_elements_panel_i18n(app_module, window_class)
+    _install_tree_item_i18n(window_class)
+    _install_property_rows_i18n(window_class)
     _install_choice_row_i18n(app_module, window_class)
+    _install_property_preset_i18n(app_module, window_class)
+    _install_text_style_preset_i18n(app_module, window_class)
     _install_component_preset_i18n(app_module, window_class)
