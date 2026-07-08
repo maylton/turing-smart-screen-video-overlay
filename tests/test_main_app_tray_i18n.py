@@ -46,7 +46,7 @@ class MainAppTrayI18nContractTests(unittest.TestCase):
             "Set active theme",
             "No theme selected",
             "Showing themes compatible with the selected ",
-            "Expected folder:\\n",
+            "Expected folder:\n",
             "No active theme configured",
             "Monitor started",
             "Display turned off",
@@ -76,6 +76,14 @@ class MainAppTrayI18nContractTests(unittest.TestCase):
         self.assertIn("return _entry_point_name() in _GTK_SHELL_ENTRY_POINTS", source)
         self.assertIn("install_main_app_tray_i18n", source)
         self.assertIn("_install_tray_i18n_import_hook()", source)
+
+    def test_usercustomize_installs_ctrl_c_traceback_guard_for_gtk_shell(self):
+        source = Path("usercustomize.py").read_text(encoding="utf-8")
+        self.assertIn("def _install_gtk_ctrl_c_handler", source)
+        self.assertIn("except KeyboardInterrupt", source)
+        self.assertIn("return 130", source)
+        self.assertIn("application_class.run = run_without_keyboard_interrupt_traceback", source)
+        self.assertIn("_install_gtk_ctrl_c_handler(module)", source)
 
     def test_main_app_integrations_install_shell_i18n_directly(self):
         source = Path("library/main_app_diagnostics_integration.py").read_text(
