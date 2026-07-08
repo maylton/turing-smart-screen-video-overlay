@@ -48,18 +48,22 @@ class MainAppInlineThemeEditorContractTests(unittest.TestCase):
         self.assertNotIn("Gtk.DropDown.new_from_strings =", source)
         self.assertNotIn("Gtk.StringList.new =", source)
 
-    def test_safe_dropdown_descriptions_are_stacked_above_controls(self):
+    def test_safe_dropdown_titles_and_descriptions_are_stacked_above_controls(self):
         source = Path("library/theme_editor_safe_i18n.py").read_text(
             encoding="utf-8"
         )
         self.assertIn("def _dropdown_suffix_stack", source)
+        self.assertIn("def _dropdown_title_label", source)
+        self.assertIn("app_module.Gtk.Label(label=title", source)
         self.assertIn("app_module.Gtk.Label(label=subtitle", source)
         self.assertIn("Gtk.Orientation.VERTICAL", source)
+        self.assertIn("stack.append(_dropdown_title_label", source)
         self.assertIn("stack.append(_dropdown_description_label", source)
-        self.assertIn("row.add_suffix(_dropdown_suffix_stack(app_module, subtitle, dropdown))", source)
-        self.assertIn("row.add_suffix(_dropdown_suffix_stack(app_module, subtitle, dropdown, button))", source)
-        self.assertIn("row = Adw.ActionRow(title=_choice_title(self, key))", source)
-        self.assertIn("row = Adw.ActionRow(title=_translate(\"Text style preset\"))", source)
+        self.assertIn("row = Adw.ActionRow()", source)
+        self.assertIn("row.add_suffix(_dropdown_suffix_stack(app_module, title, subtitle, dropdown))", source)
+        self.assertIn("row.add_suffix(_dropdown_suffix_stack(app_module, title, subtitle, dropdown, button))", source)
+        self.assertIn("title = _choice_title(self, key)", source)
+        self.assertIn("title = _translate(\"Text style preset\")", source)
 
     def test_main_app_routes_theme_editor_actions_inline(self):
         source = Path("library/main_app_diagnostics_integration.py").read_text(
