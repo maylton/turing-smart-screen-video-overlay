@@ -108,6 +108,19 @@ def _set_string_model(app_module: Any, dropdown: Any, labels: list[str]) -> None
         pass
 
 
+def _dropdown_title_label(app_module: Any, title: str):
+    label = app_module.Gtk.Label(label=title, xalign=0, wrap=True)
+    label.add_css_class("heading")
+    if hasattr(label, "set_wrap_mode"):
+        try:
+            label.set_wrap_mode(app_module.Pango.WrapMode.WORD_CHAR)
+        except Exception:
+            pass
+    if hasattr(label, "set_max_width_chars"):
+        label.set_max_width_chars(34)
+    return label
+
+
 def _dropdown_description_label(app_module: Any, subtitle: str):
     label = app_module.Gtk.Label(label=subtitle, xalign=0, wrap=True)
     label.add_css_class("dim-label")
@@ -121,12 +134,14 @@ def _dropdown_description_label(app_module: Any, subtitle: str):
     return label
 
 
-def _dropdown_suffix_stack(app_module: Any, subtitle: str, *controls: Any):
+def _dropdown_suffix_stack(app_module: Any, title: str, subtitle: str, *controls: Any):
     Gtk = app_module.Gtk
     stack = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
     stack.set_valign(Gtk.Align.CENTER)
-    stack.set_size_request(240, -1)
+    stack.set_size_request(260, -1)
 
+    if title:
+        stack.append(_dropdown_title_label(app_module, title))
     if subtitle:
         stack.append(_dropdown_description_label(app_module, subtitle))
 
@@ -252,6 +267,7 @@ def _install_choice_row_i18n(app_module: Any, window_class: type) -> None:
         dropdown = Gtk.DropDown.new_from_strings(labels)
         dropdown.set_valign(Gtk.Align.CENTER)
         dropdown.set_size_request(220, -1)
+        title = _choice_title(self, key)
         subtitle = _choice_subtitle(self, key)
         dropdown.set_tooltip_text(subtitle)
         if hasattr(dropdown, "set_enable_search"):
@@ -269,8 +285,8 @@ def _install_choice_row_i18n(app_module: Any, window_class: type) -> None:
                 break
         dropdown.set_selected(selected)
 
-        row = Adw.ActionRow(title=_choice_title(self, key))
-        row.add_suffix(_dropdown_suffix_stack(app_module, subtitle, dropdown))
+        row = Adw.ActionRow()
+        row.add_suffix(_dropdown_suffix_stack(app_module, title, subtitle, dropdown))
         return row, dropdown
 
     create_choice_row_i18n._theme_editor_safe_i18n_wrapper = True
@@ -378,9 +394,10 @@ def _install_text_style_preset_i18n(app_module: Any, window_class: type) -> None
         dropdown.set_tooltip_text(_translate("Fill available text fields"))
         dropdown._theme_resetting_text_style = False
 
+        title = _translate("Text style preset")
         subtitle = _translate("Apply values to the current text fields.")
-        row = Adw.ActionRow(title=_translate("Text style preset"))
-        row.add_suffix(_dropdown_suffix_stack(app_module, subtitle, dropdown))
+        row = Adw.ActionRow()
+        row.add_suffix(_dropdown_suffix_stack(app_module, title, subtitle, dropdown))
 
         def preset_changed(widget, _param):
             if getattr(widget, "_theme_resetting_text_style", False):
@@ -454,16 +471,15 @@ def _install_component_preset_i18n(app_module: Any, window_class: type) -> None:
         )
         button.set_tooltip_text(_translate("Apply preset"))
 
-        subtitle = _translate("Apply a safe starter layout to this selected component.")
-        row = Adw.ActionRow(
-            title=_translate(
-                component_preset_titles.get(
-                    self.component_kind_for_node(self.selected_path, node),
-                    "Component preset",
-                )
-            ),
+        title = _translate(
+            component_preset_titles.get(
+                self.component_kind_for_node(self.selected_path, node),
+                "Component preset",
+            )
         )
-        row.add_suffix(_dropdown_suffix_stack(app_module, subtitle, dropdown, button))
+        subtitle = _translate("Apply a safe starter layout to this selected component.")
+        row = Adw.ActionRow()
+        row.add_suffix(_dropdown_suffix_stack(app_module, title, subtitle, dropdown, button))
 
         def preset_changed(widget, _param):
             index = widget.get_selected()
