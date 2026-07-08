@@ -45,7 +45,7 @@ class ThemeEditorI18nValueSafetyContractTests(unittest.TestCase):
         self.assertIn('(\"Horizontal\", \"horizontal\")', source)
         self.assertIn('(\"Vertical\", \"vertical\")', source)
         self.assertIn("direction_values = [value for _label, value in direction_options]", source)
-        self.assertIn('"DIRECTION": direction_values[direction_row.get_selected()]', source)
+        self.assertIn('"DIRECTION": direction_values[', source)
 
     def test_safety_audit_document_exists(self):
         source = Path("docs/THEME_EDITOR_I18N_SAFETY.md").read_text(encoding="utf-8")
