@@ -20,7 +20,7 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -32,7 +32,7 @@ jobs:
     - name: Run simple-program.py during 20 seconds
       run: |
         # For tests there is no real HW: use simulated LCD mode
-        sed -i 's/^REVISION.*$/REVISION=\"SIMU\"/g' simple-program.py
+        sed -i 's/^REVISION.*$/REVISION="SIMU"/g' simple-program.py
         
         # Run the program for 20s
         python3 simple-program.py > output.log 2>&1 &
