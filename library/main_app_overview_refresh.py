@@ -39,8 +39,27 @@ def _safe_refresh_overview(window: Any) -> None:
                     pass
 
 
+def _install_final_tray_icon(app: Any) -> None:
+    """Restore the grayscale SNI pixmap after translation hooks run."""
+
+    try:
+        from library.tray_icon_runtime import (
+            install_status_notifier_grayscale_icon,
+        )
+
+        install_status_notifier_grayscale_icon(app)
+    except Exception:
+        # Tray support is optional and must never prevent the GTK app startup.
+        pass
+
+
 def install_main_app_overview_auto_refresh(app: Any) -> None:
     """Install a lightweight timer that keeps Overview status cards fresh."""
+
+    # Runtime integrations are installed in the order i18n → status → refresh.
+    # The i18n layer replaces StatusNotifierItem._on_get_property, so make the
+    # grayscale pixmap wrapper the final tray integration in that sequence.
+    _install_final_tray_icon(app)
 
     window_class = getattr(app, "SmartScreenWindow", None)
     if window_class is None or getattr(window_class, "_overview_auto_refresh_installed", False):

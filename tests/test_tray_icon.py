@@ -10,6 +10,9 @@ from unittest import mock
 from PIL import Image
 
 from library import tray_icon_runtime
+from library.main_app_overview_refresh import (
+    install_main_app_overview_auto_refresh,
+)
 from library.tray_icon import (
     TRAY_ICON_NAME,
     ensure_status_icon_theme,
@@ -26,7 +29,7 @@ class FakeVariant:
 
 
 class FakeNotifier:
-    def _on_get_property(
+    def _original_get_property(
         self,
         _connection,
         _sender,
@@ -36,15 +39,19 @@ class FakeNotifier:
     ):
         return FakeVariant("s", f"original:{property_name}")
 
+    _on_get_property = _original_get_property
+
 
 class TrayIconTests(unittest.TestCase):
     def setUp(self):
         ensure_status_icon_theme.cache_clear()
         tray_icon_runtime._INSTALLED = False
+        FakeNotifier._on_get_property = FakeNotifier._original_get_property
 
     def tearDown(self):
         ensure_status_icon_theme.cache_clear()
         tray_icon_runtime._INSTALLED = False
+        FakeNotifier._on_get_property = FakeNotifier._original_get_property
 
     def create_project_icon(self, root: Path) -> Path:
         source = root / "res" / "icons" / "monitor-icon-17865" / "64.png"
@@ -60,6 +67,19 @@ class TrayIconTests(unittest.TestCase):
         )
         image.save(source)
         return source
+
+    def create_app_module(self, root: Path):
+        return types.SimpleNamespace(
+            ROOT=root,
+            APP_NAME="Turing Smart Screen",
+            GLib=types.SimpleNamespace(Variant=FakeVariant),
+            StatusNotifierItem=FakeNotifier,
+            SmartScreenWindow=None,
+            STATUS_NOTIFIER_XML=(
+                '<property name="IconName" type="s" access="read"/>\n'
+            ),
+            read_current_theme=lambda: "default",
+        )
 
     def test_grayscale_preserves_alpha(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -120,41 +140,71 @@ class TrayIconTests(unittest.TestCase):
                 self.assertTrue(icon.is_file())
                 self.assertIn(f"{size}x{size}/status", text)
 
-    def test_runtime_patch_advertises_icon_name_theme_and_pixmap(self):
+    def test_runtime_patch_forces_quickshell_to_use_icon_pixmap(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "project"
-            cache = Path(temporary) / "cache"
             self.create_project_icon(root)
-            module = types.SimpleNamespace(
-                ROOT=root,
-                APP_NAME="Turing Smart Screen",
-                GLib=types.SimpleNamespace(Variant=FakeVariant),
-                StatusNotifierItem=FakeNotifier,
-                STATUS_NOTIFIER_XML=(
-                    '<property name="IconName" type="s" access="read"/>\n'
-                ),
-                read_current_theme=lambda: "default",
+            module = self.create_app_module(root)
+
+            tray_icon_runtime.install_status_notifier_grayscale_icon(module)
+            notifier = module.StatusNotifierItem()
+            icon_name = notifier._on_get_property(
+                None, None, None, None, "IconName"
+            )
+            icon_path = notifier._on_get_property(
+                None, None, None, None, "IconThemePath"
+            )
+            icon_pixmap = notifier._on_get_property(
+                None, None, None, None, "IconPixmap"
             )
 
-            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(cache)}):
-                tray_icon_runtime.install_status_notifier_grayscale_icon(module)
-                notifier = module.StatusNotifierItem()
-                icon_name = notifier._on_get_property(
-                    None, None, None, None, "IconName"
-                )
-                icon_path = notifier._on_get_property(
-                    None, None, None, None, "IconThemePath"
-                )
-                icon_pixmap = notifier._on_get_property(
-                    None, None, None, None, "IconPixmap"
-                )
-
         self.assertIn("IconPixmap", module.STATUS_NOTIFIER_XML)
-        self.assertEqual(icon_name.value, TRAY_ICON_NAME)
+        self.assertEqual(icon_name.value, "")
         self.assertEqual(icon_path.signature, "s")
-        self.assertTrue(icon_path.value.endswith("tray-icons"))
+        self.assertEqual(icon_path.value, "")
         self.assertEqual(icon_pixmap.signature, "a(iiay)")
         self.assertTrue(icon_pixmap.value)
+
+    def test_final_main_app_integration_repairs_i18n_icon_override(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            self.create_project_icon(root)
+            module = self.create_app_module(root)
+
+            def translated_colour_icon(
+                self,
+                _connection,
+                _sender,
+                _object_path,
+                _interface_name,
+                property_name,
+            ):
+                return FakeVariant("s", f"colour:{property_name}")
+
+            # Simulate the previous startup order: the grayscale patch ran,
+            # then the i18n layer replaced the SNI property method.
+            tray_icon_runtime._INSTALLED = True
+            FakeNotifier._on_get_property = translated_colour_icon
+
+            install_main_app_overview_auto_refresh(module)
+            notifier = module.StatusNotifierItem()
+            icon_name = notifier._on_get_property(
+                None, None, None, None, "IconName"
+            )
+            icon_pixmap = notifier._on_get_property(
+                None, None, None, None, "IconPixmap"
+            )
+
+        self.assertEqual(icon_name.value, "")
+        self.assertEqual(icon_pixmap.signature, "a(iiay)")
+        self.assertTrue(icon_pixmap.value)
+        self.assertTrue(
+            getattr(
+                FakeNotifier._on_get_property,
+                "_turing_grayscale_tray_icon",
+                False,
+            )
+        )
 
 
 if __name__ == "__main__":

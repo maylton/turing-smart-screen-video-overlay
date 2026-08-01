@@ -7,11 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from library.tray_icon import (
-    TRAY_ICON_NAME,
-    ensure_status_icon_theme,
-    status_notifier_pixmaps,
-)
+from library.tray_icon import status_notifier_pixmaps
 
 
 _INSTALLED = False
@@ -40,10 +36,19 @@ def _add_icon_pixmap_property(xml: str) -> str:
 
 
 def install_status_notifier_grayscale_icon(app_module: Any) -> None:
-    """Expose both IconName and IconPixmap grayscale variants to SNI hosts."""
+    """Force SNI hosts to consume the generated grayscale ``IconPixmap``.
+
+    Quickshell, which powers Caelestia Shell, prefers ``IconName`` whenever it
+    is non-empty and ignores ``IconPixmap`` in that case.  Returning an empty
+    name is therefore intentional: it makes Quickshell use its tray image
+    provider backed by the monochrome pixmaps.
+
+    The installer checks the currently active method rather than relying only
+    on a process-global flag.  This lets it repair the tray after another
+    integration, such as the translation layer, replaces ``_on_get_property``.
+    """
+
     global _INSTALLED
-    if _INSTALLED:
-        return
 
     notifier_class = getattr(app_module, "StatusNotifierItem", None)
     glib = getattr(app_module, "GLib", None)
@@ -51,13 +56,19 @@ def install_status_notifier_grayscale_icon(app_module: Any) -> None:
     if notifier_class is None or glib is None:
         return
 
+    current_get_property = getattr(notifier_class, "_on_get_property", None)
+    if getattr(current_get_property, "_turing_grayscale_tray_icon", False):
+        _INSTALLED = True
+        return
+    if not callable(current_get_property):
+        return
+
     app_module.STATUS_NOTIFIER_XML = _add_icon_pixmap_property(
         str(getattr(app_module, "STATUS_NOTIFIER_XML", ""))
     )
 
-    icon_theme_path = ensure_status_icon_theme(str(project_root))
     pixmaps = status_notifier_pixmaps(project_root)
-    original_get_property = notifier_class._on_get_property
+    original_get_property = current_get_property
 
     def get_property_with_grayscale_icon(
         self,
@@ -68,16 +79,16 @@ def install_status_notifier_grayscale_icon(app_module: Any) -> None:
         property_name,
     ):
         if property_name == "IconName":
-            return glib.Variant("s", TRAY_ICON_NAME)
+            return glib.Variant("s", "")
         if property_name == "IconThemePath":
-            return glib.Variant("s", str(icon_theme_path))
+            return glib.Variant("s", "")
         if property_name == "IconPixmap":
             return glib.Variant("a(iiay)", pixmaps)
         if property_name == "ToolTip":
             return glib.Variant(
                 "(sa(iiay)ss)",
                 (
-                    TRAY_ICON_NAME,
+                    "",
                     pixmaps,
                     getattr(app_module, "APP_NAME", "Turing Smart Screen"),
                     (
