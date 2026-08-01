@@ -312,13 +312,59 @@ class GpuNvidia(sensors.Gpu):
 
 
 class GpuAmd(sensors.Gpu):
+    selected_index = -1
+
+    @staticmethod
+    def preferred_linux_gpu_index() -> int:
+        """Select the AMD adapter with the largest dedicated VRAM.
+
+        Ryzen processors may expose an integrated AMD GPU before a discrete
+        Radeon card. pyamdgpuinfo indexes devices but does not choose one for
+        the caller, so using index 0 can monitor the iGPU instead of the card
+        driving games. The largest VRAM size is a stable proxy for the
+        dedicated adapter; ties and unavailable sizes keep the first device.
+        """
+        if not pyamdgpuinfo:
+            return -1
+
+        count = pyamdgpuinfo.detect_gpus()
+        if count <= 0:
+            return -1
+
+        best_index = 0
+        best_vram = -1
+        for index in range(count):
+            try:
+                gpu = pyamdgpuinfo.get_gpu(index)
+                memory_info = getattr(gpu, "memory_info", {}) or {}
+                vram_size = int(memory_info.get("vram_size", 0) or 0)
+            except Exception:
+                vram_size = 0
+
+            if vram_size > best_vram:
+                best_index = index
+                best_vram = vram_size
+
+        return best_index
+
+    @staticmethod
+    def linux_gpu():
+        if not pyamdgpuinfo:
+            raise RuntimeError("pyamdgpuinfo is not available")
+
+        if GpuAmd.selected_index < 0:
+            GpuAmd.selected_index = GpuAmd.preferred_linux_gpu_index()
+        if GpuAmd.selected_index < 0:
+            raise RuntimeError("No AMD GPU was detected")
+
+        return pyamdgpuinfo.get_gpu(GpuAmd.selected_index)
+
     @staticmethod
     def stats() -> Tuple[
         float, float, float, float, float]:  # load (%) / used mem (%) / used mem (Mb) / total mem (Mb) / temp (°C)
         if pyamdgpuinfo:
             # Unlike other sensors, AMD GPU with pyamdgpuinfo pulls in all the stats at once
-            pyamdgpuinfo.detect_gpus()
-            amd_gpu = pyamdgpuinfo.get_gpu(0)
+            amd_gpu = GpuAmd.linux_gpu()
 
             try:
                 memory_used_bytes = amd_gpu.query_vram_usage()
@@ -395,8 +441,7 @@ class GpuAmd(sensors.Gpu):
     def frequency() -> float:
         try:
             if pyamdgpuinfo:
-                pyamdgpuinfo.detect_gpus()
-                return pyamdgpuinfo.get_gpu(0).query_sclk() / 1000000
+                return GpuAmd.linux_gpu().query_sclk() / 1000000
             elif pyadl:
                 return pyadl.ADLManager.getInstance().getDevices()[0].getCurrentEngineClock()
             else:
@@ -407,12 +452,24 @@ class GpuAmd(sensors.Gpu):
     @staticmethod
     def is_available() -> bool:
         try:
-            if pyamdgpuinfo and pyamdgpuinfo.detect_gpus() > 0:
+            if pyamdgpuinfo:
+                selected_index = GpuAmd.preferred_linux_gpu_index()
+                if selected_index >= 0:
+                    GpuAmd.selected_index = selected_index
+                    selected_gpu = pyamdgpuinfo.get_gpu(selected_index)
+                    try:
+                        vram_mib = int(selected_gpu.memory_info["vram_size"]) / 1024 / 1024
+                        logger.info(
+                            f"Selected AMD GPU index {selected_index} "
+                            f"with {vram_mib:.0f} MiB VRAM"
+                        )
+                    except Exception:
+                        logger.info(f"Selected AMD GPU index {selected_index}")
+                    return True
+
+            if pyadl and len(pyadl.ADLManager.getInstance().getDevices()) > 0:
                 return True
-            elif pyadl and len(pyadl.ADLManager.getInstance().getDevices()) > 0:
-                return True
-            else:
-                return False
+            return False
         except:
             return False
 

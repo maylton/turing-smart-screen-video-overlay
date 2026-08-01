@@ -27,6 +27,12 @@ def load_checkup_module():
 checkup = load_checkup_module()
 
 
+def load_tests(loader, tests, _pattern):
+    """Include AMD adapter-selection tests in the installed GPU checkup."""
+    tests.addTests(loader.loadTestsFromName("tests.test_amd_gpu_selection"))
+    return tests
+
+
 class GpuDependencyDetectionTests(unittest.TestCase):
     def write_vendor(self, root: Path, card: str, vendor_id: str) -> None:
         vendor_file = root / card / "device" / "vendor"
