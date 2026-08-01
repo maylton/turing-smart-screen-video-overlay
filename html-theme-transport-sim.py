@@ -15,6 +15,10 @@ from typing import Optional, Tuple
 from PIL import Image
 
 from library.frame_pipeline import FrameAnalysis, FrameRegion
+from library.rev_c_protocol_simulator import (
+    RevCProtocolSimulator,
+    write_rev_c_protocol_artifacts,
+)
 from library.simulated_display_transport import (
     PROFILES,
     SimulatedDisplayTransport,
@@ -53,6 +57,14 @@ def parse_args(argv):
         "--once",
         action="store_true",
         help="Process one coherent frame and exit.",
+    )
+    parser.add_argument(
+        "--rev-c-framing",
+        action="store_true",
+        help=(
+            "Wrap rev-c-2inch packets in exact in-memory 250-byte protocol "
+            "blocks and validate them without opening a serial port."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -141,9 +153,16 @@ def run(args) -> int:
     if args.interval <= 0:
         print("--interval must be greater than zero", file=sys.stderr)
         return 2
+    if args.rev_c_framing and args.profile != "rev-c-2inch":
+        print(
+            "--rev-c-framing requires --profile rev-c-2inch",
+            file=sys.stderr,
+        )
+        return 2
 
     profile = get_transport_profile(args.profile)
     transport = SimulatedDisplayTransport(profile)
+    protocol = RevCProtocolSimulator() if args.rev_c_framing else None
     last_sequence = None
     processed = 0
 
@@ -151,6 +170,10 @@ def run(args) -> int:
     print(f"  full:    {profile.full_encoding}")
     print(f"  partial: {profile.partial_encoding}")
     print("Physical I/O: disabled")
+    print(
+        "Rev. C framing: "
+        + ("enabled (memory/files only)" if protocol else "disabled")
+    )
 
     try:
         while True:
@@ -178,6 +201,8 @@ def run(args) -> int:
                 or transport.framebuffer is None
             ):
                 transport.reset()
+                if protocol is not None:
+                    protocol.reset()
                 analysis = _initial_full_analysis(analysis)
 
             result = transport.submit(frame, analysis)
@@ -189,6 +214,23 @@ def run(args) -> int:
                 framebuffer,
                 result,
             )
+
+            protocol_suffix = ""
+            protocol_valid = True
+            if protocol is not None:
+                protocol_result = protocol.submit(result)
+                write_rev_c_protocol_artifacts(
+                    args.output,
+                    protocol_result,
+                )
+                protocol_valid = protocol_result.valid
+                protocol_suffix = (
+                    f" wire={protocol_result.wire_bytes:7d} "
+                    f"framing={'ok' if protocol_valid else 'FAILED'} "
+                    f"wire-saved="
+                    f"{protocol_result.wire_savings_ratio * 100:5.1f}%"
+                )
+
             mode = "full" if result.full_refresh else "partial"
             print(
                 f"TRANSPORT {result.sequence:04d} "
@@ -198,12 +240,15 @@ def run(args) -> int:
                 f"packets={len(result.packets):02d} "
                 f"bytes={result.simulated_bytes:7d} "
                 f"saved={result.savings_ratio * 100:5.1f}% "
-                f"roundtrip={'ok' if result.roundtrip_matches else 'FAILED'} "
+                f"roundtrip={'ok' if result.roundtrip_matches else 'FAILED'}"
+                f"{protocol_suffix} "
                 f"output={output}",
                 flush=True,
             )
             last_sequence = result.sequence
             processed += 1
+            if not protocol_valid:
+                return 3
             if args.once:
                 return 0
             time.sleep(args.interval)
