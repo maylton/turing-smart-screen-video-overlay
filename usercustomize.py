@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Targeted startup hooks for local GTK entry points.
+"""Targeted startup hooks for local GTK and monitor entry points.
 
 Python imports ``usercustomize`` automatically during startup when this checkout
-is on ``sys.path``. Keep this file narrowly scoped so normal project imports and
-monitor runtime entry points are not affected.
+is on ``sys.path``. Each hook is restricted by entry point so unrelated project
+commands are not affected.
 """
 
 from __future__ import annotations
@@ -15,6 +15,9 @@ from pathlib import Path
 
 _THEME_EDITOR_ENTRY_POINTS = {
     "theme-editor-gtk.py",
+}
+_MONITOR_ENTRY_POINTS = {
+    "main.py",
 }
 _GTK_SHELL_ENTRY_POINTS = {
     "configure-gtk.py",
@@ -31,6 +34,10 @@ def _entry_point_name() -> str:
 
 def _should_patch_theme_editor() -> bool:
     return _entry_point_name() in _THEME_EDITOR_ENTRY_POINTS
+
+
+def _should_patch_monitor() -> bool:
+    return _entry_point_name() in _MONITOR_ENTRY_POINTS
 
 
 def _should_patch_tray_i18n() -> bool:
@@ -60,6 +67,22 @@ def _install_theme_editor_patches() -> None:
     except Exception as exc:  # pragma: no cover - defensive startup guard
         print(
             f"[theme-editor] could not install runtime patches: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _install_monitor_hardware_patches() -> None:
+    if not _should_patch_monitor():
+        return
+
+    try:
+        from library.gpu_selection_runtime import install as install_gpu_selection
+
+        install_gpu_selection()
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[gpu-selection] could not apply hardware preference: {exc}",
             file=sys.stderr,
             flush=True,
         )
@@ -141,6 +164,7 @@ def _install_tray_i18n_import_hook() -> None:
 
 
 _install_theme_editor_patches()
+_install_monitor_hardware_patches()
 try:
     _install_tray_i18n_import_hook()
 except Exception as exc:  # pragma: no cover - defensive startup guard
