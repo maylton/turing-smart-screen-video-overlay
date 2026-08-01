@@ -22,8 +22,6 @@ try:
     import time
     from pathlib import Path
 
-    from PIL import Image
-
     if platform.system() == "Windows":
         import win32api
         import win32con
@@ -32,6 +30,7 @@ try:
     from library.log import logger
     import library.scheduler as scheduler
     from library.runtime import DeviceBusyError, DeviceLock
+    from library.tray_icon import load_pystray_image
 except Exception as exc:
     print(
         "Import error: %s\n"
@@ -197,9 +196,7 @@ def create_tray_icon():
         icon = pystray.Icon(
             name="Turing System Monitor",
             title="Turing System Monitor",
-            icon=Image.open(
-                MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png"
-            ),
+            icon=load_pystray_image(MAIN_DIRECTORY),
             menu=pystray.Menu(
                 pystray.MenuItem(text="Configure", action=on_configure_tray),
                 pystray.Menu.SEPARATOR,
@@ -208,10 +205,10 @@ def create_tray_icon():
         )
         if platform.system() != "Darwin":
             icon.run_detached()
-            logger.info("Tray icon has been displayed")
+            logger.info("Grayscale tray icon has been displayed")
         return icon
-    except Exception:
-        logger.warning("Tray icon is not supported on your platform")
+    except Exception as exc:
+        logger.warning("Tray icon is not supported on your platform: %s", exc)
         return None
 
 
