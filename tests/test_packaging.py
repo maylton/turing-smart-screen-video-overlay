@@ -18,6 +18,24 @@ class PackagingContractTests(unittest.TestCase):
             text,
         )
 
+    def test_installer_requires_current_gpu_and_translation_files(self):
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("REQUIRED_SOURCE_FILES=(", text)
+        self.assertIn("library/i18n.py", text)
+        self.assertIn("requirements-gpu-amd.txt", text)
+        self.assertIn("launcher.py", text)
+
+    def test_native_launcher_enables_project_startup_hooks(self):
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn('export PYTHONPATH="$PREFIX', text)
+        self.assertIn('"$PREFIX/launcher.py"', text)
+        self.assertIn("Project startup hooks and i18n OK", text)
+
+        launcher = (ROOT / "launcher.py").read_text(encoding="utf-8")
+        self.assertIn('sys.argv = [str(ENTRY_POINT), *forwarded_args]', launcher)
+        self.assertIn('("sitecustomize", "usercustomize")', launcher)
+        self.assertIn('runpy.run_path(str(ENTRY_POINT), run_name="__main__")', launcher)
+
     def test_installer_runs_the_installed_checkup(self):
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn('"$PREFIX/venv/bin/python3" "$PREFIX/gtk-checkup.py" "$PREFIX"', text)

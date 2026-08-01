@@ -183,6 +183,7 @@ def main() -> int:
         checks.append(result(False, "GTK4 and Libadwaita imports", str(exc)))
 
     required_files = (
+        "launcher.py",
         "configure-gtk.py",
         "configure_gtk_app.py",
         "theme-editor-gtk.py",
@@ -234,6 +235,7 @@ def main() -> int:
         ))
 
     scripts = (
+        root / "launcher.py",
         root / "configure-gtk.py",
         root / "configure_gtk_app.py",
         root / "theme-editor-gtk.py",

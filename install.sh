@@ -122,11 +122,21 @@ if [[ "$INSTALL_DEPS" -eq 1 ]]; then
   fi
 fi
 
-if [[ ! -f "$SOURCE_DIR/main.py" ]]; then
-  echo "main.py was not found in: $SOURCE_DIR" >&2
-  echo "Run install.sh from the complete project directory." >&2
-  exit 1
-fi
+REQUIRED_SOURCE_FILES=(
+  main.py
+  configure-gtk.py
+  launcher.py
+  library/i18n.py
+  requirements-gpu-amd.txt
+)
+
+for relative in "${REQUIRED_SOURCE_FILES[@]}"; do
+  if [[ ! -f "$SOURCE_DIR/$relative" ]]; then
+    echo "Required project file is missing: $SOURCE_DIR/$relative" >&2
+    echo "Update the repository before installing: git fetch origin && git pull --ff-only" >&2
+    exit 1
+  fi
+done
 
 echo "Installing $APP_NAME in: $PREFIX"
 
@@ -273,7 +283,19 @@ import serial
 print("Project venv GTK, Pillow, pyserial, Babel and ruamel.yaml imports OK")
 '
 
+$SUDO env \
+  PYTHONPATH="$PREFIX${PYTHONPATH:+:$PYTHONPATH}" \
+  TURING_SMART_SCREEN_LANG="${TURING_SMART_SCREEN_LANG:-}" \
+  "$PREFIX/venv/bin/python3" -c '
+import importlib
+from library.i18n import active_language
+importlib.import_module("sitecustomize")
+importlib.import_module("usercustomize")
+print(f"Project startup hooks and i18n OK: {active_language()}")
+'
+
 PYTHON_ENTRYPOINTS=(
+  launcher.py
   configure-gtk.py
   configure_gtk_app.py
   main.py
@@ -315,8 +337,9 @@ cat > "$TMP_LAUNCHER" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 export TURING_SMART_SCREEN_HOME="$PREFIX"
+export PYTHONPATH="$PREFIX\${PYTHONPATH:+:\$PYTHONPATH}"
 cd "$PREFIX"
-exec "$PREFIX/venv/bin/python3" "$PREFIX/configure-gtk.py" "\$@"
+exec "$PREFIX/venv/bin/python3" "$PREFIX/launcher.py" "\$@"
 EOF
 chmod +x "$TMP_LAUNCHER"
 $SUDO cp "$TMP_LAUNCHER" "$LAUNCHER"
