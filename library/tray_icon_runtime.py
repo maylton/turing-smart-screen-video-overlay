@@ -1,13 +1,18 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Install the grayscale icon on the GTK StatusNotifierItem implementation."""
+"""Install the selected icon appearance on the GTK StatusNotifierItem."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
-from library.tray_icon import status_notifier_pixmaps
+from library.tray_icon import DEFAULT_SIZES, status_notifier_pixmaps
+from library.tray_icon_preferences import (
+    MODE_COLOR,
+    load_tray_icon_mode,
+    resolve_tray_icon_variant,
+)
 
 
 _INSTALLED = False
@@ -35,17 +40,62 @@ def _add_icon_pixmap_property(xml: str) -> str:
     return updated if count else xml
 
 
-def install_status_notifier_grayscale_icon(app_module: Any) -> None:
-    """Force SNI hosts to consume the generated grayscale ``IconPixmap``.
+def style_prefers_dark(app_module: Any) -> bool:
+    adw = getattr(app_module, "Adw", None)
+    manager_class = getattr(adw, "StyleManager", None)
+    get_default = getattr(manager_class, "get_default", None)
+    if callable(get_default):
+        try:
+            manager = get_default()
+            get_dark = getattr(manager, "get_dark", None)
+            if callable(get_dark):
+                return bool(get_dark())
+        except Exception:
+            pass
+    return True
 
-    Quickshell, which powers Caelestia Shell, prefers ``IconName`` whenever it
-    is non-empty and ignores ``IconPixmap`` in that case.  Returning an empty
-    name is therefore intentional: it makes Quickshell use its tray image
-    provider backed by the monochrome pixmaps.
 
-    The installer checks the currently active method rather than relying only
-    on a process-global flag.  This lets it repair the tray after another
-    integration, such as the translation layer, replaces ``_on_get_property``.
+def active_tray_icon_variant(app_module: Any) -> str:
+    return resolve_tray_icon_variant(
+        load_tray_icon_mode(),
+        dark_theme=style_prefers_dark(app_module),
+    )
+
+
+def refresh_status_notifier_icon(app_module: Any, notifier: Any) -> bool:
+    """Tell StatusNotifier hosts to request the current icon and tooltip again."""
+    connection = getattr(notifier, "connection", None)
+    if connection is None:
+        return False
+
+    object_path = getattr(app_module, "TRAY_OBJECT_PATH", "/StatusNotifierItem")
+    try:
+        connection.emit_signal(
+            None,
+            object_path,
+            "org.kde.StatusNotifierItem",
+            "NewIcon",
+            None,
+        )
+        connection.emit_signal(
+            None,
+            object_path,
+            "org.kde.StatusNotifierItem",
+            "NewToolTip",
+            None,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def install_status_notifier_tray_icon(app_module: Any) -> None:
+    """Expose color or symbolic icon properties according to user preference.
+
+    Caelestia uses Quickshell, which prefers ``IconName`` whenever it is
+    non-empty. Color mode therefore returns the normal application icon name;
+    symbolic modes intentionally return an empty name so Quickshell consumes
+    the generated ``IconPixmap`` instead.
     """
 
     global _INSTALLED
@@ -57,7 +107,7 @@ def install_status_notifier_grayscale_icon(app_module: Any) -> None:
         return
 
     current_get_property = getattr(notifier_class, "_on_get_property", None)
-    if getattr(current_get_property, "_turing_grayscale_tray_icon", False):
+    if getattr(current_get_property, "_turing_tray_icon_runtime", False):
         _INSTALLED = True
         return
     if not callable(current_get_property):
@@ -67,10 +117,22 @@ def install_status_notifier_grayscale_icon(app_module: Any) -> None:
         str(getattr(app_module, "STATUS_NOTIFIER_XML", ""))
     )
 
-    pixmaps = status_notifier_pixmaps(project_root)
+    pixmap_cache: Dict[str, List[Tuple[int, int, bytes]]] = {}
     original_get_property = current_get_property
 
-    def get_property_with_grayscale_icon(
+    def current_payload():
+        variant = active_tray_icon_variant(app_module)
+        pixmaps = pixmap_cache.get(variant)
+        if pixmaps is None:
+            pixmaps = status_notifier_pixmaps(
+                project_root,
+                sizes=DEFAULT_SIZES,
+                variant=variant,
+            )
+            pixmap_cache[variant] = pixmaps
+        return variant, pixmaps
+
+    def get_property_with_selected_icon(
         self,
         connection,
         sender,
@@ -78,8 +140,15 @@ def install_status_notifier_grayscale_icon(app_module: Any) -> None:
         interface_name,
         property_name,
     ):
+        variant, pixmaps = current_payload()
+        icon_name = (
+            getattr(app_module, "APP_ID", "")
+            if variant == MODE_COLOR
+            else ""
+        )
+
         if property_name == "IconName":
-            return glib.Variant("s", "")
+            return glib.Variant("s", icon_name)
         if property_name == "IconThemePath":
             return glib.Variant("s", "")
         if property_name == "IconPixmap":
@@ -88,7 +157,7 @@ def install_status_notifier_grayscale_icon(app_module: Any) -> None:
             return glib.Variant(
                 "(sa(iiay)ss)",
                 (
-                    "",
+                    icon_name,
                     pixmaps,
                     getattr(app_module, "APP_NAME", "Turing Smart Screen"),
                     (
@@ -106,6 +175,11 @@ def install_status_notifier_grayscale_icon(app_module: Any) -> None:
             property_name,
         )
 
-    get_property_with_grayscale_icon._turing_grayscale_tray_icon = True
-    notifier_class._on_get_property = get_property_with_grayscale_icon
+    get_property_with_selected_icon._turing_tray_icon_runtime = True
+    notifier_class._on_get_property = get_property_with_selected_icon
     _INSTALLED = True
+
+
+# Keep the previous public name for installed checkouts and third-party hooks.
+def install_status_notifier_grayscale_icon(app_module: Any) -> None:
+    install_status_notifier_tray_icon(app_module)
