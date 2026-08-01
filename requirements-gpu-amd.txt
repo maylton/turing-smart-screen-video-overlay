@@ -1,0 +1,5 @@
+# Optional AMD GPU support for Linux.
+# Installed automatically by install.sh only when an AMD GPU/APU is detected.
+# pyamdgpuinfo 2.1.7 still provides Python 3.9 wheels; 2.1.8 supports Python 3.10-3.14.
+pyamdgpuinfo~=2.1.7; sys_platform=="linux" and python_version < "3.10"
+pyamdgpuinfo~=2.1.8; sys_platform=="linux" and python_version >= "3.10"
