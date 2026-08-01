@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,28 @@ from library.tray_icon import (
 
 
 _INSTALLED = False
+
+
+def _add_icon_pixmap_property(xml: str) -> str:
+    if "IconPixmap" in xml:
+        return xml
+
+    pattern = re.compile(
+        r'(?m)^(?P<indent>\s*)'
+        r'<property name="IconName" type="s" access="read"/>\s*$'
+    )
+
+    def add_property(match: re.Match) -> str:
+        indent = match.group("indent")
+        return (
+            match.group(0)
+            + "\n"
+            + indent
+            + '<property name="IconPixmap" type="a(iiay)" access="read"/>'
+        )
+
+    updated, count = pattern.subn(add_property, xml, count=1)
+    return updated if count else xml
 
 
 def install_status_notifier_grayscale_icon(app_module: Any) -> None:
@@ -28,12 +51,9 @@ def install_status_notifier_grayscale_icon(app_module: Any) -> None:
     if notifier_class is None or glib is None:
         return
 
-    xml = str(getattr(app_module, "STATUS_NOTIFIER_XML", ""))
-    if "IconPixmap" not in xml:
-        marker = '    <property name="IconName" type="s" access="read"/>\n'
-        replacement = marker + '    <property name="IconPixmap" type="a(iiay)" access="read"/>\n'
-        if marker in xml:
-            app_module.STATUS_NOTIFIER_XML = xml.replace(marker, replacement, 1)
+    app_module.STATUS_NOTIFIER_XML = _add_icon_pixmap_property(
+        str(getattr(app_module, "STATUS_NOTIFIER_XML", ""))
+    )
 
     icon_theme_path = ensure_status_icon_theme(str(project_root))
     pixmaps = status_notifier_pixmaps(project_root)
