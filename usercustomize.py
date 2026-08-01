@@ -42,6 +42,7 @@ def _install_theme_editor_patches() -> None:
         return
 
     try:
+        from library.theme_editor_backup_runtime import install as install_theme_editor_backups
         from library.theme_editor_widget_i18n import install as install_theme_editor_widget_i18n
         from library.weather_runtime_patch import install as install_weather_runtime_patch
         from library.weather_hidden_defaults import install as install_weather_hidden_defaults
@@ -49,6 +50,7 @@ def _install_theme_editor_patches() -> None:
         from library.theme_editor_preview_interaction_patch import install as install_preview_interaction_patch
         from library.theme_editor_preview_drag_fix import install as install_preview_drag_fix
 
+        install_theme_editor_backups()
         install_theme_editor_widget_i18n()
         install_weather_runtime_patch()
         install_weather_hidden_defaults()
