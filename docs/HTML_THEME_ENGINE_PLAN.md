@@ -34,10 +34,24 @@ Load a local HTML theme in WebKitGTK, inject synthetic snapshots, block external
 navigation, and optionally export a preview snapshot. This milestone remains
 fully disconnected from physical display transports.
 
+### 4. Real sensors and simulated frame pipeline
+
+Add an opt-in adapter for the existing sensor backend and an in-memory frame
+pipeline that:
+
+- captures `Gdk.Texture` snapshots as PNG bytes;
+- normalizes frames to RGBA;
+- ignores tiny per-channel changes;
+- groups changed pixels into conservative tile regions;
+- falls back to a full refresh when too much of the frame changes;
+- writes simulator-only inspection artifacts.
+
+This milestone still has no USB, serial, or physical display sink.
+
 ## Testable prototype
 
-The first simulator theme is `res/themes/html-demo`. It uses only synthetic data
-and cannot access the display, serial ports, shell commands, or the network.
+The simulator theme is `res/themes/html-demo`. It cannot access the display,
+serial ports, shell commands, or the network.
 
 Validate the manifest and local WebKitGTK installation:
 
@@ -45,16 +59,50 @@ Validate the manifest and local WebKitGTK installation:
 python html-theme-preview-gtk.py --check
 ```
 
-Open the isolated simulator:
+Open the isolated simulator with synthetic data:
 
 ```bash
 python html-theme-preview-gtk.py
 ```
 
-Optionally request a PNG after the page finishes loading:
+Use the existing Python hardware sensor backend:
 
 ```bash
-python html-theme-preview-gtk.py --snapshot /tmp/html-theme-preview.png
+python html-theme-preview-gtk.py --real-sensors
+```
+
+Choose a specific network interface when needed:
+
+```bash
+python html-theme-preview-gtk.py \
+  --real-sensors \
+  --network-interface enp1s0
+```
+
+Inspect the complete frame and calculated dirty regions:
+
+```bash
+python html-theme-preview-gtk.py \
+  --real-sensors \
+  --inspect-frames /tmp/turing-html-frames
+```
+
+The inspection directory contains:
+
+```text
+latest.png
+latest-diff.png
+metrics.json
+```
+
+This path is intentionally diagnostic. Frames are captured in memory and only
+the latest artifacts are written atomically.
+
+Optionally request a one-time PNG after the page finishes loading:
+
+```bash
+python html-theme-preview-gtk.py \
+  --snapshot /tmp/html-theme-preview.png
 ```
 
 Run the pure-Python regression suite:
@@ -63,17 +111,20 @@ Run the pure-Python regression suite:
 python -m unittest -v \
   tests.test_sensor_snapshot \
   tests.test_theme_engine \
-  tests.test_html_theme_engine
+  tests.test_html_theme_engine \
+  tests.test_html_frame_capture \
+  tests.test_real_sensor_source \
+  tests.test_frame_pipeline
 ```
 
 The preview requires the GTK4 and WebKitGTK 6.0 GI namespaces. The core modules
 and their tests do not import GI, so machines without WebKitGTK can still run all
 non-visual validation.
 
-## Later work, intentionally not in the first testable prototype
+## Later work, intentionally not in this milestone
 
-- real sensor adapter wired into the normal monitor loop;
-- full-frame and dirty-region conversion for hardware;
+- a simulated display sink that consumes RGB565 region payloads;
+- full-frame and dirty-region conversion for tested hardware profiles;
 - watchdog and frame-rate budgets;
 - gallery/editor integration;
 - import/export permission review;

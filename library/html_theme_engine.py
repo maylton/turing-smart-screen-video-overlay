@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Sandboxed HTML theme engine used by the developer simulator.
 
-The first milestone intentionally renders only inside WebKitGTK. It never imports
-or calls display transports. Hardware frame capture and upload belong to a later,
+The current milestones intentionally render only inside WebKitGTK. They never
+import or call display transports. Physical frame upload belongs to a later,
 separately reviewed stage.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import unquote, urlparse
@@ -61,6 +62,66 @@ def build_snapshot_script(snapshot: SensorSnapshot) -> str:
         "}"
         "window.dispatchEvent(new CustomEvent('turing-snapshot',{detail:snapshot}));"
         "})();"
+    )
+
+
+def _gbytes_to_bytes(value: Any) -> bytes:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value)
+    getter = getattr(value, "get_data", None)
+    if not callable(getter):
+        raise ThemeEngineError("GTK returned an unsupported byte container")
+    data = getter()
+    if isinstance(data, tuple):
+        data = data[0]
+    try:
+        return bytes(data)
+    except Exception as exc:
+        raise ThemeEngineError("Could not read PNG bytes from GTK") from exc
+
+
+def texture_png_bytes(texture: Any) -> bytes:
+    """Serialize a GTK4 texture to PNG bytes without touching the filesystem."""
+    saver = getattr(texture, "save_to_png_bytes", None)
+    if callable(saver):
+        return _gbytes_to_bytes(saver())
+
+    filename_saver = getattr(texture, "save_to_png", None)
+    if callable(filename_saver):
+        import tempfile
+
+        descriptor, filename = tempfile.mkstemp(suffix=".png")
+        os.close(descriptor)
+        path = Path(filename)
+        try:
+            saved = filename_saver(str(path))
+            if saved is False:
+                raise ThemeEngineError("GTK could not serialize the texture")
+            return path.read_bytes()
+        finally:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+    legacy_saver = getattr(texture, "write_to_png", None)
+    if callable(legacy_saver):
+        import tempfile
+
+        descriptor, filename = tempfile.mkstemp(suffix=".png")
+        os.close(descriptor)
+        path = Path(filename)
+        try:
+            legacy_saver(str(path))
+            return path.read_bytes()
+        finally:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+    raise ThemeEngineError(
+        "The snapshot texture exposes no supported PNG serialization API"
     )
 
 
@@ -171,56 +232,24 @@ class WebKitGtkBackend:
             return
         raise ThemeEngineError("WebKit view has no JavaScript evaluation API")
 
-    @staticmethod
-    def _save_snapshot_texture(texture: Any, destination: Path) -> None:
-        """Persist GTK4 textures, with a legacy Cairo fallback."""
-        destination = Path(destination)
-
-        saver = getattr(texture, "save_to_png", None)
-        if callable(saver):
-            saved = saver(str(destination))
-            if saved is False:
-                raise ThemeEngineError(
-                    f"GTK could not save the snapshot to {destination}"
-                )
-            return
-
-        legacy_saver = getattr(texture, "write_to_png", None)
-        if callable(legacy_saver):
-            legacy_saver(str(destination))
-            return
-
-        raise ThemeEngineError(
-            "The snapshot result exposes neither Gdk.Texture.save_to_png() "
-            "nor the legacy Cairo write_to_png() API"
-        )
-
-    def snapshot_png(
+    def _request_snapshot(
         self,
-        destination: Path,
-        callback: Optional[Callable[[Optional[Exception]], None]] = None,
+        callback: Callable[[Optional[Any], Optional[Exception]], None],
     ) -> None:
         getter = getattr(self.view, "get_snapshot", None)
         finisher = getattr(self.view, "get_snapshot_finish", None)
         if not callable(getter) or not callable(finisher):
-            error = ThemeEngineError("This WebKitGTK build has no snapshot API")
-            if callback:
-                callback(error)
-                return
-            raise error
-
-        destination = Path(destination).expanduser().resolve()
-        destination.parent.mkdir(parents=True, exist_ok=True)
+            callback(
+                None,
+                ThemeEngineError("This WebKitGTK build has no snapshot API"),
+            )
+            return
 
         def done(view: Any, result: Any, _user_data: Any = None) -> None:
-            error: Optional[Exception] = None
             try:
-                texture = view.get_snapshot_finish(result)
-                self._save_snapshot_texture(texture, destination)
+                callback(view.get_snapshot_finish(result), None)
             except Exception as exc:
-                error = exc
-            if callback:
-                callback(error)
+                callback(None, exc)
 
         region = getattr(self.WebKit.SnapshotRegion, "VISIBLE", None)
         if region is None:
@@ -231,6 +260,54 @@ class WebKitGtkBackend:
             0,
         )
         getter(region, options, None, done, None)
+
+    def snapshot_png_bytes(
+        self,
+        callback: Callable[[Optional[bytes], Optional[Exception]], None],
+    ) -> None:
+        def finished(
+            texture: Optional[Any],
+            error: Optional[Exception],
+        ) -> None:
+            if error is not None or texture is None:
+                callback(None, error or ThemeEngineError("Empty snapshot"))
+                return
+            try:
+                callback(texture_png_bytes(texture), None)
+            except Exception as exc:
+                callback(None, exc)
+
+        self._request_snapshot(finished)
+
+    def snapshot_png(
+        self,
+        destination: Path,
+        callback: Optional[Callable[[Optional[Exception]], None]] = None,
+    ) -> None:
+        destination = Path(destination).expanduser().resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        def finished(
+            payload: Optional[bytes],
+            error: Optional[Exception],
+        ) -> None:
+            if error is None and payload is not None:
+                temporary = destination.with_name(
+                    f".{destination.name}.{os.getpid()}.tmp"
+                )
+                try:
+                    temporary.write_bytes(payload)
+                    os.replace(temporary, destination)
+                except Exception as exc:
+                    error = exc
+                    try:
+                        temporary.unlink()
+                    except OSError:
+                        pass
+            if callback:
+                callback(error)
+
+        self.snapshot_png_bytes(finished)
 
     def close(self) -> None:
         stop = getattr(self.view, "stop_loading", None)
@@ -291,6 +368,14 @@ class HtmlThemeEngine(ThemeEngine):
         if self._backend is None:
             raise ThemeEngineError("HTML theme has not been loaded")
         self._backend.snapshot_png(destination, callback)
+
+    def snapshot_png_bytes(
+        self,
+        callback: Callable[[Optional[bytes], Optional[Exception]], None],
+    ) -> None:
+        if self._backend is None:
+            raise ThemeEngineError("HTML theme has not been loaded")
+        self._backend.snapshot_png_bytes(callback)
 
     def close(self) -> None:
         if self._backend is not None:
