@@ -49,9 +49,11 @@ class TrayIconTests(unittest.TestCase):
     def create_project_icon(self, root: Path) -> Path:
         source = root / "res" / "icons" / "monitor-icon-17865" / "64.png"
         source.parent.mkdir(parents=True)
-        image = Image.new("RGBA", (2, 1))
+        image = Image.new("RGBA", (2, 2))
         image.putdata(
             [
+                (255, 0, 0, 255),
+                (0, 255, 0, 96),
                 (255, 0, 0, 255),
                 (0, 255, 0, 96),
             ]
