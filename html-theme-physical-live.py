@@ -13,6 +13,7 @@ from typing import Optional, Tuple
 
 from PIL import Image
 
+from library.dirty_region_optimizer import optimize_frame_analysis
 from library.frame_pipeline import FramePipeline
 from library.rev_c_live_sink import (
     LIVE_CONFIRMATION_TEXT,
@@ -111,7 +112,17 @@ def validate_frame(
     transport_engine: SimulatedDisplayTransport,
     protocol_engine: RevCProtocolSimulator,
 ):
+    previous = pipeline.previous
     analysis = pipeline.process(frame)
+    analysis = optimize_frame_analysis(
+        previous,
+        frame,
+        analysis,
+        tile_size=pipeline.tile_size,
+        pixel_threshold=pipeline.pixel_threshold,
+        max_regions=pipeline.max_regions,
+        full_refresh_ratio=pipeline.full_refresh_ratio,
+    )
     transport = transport_engine.submit(frame, analysis)
     protocol = protocol_engine.submit(transport)
     parity = compare_with_production_driver(frame, transport, protocol)
