@@ -280,6 +280,17 @@ def install_main_app_shell_i18n(app) -> None:
         original_init(self, application)
         translate_widget_tree(self)
 
+        # Diagnostics and other optional integrations wrap __init__ after the
+        # i18n layer and may append widgets after the immediate translation.
+        # Translate once more on the GTK idle loop after all wrappers return.
+        def translate_after_integrations():
+            translate_widget_tree(self)
+            return False
+
+        idle_add = getattr(getattr(app, "GLib", None), "idle_add", None)
+        if callable(idle_add):
+            idle_add(translate_after_integrations)
+
     def build_settings_page_with_i18n(self):
         page = original_build_settings_page(self)
         translate_widget_tree(page)
