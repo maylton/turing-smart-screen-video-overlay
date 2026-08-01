@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 GPU_VENDOR_NAMES = {
@@ -22,7 +23,7 @@ def result(ok: bool, label: str, details: str = "") -> tuple[bool, str]:
     return ok, f"{prefix} {label}{suffix}"
 
 
-def detect_linux_gpu_vendors(sysfs_root: Path | None = None) -> set[str]:
+def detect_linux_gpu_vendors(sysfs_root: Optional[Path] = None) -> set[str]:
     """Detect Linux GPU vendors without requiring an extra package.
 
     The primary source is the DRM sysfs vendor ID. lspci is only a fallback for
@@ -85,7 +86,7 @@ def detect_linux_gpu_vendors(sysfs_root: Path | None = None) -> set[str]:
     return vendors
 
 
-def probe_amd_gpu() -> subprocess.CompletedProcess[str]:
+def probe_amd_gpu() -> subprocess.CompletedProcess:
     return subprocess.run(
         [
             sys.executable,
