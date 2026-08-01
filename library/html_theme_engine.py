@@ -171,6 +171,30 @@ class WebKitGtkBackend:
             return
         raise ThemeEngineError("WebKit view has no JavaScript evaluation API")
 
+    @staticmethod
+    def _save_snapshot_texture(texture: Any, destination: Path) -> None:
+        """Persist GTK4 textures, with a legacy Cairo fallback."""
+        destination = Path(destination)
+
+        saver = getattr(texture, "save_to_png", None)
+        if callable(saver):
+            saved = saver(str(destination))
+            if saved is False:
+                raise ThemeEngineError(
+                    f"GTK could not save the snapshot to {destination}"
+                )
+            return
+
+        legacy_saver = getattr(texture, "write_to_png", None)
+        if callable(legacy_saver):
+            legacy_saver(str(destination))
+            return
+
+        raise ThemeEngineError(
+            "The snapshot result exposes neither Gdk.Texture.save_to_png() "
+            "nor the legacy Cairo write_to_png() API"
+        )
+
     def snapshot_png(
         self,
         destination: Path,
@@ -191,8 +215,8 @@ class WebKitGtkBackend:
         def done(view: Any, result: Any, _user_data: Any = None) -> None:
             error: Optional[Exception] = None
             try:
-                surface = view.get_snapshot_finish(result)
-                surface.write_to_png(str(destination))
+                texture = view.get_snapshot_finish(result)
+                self._save_snapshot_texture(texture, destination)
             except Exception as exc:
                 error = exc
             if callback:
