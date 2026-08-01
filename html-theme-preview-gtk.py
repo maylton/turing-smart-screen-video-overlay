@@ -6,10 +6,17 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import sys
 import time
 from pathlib import Path
 
+# The simulator is a correctness tool, not a GPU benchmark. GTK 4 may select
+# Vulkan automatically; on some RADV combinations that produced a native heap
+# failure during teardown. Respect an explicit user choice, otherwise prefer GL.
+os.environ.setdefault("GSK_RENDERER", "gl")
+
+from library.diagnostic_gpu_backend import DiagnosticGpuProvider
 from library.frame_pipeline import FramePipeline, write_frame_artifacts
 from library.html_theme_engine import HtmlThemeEngine, WebKitUnavailableError
 from library.real_sensor_source import RealSensorSource
@@ -107,8 +114,16 @@ def validate(args):
 
 def build_collector(args):
     if args.real_sensors:
+        gpu_provider = DiagnosticGpuProvider()
+        source_kwargs = {}
+        if gpu_provider.is_available():
+            source_kwargs = {
+                "gpu_backend_factory": lambda: gpu_provider.backend,
+                "gpu_diagnostics_factory": gpu_provider.diagnostics,
+            }
         source = RealSensorSource(
             network_interface=args.network_interface,
+            **source_kwargs,
         )
         return SensorSnapshotCollector(source.readers()), "real"
     return SensorSnapshotCollector(demo_readers()), "synthetic"
@@ -116,6 +131,7 @@ def build_collector(args):
 
 def run_check(manifest, args):
     print(f"HTML theme manifest: OK ({manifest.name})")
+    print(f"GTK renderer preference: {os.environ.get('GSK_RENDERER', 'auto')}")
     try:
         import gi
 
@@ -177,6 +193,41 @@ def run_preview(manifest, args):
             self.window = None
             self._snapshot_scheduled = False
             self._frame_capture_busy = False
+            self._closing = False
+            self._source_ids = set()
+
+        def _timeout(self, milliseconds, callback):
+            source_id = None
+
+            def guarded_callback():
+                if self._closing:
+                    if source_id is not None:
+                        self._source_ids.discard(source_id)
+                    return False
+                keep = bool(callback())
+                if not keep and source_id is not None:
+                    self._source_ids.discard(source_id)
+                return keep
+
+            source_id = GLib.timeout_add(milliseconds, guarded_callback)
+            self._source_ids.add(source_id)
+            return source_id
+
+        def _begin_close(self):
+            if self._closing:
+                return
+            self._closing = True
+            for source_id in tuple(self._source_ids):
+                try:
+                    GLib.source_remove(source_id)
+                except Exception:
+                    pass
+            self._source_ids.clear()
+            self._frame_capture_busy = False
+
+        def _on_close_request(self, _window):
+            self._begin_close()
+            return False
 
         def do_activate(self):
             if self.window is not None:
@@ -190,6 +241,7 @@ def run_preview(manifest, args):
             self.window.set_default_size(manifest.width, manifest.height)
             self.window.set_resizable(False)
             self.window.set_child(engine.render())
+            self.window.connect("close-request", self._on_close_request)
             self.window.present()
 
             interval_ms = max(
@@ -198,12 +250,19 @@ def run_preview(manifest, args):
             )
 
             def update_theme():
+                if self._closing:
+                    return False
                 engine.update(collector.collect())
                 if args.snapshot and not self._snapshot_scheduled:
                     self._snapshot_scheduled = True
 
                     def export_snapshot():
+                        if self._closing:
+                            return False
+
                         def finished(error):
+                            if self._closing:
+                                return
                             if error:
                                 print(
                                     f"Snapshot failed: {error}",
@@ -217,11 +276,11 @@ def run_preview(manifest, args):
                         engine.snapshot_png(args.snapshot, finished)
                         return False
 
-                    GLib.timeout_add(1200, export_snapshot)
+                    self._timeout(1200, export_snapshot)
                 return True
 
             update_theme()
-            GLib.timeout_add(interval_ms, update_theme)
+            self._timeout(interval_ms, update_theme)
 
             if args.inspect_frames:
                 frame_interval_ms = max(
@@ -230,6 +289,8 @@ def run_preview(manifest, args):
                 )
 
                 def inspect_frame():
+                    if self._closing:
+                        return False
                     if self._frame_capture_busy:
                         return True
                     self._frame_capture_busy = True
@@ -237,6 +298,8 @@ def run_preview(manifest, args):
 
                     def finished(payload, error):
                         self._frame_capture_busy = False
+                        if self._closing:
+                            return
                         if error is not None or payload is None:
                             print(
                                 f"Frame inspection failed: {error}",
@@ -285,14 +348,23 @@ def run_preview(manifest, args):
                     return True
 
                 def start_frame_inspector():
+                    if self._closing:
+                        return False
                     inspect_frame()
-                    GLib.timeout_add(frame_interval_ms, inspect_frame)
+                    self._timeout(frame_interval_ms, inspect_frame)
                     return False
 
-                GLib.timeout_add(1400, start_frame_inspector)
+                self._timeout(1400, start_frame_inspector)
 
         def do_shutdown(self):
+            self._begin_close()
+            if self.window is not None:
+                try:
+                    self.window.set_child(None)
+                except Exception:
+                    pass
             engine.close()
+            self.window = None
             Gtk.Application.do_shutdown(self)
 
     return PreviewApplication().run([])
