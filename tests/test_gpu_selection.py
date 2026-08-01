@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from library.gpu_diagnostics import collect_gpu_diagnostics
+from library.gpu_selection import (
+    GpuPreference,
+    enumerate_amd_gpus,
+    load_preference,
+    save_preference,
+    select_amd_gpu_index,
+)
+
+
+class FakeGpu:
+    def __init__(self, name: str, vram: int, load: float = 0.5):
+        self.name = name
+        self.memory_info = {"vram_size": vram}
+        self._load = load
+
+    def query_load(self):
+        return self._load
+
+    def query_temperature(self):
+        return 62.5
+
+    def query_vram_usage(self):
+        return self.memory_info["vram_size"] // 2
+
+    def query_sclk(self):
+        return 2_500_000_000
+
+
+class FakeApi:
+    def __init__(self, gpus):
+        self.gpus = list(gpus)
+
+    def detect_gpus(self):
+        return len(self.gpus)
+
+    def get_gpu(self, index):
+        return self.gpus[index]
+
+
+class GpuSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.api = FakeApi(
+            [
+                FakeGpu("Ryzen integrated graphics", 512 * 1024 ** 2),
+                FakeGpu("Radeon discrete graphics", 16 * 1024 ** 3),
+            ]
+        )
+
+    def test_enumeration_exposes_index_name_and_vram(self):
+        candidates = enumerate_amd_gpus(self.api)
+        self.assertEqual([item.index for item in candidates], [0, 1])
+        self.assertEqual(candidates[1].name, "Radeon discrete graphics")
+        self.assertIn("16.0 GiB", candidates[1].label)
+
+    def test_auto_prefers_largest_vram(self):
+        self.assertEqual(
+            select_amd_gpu_index(self.api, GpuPreference()),
+            1,
+        )
+
+    def test_explicit_index_overrides_auto(self):
+        preference = GpuPreference(mode="index", amd_index=0)
+        self.assertEqual(select_amd_gpu_index(self.api, preference), 0)
+
+    def test_missing_explicit_index_falls_back_to_auto(self):
+        preference = GpuPreference(mode="index", amd_index=9)
+        self.assertEqual(select_amd_gpu_index(self.api, preference), 1)
+
+    def test_preference_round_trip_is_atomic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "hardware.json"
+            save_preference(GpuPreference(mode="index", amd_index=1), path)
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
+            self.assertEqual(load_preference(path), GpuPreference(mode="index", amd_index=1))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["amd_gpu_index"], 1)
+
+    def test_environment_override_has_priority(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "hardware.json"
+            save_preference(GpuPreference(mode="index", amd_index=1), path)
+            with mock.patch.dict(os.environ, {"TURING_AMD_GPU_INDEX": "0"}):
+                self.assertEqual(
+                    load_preference(path),
+                    GpuPreference(mode="index", amd_index=0),
+                )
+
+    def test_diagnostics_use_selected_adapter(self):
+        with mock.patch(
+            "library.gpu_diagnostics.selection_summary",
+            return_value={
+                "selected_index": 1,
+                "selected_label": "GPU 1",
+                "preference": {"mode": "auto", "amd_index": None},
+                "candidates": [],
+                "configuration_path": "/tmp/hardware.json",
+            },
+        ):
+            payload = collect_gpu_diagnostics(self.api)
+
+        self.assertEqual(payload["selected_index"], 1)
+        metrics = payload["metrics"]
+        self.assertEqual(metrics["load_percent"], 50.0)
+        self.assertEqual(metrics["temperature_c"], 62.5)
+        self.assertEqual(metrics["vram_percent"], 50.0)
+        self.assertEqual(metrics["clock_mhz"], 2500.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
