@@ -111,7 +111,7 @@ def _install_gtk_ctrl_c_handler(app_module) -> None:
 
 
 def _install_tray_i18n_import_hook() -> None:
-    """Install tray i18n after configure_gtk_app.py is loaded."""
+    """Install tray integrations after configure_gtk_app.py is loaded."""
 
     global _TRAY_I18N_HOOK_INSTALLED
     if _TRAY_I18N_HOOK_INSTALLED or not _should_patch_tray_i18n():
@@ -142,6 +142,18 @@ def _install_tray_i18n_import_hook() -> None:
             except Exception as exc:  # pragma: no cover - defensive startup guard
                 print(
                     f"[gtk] could not install Ctrl-C handler: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            try:
+                from library.tray_icon_runtime import (
+                    install_status_notifier_grayscale_icon,
+                )
+
+                install_status_notifier_grayscale_icon(module)
+            except Exception as exc:  # pragma: no cover - defensive startup guard
+                print(
+                    f"[tray] could not install grayscale icon: {exc}",
                     file=sys.stderr,
                     flush=True,
                 )
