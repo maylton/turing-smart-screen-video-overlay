@@ -8,10 +8,13 @@ on:
       - 'diagnostics*.py'
       - 'gpu-selection*.py'
       - 'theme-backups.py'
+      - 'main.py'
+      - 'usercustomize.py'
       - 'library/display_lifecycle.py'
       - 'library/gpu_*.py'
       - 'library/release_info.py'
       - 'library/theme_editor_backup*.py'
+      - 'library/tray_icon*.py'
       - 'library/main_app_inline_diagnostics.py'
       - 'library/diagnostics_gtk_i18n.py'
       - 'scripts/installation-report.py'
@@ -19,6 +22,7 @@ on:
       - 'tests/test_gpu_selection.py'
       - 'tests/test_release_info.py'
       - 'tests/test_theme_editor_backups.py'
+      - 'tests/test_tray_icon.py'
       - 'tests/test_packaging.py'
       - '.github/workflows/stability-stack.yml'
   push:
@@ -30,10 +34,13 @@ on:
       - 'diagnostics*.py'
       - 'gpu-selection*.py'
       - 'theme-backups.py'
+      - 'main.py'
+      - 'usercustomize.py'
       - 'library/display_lifecycle.py'
       - 'library/gpu_*.py'
       - 'library/release_info.py'
       - 'library/theme_editor_backup*.py'
+      - 'library/tray_icon*.py'
       - 'library/main_app_inline_diagnostics.py'
       - 'library/diagnostics_gtk_i18n.py'
       - 'scripts/installation-report.py'
@@ -41,6 +48,7 @@ on:
       - 'tests/test_gpu_selection.py'
       - 'tests/test_release_info.py'
       - 'tests/test_theme_editor_backups.py'
+      - 'tests/test_tray_icon.py'
       - 'tests/test_packaging.py'
       - '.github/workflows/stability-stack.yml'
 
@@ -76,6 +84,8 @@ jobs:
             gpu-selection-gtk.py \
             diagnostics.py \
             diagnostics-gtk.py \
+            main.py \
+            usercustomize.py \
             library/release_info.py \
             library/theme_editor_backups.py \
             library/theme_editor_backup_runtime.py \
@@ -83,6 +93,8 @@ jobs:
             library/gpu_selection.py \
             library/gpu_selection_runtime.py \
             library/gpu_diagnostics.py \
+            library/tray_icon.py \
+            library/tray_icon_runtime.py \
             library/main_app_inline_diagnostics.py
 
       - name: Run stability stack tests
@@ -92,4 +104,5 @@ jobs:
             tests.test_theme_editor_backups \
             tests.test_display_lifecycle \
             tests.test_gpu_selection \
+            tests.test_tray_icon \
             tests.test_packaging
