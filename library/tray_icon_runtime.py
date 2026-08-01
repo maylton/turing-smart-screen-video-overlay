@@ -22,8 +22,8 @@ def _add_icon_pixmap_property(xml: str) -> str:
         return xml
 
     pattern = re.compile(
-        r'(?m)^(?P<indent>\s*)'
-        r'<property name="IconName" type="s" access="read"/>\s*$'
+        r'(?m)^(?P<indent>[ \t]*)'
+        r'<property name="IconName" type="s" access="read"/>[ \t]*$'
     )
 
     def add_property(match: re.Match) -> str:
