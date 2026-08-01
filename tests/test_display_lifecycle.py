@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import subprocess
 import unittest
 from unittest import mock
 
 from library.display_lifecycle import (
     DisplayLifecycleState,
+    device_owner_pids,
     inspect_display_lifecycle,
 )
 from library.runtime import LockOwner, RuntimeState
@@ -80,6 +82,26 @@ class DisplayLifecycleTests(unittest.TestCase):
             RuntimeState(busy=False),
         )
         self.assertEqual(snapshot.state, DisplayLifecycleState.UNKNOWN)
+
+    @mock.patch("library.display_lifecycle.os.name", "posix")
+    @mock.patch("library.display_lifecycle.shutil.which", return_value="/usr/bin/fuser")
+    @mock.patch("library.display_lifecycle.subprocess.run")
+    def test_fuser_uses_stdout_only_for_pids(self, run, _which):
+        run.return_value = subprocess.CompletedProcess(
+            ["fuser", "-a", "/dev/ttyACM1"],
+            0,
+            stdout=" 4321 8765\n",
+            stderr="/dev/ttyACM1:",
+        )
+        self.assertEqual(device_owner_pids("/dev/ttyACM1"), (4321, 8765))
+
+    def test_invalid_fallback_pid_values_are_ignored(self):
+        snapshot = inspect_display_lifecycle(
+            [USBMONITOR_PORT],
+            RuntimeState(busy=False),
+            monitor_pids=["bad", -1, 0],
+        )
+        self.assertEqual(snapshot.state, DisplayLifecycleState.USBMONITOR_WAKING)
 
 
 if __name__ == "__main__":
