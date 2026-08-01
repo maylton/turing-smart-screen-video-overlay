@@ -11,18 +11,23 @@ import sys
 import time
 from pathlib import Path
 
+# The simulator is a correctness tool, not a GPU benchmark. Keep both GTK and
+# WebKit away from unstable Vulkan/DMABUF paths unless the user explicitly
+# overrides these values before launching the process.
+os.environ.setdefault("GSK_RENDERER", "gl")
+os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+
 from library.diagnostic_gpu_backend import DiagnosticGpuProvider
 from library.frame_pipeline import FramePipeline, write_frame_artifacts
-from library.html_theme_engine import HtmlThemeEngine, WebKitUnavailableError
+from library.html_theme_engine import (
+    HtmlThemeEngine,
+    WebKitGtkBackend,
+    WebKitUnavailableError,
+)
 from library.real_sensor_source import RealSensorSource
 from library.sensor_snapshot import SensorSnapshotCollector
 from library.theme_engine import ThemeManifest, ThemeValidationError
 
-
-# The simulator is a correctness tool, not a GPU benchmark. GTK 4 may select
-# Vulkan automatically; on some RADV combinations that produced a native heap
-# failure during teardown. Respect an explicit user choice, otherwise prefer GL.
-os.environ.setdefault("GSK_RENDERER", "gl")
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_THEME = ROOT / "res" / "themes" / "html-demo"
@@ -115,23 +120,64 @@ def validate(args):
 def build_collector(args):
     if args.real_sensors:
         gpu_provider = DiagnosticGpuProvider()
-        source_kwargs = {}
-        if gpu_provider.is_available():
-            source_kwargs = {
-                "gpu_backend_factory": lambda: gpu_provider.backend,
-                "gpu_diagnostics_factory": gpu_provider.diagnostics,
-            }
         source = RealSensorSource(
             network_interface=args.network_interface,
-            **source_kwargs,
+            # Always inject the diagnostics-only adapter. Falling back to the
+            # generic sensor backend would import GPUtil even on AMD-only hosts.
+            gpu_backend_factory=lambda: gpu_provider.backend,
+            gpu_diagnostics_factory=gpu_provider.diagnostics,
         )
         return SensorSnapshotCollector(source.readers()), "real"
     return SensorSnapshotCollector(demo_readers()), "synthetic"
 
 
+def build_safe_html_engine(webkit_namespace):
+    """Create a WebKit engine with acceleration disabled before page loading."""
+
+    def backend_factory(manifest):
+        backend = WebKitGtkBackend(manifest)
+        settings = backend.view.get_settings()
+        if settings is None:
+            return backend
+
+        policy_enum = getattr(
+            webkit_namespace,
+            "HardwareAccelerationPolicy",
+            None,
+        )
+        never_policy = getattr(policy_enum, "NEVER", None)
+        policy_setter = getattr(
+            settings,
+            "set_hardware_acceleration_policy",
+            None,
+        )
+        if callable(policy_setter) and never_policy is not None:
+            policy_setter(never_policy)
+
+        for setter_name in (
+            "set_enable_webgl",
+            "set_enable_accelerated_2d_canvas",
+        ):
+            setter = getattr(settings, setter_name, None)
+            if callable(setter):
+                setter(False)
+
+        return backend
+
+    return HtmlThemeEngine(backend_factory)
+
+
 def run_check(manifest, args):
     print(f"HTML theme manifest: OK ({manifest.name})")
     print(f"GTK renderer preference: {os.environ.get('GSK_RENDERER', 'auto')}")
+    print(
+        "WebKit DMABUF renderer: "
+        + (
+            "disabled"
+            if os.environ.get("WEBKIT_DISABLE_DMABUF_RENDERER") == "1"
+            else "default"
+        )
+    )
     try:
         import gi
 
@@ -142,6 +188,7 @@ def run_check(manifest, args):
         print(f"WebKitGTK: unavailable — {exc}")
         return 2
     print("WebKitGTK: available")
+    print("WebKit hardware acceleration: disabled for preview")
 
     try:
         from PIL import Image  # noqa: F401
@@ -175,12 +222,13 @@ def run_preview(manifest, args):
         import gi
 
         gi.require_version("Gtk", "4.0")
-        from gi.repository import GLib, Gtk
+        gi.require_version("WebKit", "6.0")
+        from gi.repository import GLib, Gtk, WebKit
     except Exception as exc:
         raise WebKitUnavailableError("GTK4 GI bindings are required") from exc
 
     collector, source_name = build_collector(args)
-    engine = HtmlThemeEngine()
+    engine = build_safe_html_engine(WebKit)
     frame_pipeline = FramePipeline(
         pixel_threshold=args.frame_threshold,
     )
