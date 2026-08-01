@@ -23,6 +23,7 @@ _PT_BR = {
     "This page reads configuration, theme metadata, monitor process state, and USB descriptors without opening the display serial port.": (
         "Esta página lê configuração, metadados do tema, estado do processo da tela e descritores USB sem abrir a porta serial da tela."
     ),
+    "Display state": "Estado da tela",
     "Theme": "Tema",
     "Video": "Vídeo",
     "Runtime": "Execução",
@@ -43,12 +44,39 @@ _PT_BR = {
     "video block missing or disabled": "bloco de vídeo ausente ou desativado",
     "Running": "Em execução",
     "Stopped": "Parado",
+    "Busy": "Ocupada",
+    "Ready": "Pronta",
+    "Starting": "Iniciando",
+    "Disconnected": "Desconectada",
+    "Unknown": "Desconhecido",
     "PID {pids}": "PID {pids}",
+    "Device(s): {devices}": "Dispositivo(s): {devices}",
+    "Owner PID(s): {pids}": "PID(s) proprietário(s): {pids}",
     "No monitor process detected": "Nenhum processo da tela detectado",
     "UsbMonitor only": "Apenas UsbMonitor",
     "No ttyACM display": "Nenhuma tela ttyACM",
     "UsbMonitor: {devices}": "UsbMonitor: {devices}",
     "none": "nenhum",
+    "The monitor owns the display channel.": "O monitor controla o canal da tela.",
+    "The display channel is owned by another application operation.": (
+        "O canal da tela está sendo usado por outra operação do aplicativo."
+    ),
+    "A monitor process was found without current lock metadata.": (
+        "Um processo do monitor foi encontrado sem metadados atuais de bloqueio."
+    ),
+    "The serial device is open outside the application runtime lock.": (
+        "O dispositivo serial está aberto fora do bloqueio de execução do aplicativo."
+    ),
+    "The display serial device is ready.": "O dispositivo serial da tela está pronto.",
+    "UsbMonitor is present while the ttyACM display device is still appearing.": (
+        "O UsbMonitor está presente enquanto o dispositivo ttyACM da tela ainda está sendo criado."
+    ),
+    "Serial enumeration failed, so the display state is unknown.": (
+        "A enumeração serial falhou; portanto, o estado da tela é desconhecido."
+    ),
+    "No supported display serial descriptor was found.": (
+        "Nenhum descritor serial de tela compatível foi encontrado."
+    ),
     "Clipboard is not available": "A área de transferência não está disponível",
     "Diagnostics copied": "Diagnóstico copiado",
     "Diagnostics JSON copied": "JSON de diagnóstico copiado",
