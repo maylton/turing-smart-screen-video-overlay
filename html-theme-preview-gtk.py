@@ -11,11 +11,6 @@ import sys
 import time
 from pathlib import Path
 
-# The simulator is a correctness tool, not a GPU benchmark. GTK 4 may select
-# Vulkan automatically; on some RADV combinations that produced a native heap
-# failure during teardown. Respect an explicit user choice, otherwise prefer GL.
-os.environ.setdefault("GSK_RENDERER", "gl")
-
 from library.diagnostic_gpu_backend import DiagnosticGpuProvider
 from library.frame_pipeline import FramePipeline, write_frame_artifacts
 from library.html_theme_engine import HtmlThemeEngine, WebKitUnavailableError
@@ -23,6 +18,11 @@ from library.real_sensor_source import RealSensorSource
 from library.sensor_snapshot import SensorSnapshotCollector
 from library.theme_engine import ThemeManifest, ThemeValidationError
 
+
+# The simulator is a correctness tool, not a GPU benchmark. GTK 4 may select
+# Vulkan automatically; on some RADV combinations that produced a native heap
+# failure during teardown. Respect an explicit user choice, otherwise prefer GL.
+os.environ.setdefault("GSK_RENDERER", "gl")
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_THEME = ROOT / "res" / "themes" / "html-demo"
