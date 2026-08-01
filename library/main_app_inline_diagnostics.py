@@ -12,6 +12,7 @@ gi.require_version("Pango", "1.0")
 from gi.repository import Pango
 
 from diagnostics import collect_diagnostics, render_text
+from library.diagnostics_gtk_i18n import status_text, t as _, tr
 
 
 def build_inline_diagnostics_page(app: Any, window: Any):
@@ -48,12 +49,12 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             title_box.set_hexpand(True)
             header.append(title_box)
 
-            title = Gtk.Label(label="Diagnostics", xalign=0)
+            title = Gtk.Label(label=_("Diagnostics"), xalign=0)
             title.add_css_class("title-1")
             title_box.append(title)
 
             subtitle = Gtk.Label(
-                label=(
+                label=_(
                     "Safe display, theme, runtime, and serial report. "
                     "This page does not open the display serial port."
                 ),
@@ -64,9 +65,9 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             title_box.append(subtitle)
 
             back_button = Gtk.Button(
-                label="Back to Settings",
+                label=_("Back to Settings"),
                 icon_name="go-previous-symbolic",
-                tooltip_text="Return to Settings",
+                tooltip_text=_("Return to Settings"),
             )
             back_button.connect(
                 "clicked",
@@ -76,21 +77,21 @@ def build_inline_diagnostics_page(app: Any, window: Any):
 
             refresh_button = Gtk.Button(
                 icon_name="view-refresh-symbolic",
-                tooltip_text="Refresh diagnostics",
+                tooltip_text=_("Refresh diagnostics"),
             )
             refresh_button.connect("clicked", lambda *_: self.refresh_diagnostics())
             header.append(refresh_button)
 
             copy_button = Gtk.Button(
                 icon_name="edit-copy-symbolic",
-                tooltip_text="Copy diagnostics report",
+                tooltip_text=_("Copy diagnostics report"),
             )
             copy_button.connect("clicked", lambda *_: self.copy_report())
             header.append(copy_button)
 
             copy_json_button = Gtk.Button(
                 label="JSON",
-                tooltip_text="Copy diagnostics JSON",
+                tooltip_text=_("Copy diagnostics JSON"),
             )
             copy_json_button.connect("clicked", lambda *_: self.copy_json_report())
             header.append(copy_json_button)
@@ -100,10 +101,10 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             self.summary_grid.set_hexpand(True)
             content.append(self.summary_grid)
 
-            self.theme_card = self._summary_card("Theme", "applications-graphics-symbolic")
-            self.video_card = self._summary_card("Video", "video-x-generic-symbolic")
-            self.runtime_card = self._summary_card("Runtime", "media-playback-start-symbolic")
-            self.serial_card = self._summary_card("Serial", "network-wired-symbolic")
+            self.theme_card = self._summary_card(_("Theme"), "applications-graphics-symbolic")
+            self.video_card = self._summary_card(_("Video"), "video-x-generic-symbolic")
+            self.runtime_card = self._summary_card(_("Runtime"), "media-playback-start-symbolic")
+            self.serial_card = self._summary_card(_("Serial"), "network-wired-symbolic")
 
             self.summary_grid.attach(self.theme_card["card"], 0, 0, 1, 1)
             self.summary_grid.attach(self.video_card["card"], 1, 0, 1, 1)
@@ -111,8 +112,10 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             self.summary_grid.attach(self.serial_card["card"], 1, 1, 1, 1)
 
             report_group = Adw.PreferencesGroup(
-                title="Full report",
-                description="Copy this report when filing bugs or comparing display states.",
+                title=_("Full report"),
+                description=_(
+                    "Copy this report when filing bugs or comparing display states."
+                ),
             )
             content.append(report_group)
 
@@ -190,9 +193,9 @@ def build_inline_diagnostics_page(app: Any, window: Any):
                 self.latest_json = json.dumps(payload, indent=2, sort_keys=True)
                 self._render_payload(payload)
                 self.report_view.get_buffer().set_text(self.latest_text)
-                window.toast("Diagnostics refreshed")
+                window.toast(_("Diagnostics refreshed"))
             except Exception as exc:
-                self.latest_text = f"Diagnostics failed: {exc}"
+                self.latest_text = tr("Diagnostics failed: {error}", error=exc)
                 self.latest_json = ""
                 self.report_view.get_buffer().set_text(self.latest_text)
                 window.toast(self.latest_text)
@@ -205,29 +208,30 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             runtime = payload.get("runtime", {})
             serial = payload.get("serial", {})
 
-            theme_name = config.get("theme") or "No theme"
+            theme_name = config.get("theme") or _("No theme")
             theme_ok = bool(theme.get("directory_exists") and theme.get("yaml_exists"))
-            preview_text = "preview OK" if theme.get("preview_exists") else "preview missing"
+            preview_text = _("preview OK") if theme.get("preview_exists") else _("preview missing")
             self._set_card(
                 self.theme_card,
                 theme_name,
-                f"{'OK' if theme_ok else 'Needs attention'} · {preview_text}",
+                f"{status_text(theme_ok)} · {preview_text}",
             )
 
             if video.get("configured"):
-                video_value = "Configured"
-                video_detail = "local file OK" if video.get("local_exists") else "local file missing"
+                video_value = _("Configured")
+                video_detail = _("local file OK") if video.get("local_exists") else _("local file missing")
             else:
-                video_value = "Not configured"
-                video_detail = str(video.get("reason") or "video block missing or disabled")
+                video_value = _("Not configured")
+                video_detail = str(video.get("reason") or _("video block missing or disabled"))
             self._set_card(self.video_card, video_value, video_detail)
 
             running = bool(runtime.get("monitor_running"))
             pids = runtime.get("monitor_pids") or []
             self._set_card(
                 self.runtime_card,
-                "Running" if running else "Stopped",
-                "PID " + ", ".join(map(str, pids)) if pids else "No monitor process detected",
+                _("Running") if running else _("Stopped"),
+                tr("PID {pids}", pids=", ".join(map(str, pids)))
+                if pids else _("No monitor process detected"),
             )
 
             real = serial.get("real_tty_acm") or []
@@ -235,19 +239,22 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             if real:
                 serial_value = ", ".join(real)
             elif usb_monitor:
-                serial_value = "UsbMonitor only"
+                serial_value = _("UsbMonitor only")
             else:
-                serial_value = "No ttyACM display"
+                serial_value = _("No ttyACM display")
             self._set_card(
                 self.serial_card,
                 serial_value,
-                f"UsbMonitor: {', '.join(usb_monitor) if usb_monitor else 'none'}",
+                tr(
+                    "UsbMonitor: {devices}",
+                    devices=", ".join(usb_monitor) if usb_monitor else _("none"),
+                ),
             )
 
         def _copy_to_clipboard(self, text: str, message: str) -> None:
             display = Gdk.Display.get_default()
             if display is None:
-                window.toast("Clipboard is not available")
+                window.toast(_("Clipboard is not available"))
                 return
             display.get_clipboard().set(text)
             window.toast(message)
@@ -255,11 +262,11 @@ def build_inline_diagnostics_page(app: Any, window: Any):
         def copy_report(self, *_args) -> None:
             if not self.latest_text:
                 self.refresh_diagnostics()
-            self._copy_to_clipboard(self.latest_text, "Diagnostics copied")
+            self._copy_to_clipboard(self.latest_text, _("Diagnostics copied"))
 
         def copy_json_report(self, *_args) -> None:
             if not self.latest_json:
                 self.refresh_diagnostics()
-            self._copy_to_clipboard(self.latest_json, "Diagnostics JSON copied")
+            self._copy_to_clipboard(self.latest_json, _("Diagnostics JSON copied"))
 
     return InlineDiagnosticsPage()

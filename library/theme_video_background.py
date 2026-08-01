@@ -132,6 +132,7 @@ def generate_background(
 
     return destination
 
+
 def prepared_media_directories() -> tuple[Path, ...]:
     cache_home = Path(
         os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")

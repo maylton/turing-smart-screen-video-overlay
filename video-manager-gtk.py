@@ -184,9 +184,23 @@ def install_structured_backend(app):
     app.VideoManagerWindow.finish_backend = finish_backend
 
 
+def install_i18n(app):
+    try:
+        from library.video_manager_i18n import install_video_manager_i18n
+
+        install_video_manager_i18n(app)
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[video-manager-i18n] could not install: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def main() -> int:
     app = load_app_module()
     install_structured_backend(app)
+    install_i18n(app)
     return app.VideoManagerApplication().run(sys.argv)
 
 

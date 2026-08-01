@@ -21,6 +21,7 @@
 # Configure logging format
 import locale
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 
 # use current locale for date/time formatting in logs
@@ -34,8 +35,36 @@ logging.basicConfig(  # format='%(asctime)s [%(levelname)s] %(message)s in %(pat
     ],
     datefmt='%x %X')
 
+
+class VideoOverlayNoiseFilter(logging.Filter):
+    """Hide noisy per-frame overlay timing logs unless explicitly requested."""
+
+    _NOISY_PREFIXES = (
+        "Video overlay latest frame sent in",
+    )
+
+    @staticmethod
+    def overlay_debug_enabled() -> bool:
+        return os.environ.get("TURING_VIDEO_OVERLAY_DEBUG", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if self.overlay_debug_enabled():
+            return True
+        message = record.getMessage()
+        return not any(
+            message.startswith(prefix)
+            for prefix in self._NOISY_PREFIXES
+        )
+
+
 logger = logging.getLogger('turing')
 logger.setLevel(logging.DEBUG)  # Lowest log level : print all messages
+logger.addFilter(VideoOverlayNoiseFilter())
 
 try:
     from library.weather_runtime_patch import install as _install_weather_runtime_patch

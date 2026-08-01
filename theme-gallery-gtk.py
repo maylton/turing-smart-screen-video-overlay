@@ -25,7 +25,9 @@ for site_dir in (
             sys.path.insert(0, str(candidate))
 
 from library.theme_gallery import main
+from library.theme_gallery_i18n import install_theme_gallery_i18n
 
 
 if __name__ == "__main__":
+    install_theme_gallery_i18n()
     raise SystemExit(main(sys.argv))
