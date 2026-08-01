@@ -110,6 +110,35 @@ def _install_gtk_ctrl_c_handler(app_module) -> None:
     application_class.run = run_without_keyboard_interrupt_traceback
 
 
+def _install_post_runtime_tray_hook(app_module) -> None:
+    """Install Settings after configure-gtk.py finishes replacing UI methods."""
+    original_main = getattr(app_module, "main", None)
+    if not callable(original_main) or getattr(
+        original_main,
+        "_turing_post_runtime_tray_hook",
+        False,
+    ):
+        return
+
+    def main_with_tray_settings():
+        try:
+            from library.main_app_tray_settings import (
+                install_main_app_tray_settings,
+            )
+
+            install_main_app_tray_settings(app_module)
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            print(
+                f"[tray-settings] could not install: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+        return original_main()
+
+    main_with_tray_settings._turing_post_runtime_tray_hook = True
+    app_module.main = main_with_tray_settings
+
+
 def _install_tray_i18n_import_hook() -> None:
     """Install tray integrations after configure_gtk_app.py is loaded."""
 
@@ -147,13 +176,13 @@ def _install_tray_i18n_import_hook() -> None:
                 )
             try:
                 from library.tray_icon_runtime import (
-                    install_status_notifier_grayscale_icon,
+                    install_status_notifier_tray_icon,
                 )
 
-                install_status_notifier_grayscale_icon(module)
+                install_status_notifier_tray_icon(module)
             except Exception as exc:  # pragma: no cover - defensive startup guard
                 print(
-                    f"[tray] could not install grayscale icon: {exc}",
+                    f"[tray] could not install selected icon: {exc}",
                     file=sys.stderr,
                     flush=True,
                 )
@@ -167,6 +196,11 @@ def _install_tray_i18n_import_hook() -> None:
                     file=sys.stderr,
                     flush=True,
                 )
+
+            # configure-gtk.py replaces several SmartScreenWindow methods after
+            # this module loader returns. Wrapping module.main defers the
+            # Settings integration until those runtime patches are complete.
+            _install_post_runtime_tray_hook(module)
 
         loader.exec_module = exec_module
         return spec
