@@ -14,8 +14,12 @@ import json
 import os
 import re
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+
+from library.display_lifecycle import inspect_display_lifecycle
+from library.runtime import RuntimeState, get_runtime_state
 
 
 ROOT = Path(__file__).resolve().parent
@@ -197,6 +201,13 @@ def monitor_pids() -> list[int]:
     return sorted(pids)
 
 
+def safe_runtime_state() -> RuntimeState:
+    try:
+        return get_runtime_state()
+    except Exception:
+        return RuntimeState(busy=False)
+
+
 def collect_diagnostics() -> dict[str, Any]:
     current_theme = read_current_theme()
     theme_dir = THEMES_DIR / current_theme if current_theme else None
@@ -214,6 +225,12 @@ def collect_diagnostics() -> dict[str, Any]:
         if port.get("is_usb_monitor")
     ]
     pids = monitor_pids()
+    runtime_state = safe_runtime_state()
+    lifecycle = inspect_display_lifecycle(
+        serial_ports,
+        runtime_state=runtime_state,
+        monitor_pids=pids,
+    )
 
     return {
         "root": str(ROOT),
@@ -232,9 +249,12 @@ def collect_diagnostics() -> dict[str, Any]:
             "preview_exists": preview_path.is_file() if preview_path else False,
             "video": parse_theme_video(current_theme) if current_theme else {"configured": False, "reason": "no active theme"},
         },
+        "display_lifecycle": lifecycle.to_dict(),
         "runtime": {
-            "monitor_running": bool(pids),
-            "monitor_pids": pids,
+            "monitor_running": lifecycle.state.value == "running",
+            "monitor_pids": list(lifecycle.owner_pids) or pids,
+            "busy": runtime_state.busy,
+            "owner": asdict(runtime_state.owner),
         },
         "serial": {
             "ports": serial_ports,
@@ -249,6 +269,7 @@ def render_text(payload: dict[str, Any]) -> str:
     config = payload["config"]
     theme = payload["theme"]
     video = theme["video"]
+    lifecycle = payload.get("display_lifecycle", {})
     runtime = payload["runtime"]
     serial = payload["serial"]
 
@@ -258,6 +279,17 @@ def render_text(payload: dict[str, Any]) -> str:
     lines.append(f"Config: {'OK' if config['exists'] else 'missing'} · {config['path']}")
     lines.append(f"Active theme: {config['theme'] or 'not configured'}")
     lines.append(f"Display size: {config['display_size'] or 'unknown'}")
+    lines.append("")
+    lines.append("Display lifecycle")
+    lines.append(f"- State: {lifecycle.get('state', 'unknown')}")
+    lines.append(f"- Detail: {lifecycle.get('detail', '—')}")
+    devices = lifecycle.get("devices") or []
+    owners = lifecycle.get("owner_pids") or []
+    lines.append(f"- Device(s): {', '.join(devices) if devices else 'none'}")
+    if owners:
+        lines.append(f"- Owner PID(s): {', '.join(map(str, owners))}")
+    if lifecycle.get("warning"):
+        lines.append(f"- Warning: {lifecycle['warning']}")
     lines.append("")
     lines.append("Theme")
     lines.append(f"- Directory: {'OK' if theme['directory_exists'] else 'missing'} · {theme['directory'] or '—'}")
@@ -274,6 +306,9 @@ def render_text(payload: dict[str, Any]) -> str:
     lines.append(f"- Monitor: {'running' if runtime['monitor_running'] else 'stopped'}")
     if runtime["monitor_pids"]:
         lines.append(f"- PID(s): {', '.join(map(str, runtime['monitor_pids']))}")
+    if runtime.get("busy"):
+        owner = runtime.get("owner") or {}
+        lines.append(f"- Lock owner: {owner.get('role', 'unknown')} · PID {owner.get('pid') or 'unknown'}")
     lines.append("")
     lines.append("Serial")
     lines.append(f"- Real ttyACM candidate(s): {', '.join(serial['real_tty_acm']) if serial['real_tty_acm'] else 'none'}")
