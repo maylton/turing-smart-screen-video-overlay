@@ -15,7 +15,9 @@ from library.gpu_selection import (
     GpuPreference,
     enumerate_amd_gpus,
     load_preference,
+    preference_for_candidate,
     save_preference,
+    select_amd_gpu_index,
 )
 from library.i18n import active_language
 
@@ -109,10 +111,22 @@ class GpuSelectionWindow(Adw.ApplicationWindow):
 
         selected = 0
         if self.preference.mode == "index" and self.preference.amd_index is not None:
-            for position, candidate in enumerate(self.candidates, start=1):
-                if candidate.index == self.preference.amd_index:
-                    selected = position
+            effective_index = select_amd_gpu_index(pyamdgpuinfo, self.preference)
+            available = False
+            for candidate in self.candidates:
+                if self.preference.amd_fingerprint:
+                    if candidate.fingerprint == self.preference.amd_fingerprint:
+                        available = True
+                        break
+                elif candidate.index == self.preference.amd_index:
+                    available = True
                     break
+
+            if available:
+                for position, candidate in enumerate(self.candidates, start=1):
+                    if candidate.index == effective_index:
+                        selected = position
+                        break
             else:
                 warning = Adw.ActionRow(
                     title=_(
@@ -147,7 +161,7 @@ class GpuSelectionWindow(Adw.ApplicationWindow):
             preference = GpuPreference()
         else:
             candidate = self.candidates[selected - 1]
-            preference = GpuPreference(mode="index", amd_index=candidate.index)
+            preference = preference_for_candidate(candidate)
         save_preference(preference)
         self.toast_overlay.add_toast(
             Adw.Toast(
