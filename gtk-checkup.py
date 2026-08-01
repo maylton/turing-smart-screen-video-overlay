@@ -1,17 +1,160 @@
 #!/usr/bin/env python3
-"""Final installation checkup for the GTK Turing Smart Screen interface."""
+"""Final installation checkup and hardware-specific dependency bootstrap."""
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
+
+
+GPU_VENDOR_NAMES = {
+    "0x1002": "AMD",
+    "0x10de": "NVIDIA",
+    "0x8086": "Intel",
+}
 
 
 def result(ok: bool, label: str, details: str = "") -> tuple[bool, str]:
     prefix = "✓" if ok else "✗"
     suffix = f" — {details}" if details else ""
     return ok, f"{prefix} {label}{suffix}"
+
+
+def detect_linux_gpu_vendors(sysfs_root: Optional[Path] = None) -> set[str]:
+    """Detect Linux GPU vendors without requiring an extra package.
+
+    The primary source is the DRM sysfs vendor ID. lspci is only a fallback for
+    systems where /sys/class/drm is unavailable or not populated yet.
+    """
+    if not sys.platform.startswith("linux"):
+        return set()
+
+    root = sysfs_root or Path(
+        os.environ.get("TURING_SYSFS_DRM_ROOT", "/sys/class/drm")
+    )
+    vendors: set[str] = set()
+
+    try:
+        for vendor_file in root.glob("card*/device/vendor"):
+            try:
+                vendor_id = vendor_file.read_text(encoding="utf-8").strip().lower()
+            except OSError:
+                continue
+            vendor_name = GPU_VENDOR_NAMES.get(vendor_id)
+            if vendor_name:
+                vendors.add(vendor_name)
+    except OSError:
+        pass
+
+    if vendors:
+        return vendors
+
+    try:
+        completed = subprocess.run(
+            ["lspci", "-nn"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return vendors
+
+    if completed.returncode != 0:
+        return vendors
+
+    for line in completed.stdout.splitlines():
+        lowered = line.lower()
+        if not any(
+            controller in lowered
+            for controller in (
+                "vga compatible controller",
+                "3d controller",
+                "display controller",
+            )
+        ):
+            continue
+        if "[1002:" in lowered:
+            vendors.add("AMD")
+        if "[10de:" in lowered:
+            vendors.add("NVIDIA")
+        if "[8086:" in lowered:
+            vendors.add("Intel")
+
+    return vendors
+
+
+def probe_amd_gpu() -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import pyamdgpuinfo; "
+                "count=pyamdgpuinfo.detect_gpus(); "
+                "print(f'{count} AMD GPU(s) detected by pyamdgpuinfo'); "
+                "raise SystemExit(0 if count > 0 else 2)"
+            ),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def ensure_amd_gpu_support(root: Path, checks: list[tuple[bool, str]]) -> None:
+    vendors = detect_linux_gpu_vendors()
+    vendor_details = ", ".join(sorted(vendors)) if vendors else "none detected"
+    checks.append(result(True, "GPU vendor detection", vendor_details))
+
+    if "AMD" not in vendors:
+        return
+
+    requirements_file = root / "requirements-gpu-amd.txt"
+    if not requirements_file.is_file():
+        checks.append(result(
+            False,
+            "AMD GPU dependency profile",
+            "requirements-gpu-amd.txt not found",
+        ))
+        return
+
+    probe = probe_amd_gpu()
+    if probe.returncode != 0:
+        print("AMD GPU detected; installing the matching monitoring dependency...")
+        install = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "-r",
+                str(requirements_file),
+            ],
+            cwd=str(root),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if install.returncode != 0:
+            details = (install.stderr or install.stdout).strip()[-1500:]
+            checks.append(result(False, "AMD GPU dependency installation", details))
+            return
+
+        install_details = (install.stdout or install.stderr).strip()[-1000:]
+        checks.append(result(True, "AMD GPU dependency installation", install_details))
+        probe = probe_amd_gpu()
+    else:
+        checks.append(result(True, "AMD GPU dependency installation", "already installed"))
+
+    probe_details = (probe.stdout or probe.stderr).strip()[-1000:]
+    checks.append(result(
+        probe.returncode == 0,
+        "AMD GPU monitoring probe",
+        probe_details,
+    ))
 
 
 def main() -> int:
@@ -54,12 +197,15 @@ def main() -> int:
         "theme-editor.py",
         "main.py",
         "config.yaml",
+        "requirements-gpu-amd.txt",
         "res/editor-templates/default.yaml",
         "res/editor-templates/theme_example.yaml",
     )
     for relative in required_files:
         path = root / relative
         checks.append(result(path.is_file(), relative))
+
+    ensure_amd_gpu_support(root, checks)
 
     for command in ("ffmpeg", "ffprobe", "xdg-open"):
         completed = subprocess.run(
