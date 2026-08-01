@@ -107,7 +107,15 @@ def install_status_notifier_tray_icon(app_module: Any) -> None:
         return
 
     current_get_property = getattr(notifier_class, "_on_get_property", None)
-    if getattr(current_get_property, "_turing_tray_icon_runtime", False):
+    installed_root = getattr(
+        current_get_property,
+        "_turing_tray_icon_project_root",
+        "",
+    )
+    if (
+        getattr(current_get_property, "_turing_tray_icon_runtime", False)
+        and installed_root == str(project_root)
+    ):
         _INSTALLED = True
         return
     if not callable(current_get_property):
@@ -176,6 +184,9 @@ def install_status_notifier_tray_icon(app_module: Any) -> None:
         )
 
     get_property_with_selected_icon._turing_tray_icon_runtime = True
+    get_property_with_selected_icon._turing_tray_icon_project_root = str(
+        project_root
+    )
     notifier_class._on_get_property = get_property_with_selected_icon
     _INSTALLED = True
 
