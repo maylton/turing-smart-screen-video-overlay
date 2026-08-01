@@ -28,6 +28,12 @@ $XDG_CONFIG_HOME/turing-smart-screen/hardware.json
 or `~/.config/turing-smart-screen/hardware.json` when `XDG_CONFIG_HOME` is not
 set.
 
+An explicit selection stores both the current index and a fingerprint derived
+from the adapter name and VRAM. If enumeration order changes after reboot, the
+fingerprint relocates the same adapter to its new index. The stored index is used
+as a deterministic tie-breaker for identical GPUs and for compatibility with
+older preference files.
+
 ## CLI
 
 ```bash
@@ -37,8 +43,9 @@ python3 gpu-selection.py set auto
 python3 gpu-selection.py set 1
 ```
 
-An unavailable explicit index is rejected by the CLI. At runtime, a saved index
-that is no longer present falls back safely to automatic selection.
+An unavailable explicit index is rejected by the CLI. At runtime, a saved GPU
+that is no longer present falls back safely to automatic selection rather than
+silently choosing a different adapter at the old index.
 
 ## Temporary environment override
 
@@ -48,14 +55,15 @@ TURING_AMD_GPU_INDEX=auto python3 main.py
 ```
 
 The environment override takes priority over the saved configuration and does
-not modify the file.
+not modify the file. Because it is intentionally temporary, an index supplied
+through the environment does not use the persistent fingerprint.
 
 ## Diagnostics
 
 Text, JSON, standalone GTK Diagnostics and inline Diagnostics report:
 
-- configured mode and requested index;
-- effective selected adapter;
+- configured mode, requested index and stored fingerprint;
+- effective selected adapter and effective fingerprint;
 - all detected AMD adapters;
 - current load, temperature, VRAM usage and clock when supported by the driver.
 
