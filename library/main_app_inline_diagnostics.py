@@ -101,15 +101,20 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             self.summary_grid.set_hexpand(True)
             content.append(self.summary_grid)
 
+            self.lifecycle_card = self._summary_card(
+                _("Display state"),
+                "video-display-symbolic",
+            )
             self.theme_card = self._summary_card(_("Theme"), "applications-graphics-symbolic")
             self.video_card = self._summary_card(_("Video"), "video-x-generic-symbolic")
             self.runtime_card = self._summary_card(_("Runtime"), "media-playback-start-symbolic")
             self.serial_card = self._summary_card(_("Serial"), "network-wired-symbolic")
 
-            self.summary_grid.attach(self.theme_card["card"], 0, 0, 1, 1)
-            self.summary_grid.attach(self.video_card["card"], 1, 0, 1, 1)
-            self.summary_grid.attach(self.runtime_card["card"], 0, 1, 1, 1)
-            self.summary_grid.attach(self.serial_card["card"], 1, 1, 1, 1)
+            self.summary_grid.attach(self.lifecycle_card["card"], 0, 0, 2, 1)
+            self.summary_grid.attach(self.theme_card["card"], 0, 1, 1, 1)
+            self.summary_grid.attach(self.video_card["card"], 1, 1, 1, 1)
+            self.summary_grid.attach(self.runtime_card["card"], 0, 2, 1, 1)
+            self.summary_grid.attach(self.serial_card["card"], 1, 2, 1, 1)
 
             report_group = Adw.PreferencesGroup(
                 title=_("Full report"),
@@ -124,7 +129,7 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             report_group.add(report_frame)
 
             report_scroll = Gtk.ScrolledWindow()
-            report_scroll.set_min_content_height(360)
+            report_scroll.set_min_content_height(340)
             report_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
             report_frame.set_child(report_scroll)
 
@@ -173,11 +178,11 @@ def build_inline_diagnostics_page(app: Any, window: Any):
             value.set_lines(1)
             inner.append(value)
 
-            detail = Gtk.Label(label="", xalign=0)
+            detail = Gtk.Label(label="", xalign=0, wrap=True)
             detail.add_css_class("caption")
             detail.add_css_class("dim-label")
             detail.set_ellipsize(Pango.EllipsizeMode.END)
-            detail.set_lines(1)
+            detail.set_lines(2)
             inner.append(detail)
 
             return {"card": card, "value": value, "detail": detail}
@@ -201,12 +206,42 @@ def build_inline_diagnostics_page(app: Any, window: Any):
                 window.toast(self.latest_text)
             return False
 
+        def _lifecycle_value(self, state: str) -> str:
+            labels = {
+                "running": _("Running"),
+                "busy": _("Busy"),
+                "tty_ready": _("Ready"),
+                "usbmonitor_waking": _("Starting"),
+                "disconnected": _("Disconnected"),
+                "unknown": _("Unknown"),
+            }
+            return labels.get(str(state or "unknown"), _("Unknown"))
+
         def _render_payload(self, payload: dict[str, Any]) -> None:
             config = payload.get("config", {})
             theme = payload.get("theme", {})
             video = theme.get("video", {})
+            lifecycle = payload.get("display_lifecycle", {})
             runtime = payload.get("runtime", {})
             serial = payload.get("serial", {})
+
+            lifecycle_detail = _(str(lifecycle.get("detail") or ""))
+            devices = lifecycle.get("devices") or []
+            owners = lifecycle.get("owner_pids") or []
+            detail_parts = [lifecycle_detail] if lifecycle_detail else []
+            if devices:
+                detail_parts.append(
+                    tr("Device(s): {devices}", devices=", ".join(devices))
+                )
+            if owners:
+                detail_parts.append(
+                    tr("Owner PID(s): {pids}", pids=", ".join(map(str, owners)))
+                )
+            self._set_card(
+                self.lifecycle_card,
+                self._lifecycle_value(str(lifecycle.get("state") or "unknown")),
+                " · ".join(detail_parts),
+            )
 
             theme_name = config.get("theme") or _("No theme")
             theme_ok = bool(theme.get("directory_exists") and theme.get("yaml_exists"))
