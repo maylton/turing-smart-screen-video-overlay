@@ -10,15 +10,23 @@ from unittest import mock
 from PIL import Image
 
 from library import tray_icon_runtime
-from library.main_app_overview_refresh import (
-    install_main_app_overview_auto_refresh,
-)
 from library.tray_icon import (
+    DARK_THEME_TINT,
+    LIGHT_THEME_TINT,
     TRAY_ICON_NAME,
     ensure_status_icon_theme,
-    grayscale_image,
     load_pystray_image,
     status_notifier_pixmaps,
+    tray_icon_image,
+)
+from library.tray_icon_preferences import (
+    MODE_COLOR,
+    MODE_DARK_THEME,
+    MODE_FOLLOW_THEME,
+    MODE_LIGHT_THEME,
+    load_tray_icon_mode,
+    resolve_tray_icon_variant,
+    save_tray_icon_mode,
 )
 
 
@@ -28,8 +36,30 @@ class FakeVariant:
         self.value = value
 
 
+class FakeConnection:
+    def __init__(self):
+        self.signals = []
+
+    def emit_signal(self, destination, path, interface, name, parameters):
+        self.signals.append((destination, path, interface, name, parameters))
+
+
+class FakeStyleManager:
+    dark = True
+
+    @classmethod
+    def get_default(cls):
+        return cls()
+
+    def get_dark(self):
+        return type(self).dark
+
+
 class FakeNotifier:
-    def _original_get_property(
+    def __init__(self):
+        self.connection = FakeConnection()
+
+    def _on_get_property(
         self,
         _connection,
         _sender,
@@ -39,19 +69,16 @@ class FakeNotifier:
     ):
         return FakeVariant("s", f"original:{property_name}")
 
-    _on_get_property = _original_get_property
-
 
 class TrayIconTests(unittest.TestCase):
     def setUp(self):
         ensure_status_icon_theme.cache_clear()
         tray_icon_runtime._INSTALLED = False
-        FakeNotifier._on_get_property = FakeNotifier._original_get_property
+        FakeStyleManager.dark = True
 
     def tearDown(self):
         ensure_status_icon_theme.cache_clear()
         tray_icon_runtime._INSTALLED = False
-        FakeNotifier._on_get_property = FakeNotifier._original_get_property
 
     def create_project_icon(self, root: Path) -> Path:
         source = root / "res" / "icons" / "monitor-icon-17865" / "64.png"
@@ -68,55 +95,94 @@ class TrayIconTests(unittest.TestCase):
         image.save(source)
         return source
 
-    def create_app_module(self, root: Path):
+    def fake_module(self, root: Path):
         return types.SimpleNamespace(
             ROOT=root,
+            APP_ID="io.github.turing.SmartScreen",
             APP_NAME="Turing Smart Screen",
+            TRAY_OBJECT_PATH="/StatusNotifierItem",
             GLib=types.SimpleNamespace(Variant=FakeVariant),
+            Adw=types.SimpleNamespace(StyleManager=FakeStyleManager),
             StatusNotifierItem=FakeNotifier,
-            SmartScreenWindow=None,
             STATUS_NOTIFIER_XML=(
                 '<property name="IconName" type="s" access="read"/>\n'
             ),
             read_current_theme=lambda: "default",
         )
 
-    def test_grayscale_preserves_alpha(self):
+    def test_dark_theme_symbolic_tint_and_alpha(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = self.create_project_icon(Path(temporary))
-            image = grayscale_image(source, size=2)
+            image = tray_icon_image(source, MODE_DARK_THEME, size=2)
 
-        pixels = list(image.getdata())
-        self.assertEqual(image.mode, "RGBA")
-        for red, green, blue, _alpha in pixels:
-            self.assertEqual(red, green)
-            self.assertEqual(green, blue)
-        self.assertEqual(pixels[0][3], 255)
-        self.assertEqual(pixels[1][3], 96)
+        first = image.getpixel((0, 0))
+        second = image.getpixel((1, 0))
+        self.assertEqual(first[:3], DARK_THEME_TINT)
+        self.assertEqual(second[:3], DARK_THEME_TINT)
+        self.assertEqual(first[3], 235)
+        self.assertEqual(second[3], 88)
 
-    def test_pystray_uses_the_generated_grayscale_image(self):
+    def test_light_theme_symbolic_tint(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            self.create_project_icon(root)
-            image = load_pystray_image(root, size=16)
+            source = self.create_project_icon(Path(temporary))
+            image = tray_icon_image(source, MODE_LIGHT_THEME, size=2)
 
-        self.assertEqual(image.size, (16, 16))
-        red, green, blue, _alpha = image.getpixel((0, 0))
-        self.assertEqual((red, green), (green, blue))
+        self.assertEqual(image.getpixel((0, 0))[:3], LIGHT_THEME_TINT)
+
+    def test_color_variant_preserves_source_colors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = self.create_project_icon(Path(temporary))
+            image = tray_icon_image(source, MODE_COLOR, size=2)
+
+        self.assertEqual(image.getpixel((0, 0)), (255, 0, 0, 255))
+        self.assertEqual(image.getpixel((1, 0)), (0, 255, 0, 96))
+
+    def test_preference_round_trip_is_atomic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "tray-icon.conf"
+            saved = save_tray_icon_mode(MODE_LIGHT_THEME, path)
+            loaded = load_tray_icon_mode(path)
+
+        self.assertEqual(saved, MODE_LIGHT_THEME)
+        self.assertEqual(loaded, MODE_LIGHT_THEME)
+
+    def test_follow_theme_resolves_both_symbolic_variants(self):
+        self.assertEqual(
+            resolve_tray_icon_variant(MODE_FOLLOW_THEME, dark_theme=True),
+            MODE_DARK_THEME,
+        )
+        self.assertEqual(
+            resolve_tray_icon_variant(MODE_FOLLOW_THEME, dark_theme=False),
+            MODE_LIGHT_THEME,
+        )
+
+    def test_pystray_uses_persisted_variant(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            config = Path(temporary) / "config"
+            self.create_project_icon(root)
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+                save_tray_icon_mode(MODE_LIGHT_THEME)
+                image = load_pystray_image(root, size=2)
+
+        self.assertEqual(image.getpixel((0, 0))[:3], LIGHT_THEME_TINT)
 
     def test_status_notifier_pixmap_uses_argb_network_order(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.create_project_icon(root)
-            pixmaps = status_notifier_pixmaps(root, sizes=(2,))
+            pixmaps = status_notifier_pixmaps(
+                root,
+                sizes=(2,),
+                variant=MODE_DARK_THEME,
+            )
 
         width, height, payload = pixmaps[0]
         self.assertEqual((width, height), (2, 2))
         self.assertEqual(len(payload), width * height * 4)
         alpha, red, green, blue = payload[:4]
-        self.assertEqual(alpha, 255)
-        self.assertEqual(red, green)
-        self.assertEqual(green, blue)
+        self.assertEqual(alpha, 235)
+        self.assertEqual((red, green, blue), DARK_THEME_TINT)
 
     def test_cached_hicolor_theme_contains_all_status_sizes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -140,71 +206,83 @@ class TrayIconTests(unittest.TestCase):
                 self.assertTrue(icon.is_file())
                 self.assertIn(f"{size}x{size}/status", text)
 
-    def test_runtime_patch_forces_quickshell_to_use_icon_pixmap(self):
+    def test_caelestia_symbolic_mode_forces_icon_pixmap(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "project"
+            config = Path(temporary) / "config"
             self.create_project_icon(root)
-            module = self.create_app_module(root)
+            module = self.fake_module(root)
 
-            tray_icon_runtime.install_status_notifier_grayscale_icon(module)
-            notifier = module.StatusNotifierItem()
-            icon_name = notifier._on_get_property(
-                None, None, None, None, "IconName"
-            )
-            icon_path = notifier._on_get_property(
-                None, None, None, None, "IconThemePath"
-            )
-            icon_pixmap = notifier._on_get_property(
-                None, None, None, None, "IconPixmap"
-            )
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+                save_tray_icon_mode(MODE_DARK_THEME)
+                tray_icon_runtime.install_status_notifier_tray_icon(module)
+                notifier = module.StatusNotifierItem()
+                icon_name = notifier._on_get_property(
+                    None, None, None, None, "IconName"
+                )
+                icon_pixmap = notifier._on_get_property(
+                    None, None, None, None, "IconPixmap"
+                )
 
         self.assertIn("IconPixmap", module.STATUS_NOTIFIER_XML)
         self.assertEqual(icon_name.value, "")
-        self.assertEqual(icon_path.signature, "s")
-        self.assertEqual(icon_path.value, "")
         self.assertEqual(icon_pixmap.signature, "a(iiay)")
         self.assertTrue(icon_pixmap.value)
 
-    def test_final_main_app_integration_repairs_i18n_icon_override(self):
+    def test_color_mode_uses_application_icon_name(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            config = Path(temporary) / "config"
+            self.create_project_icon(root)
+            module = self.fake_module(root)
+
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+                save_tray_icon_mode(MODE_COLOR)
+                tray_icon_runtime.install_status_notifier_tray_icon(module)
+                notifier = module.StatusNotifierItem()
+                icon_name = notifier._on_get_property(
+                    None, None, None, None, "IconName"
+                )
+
+        self.assertEqual(icon_name.value, module.APP_ID)
+
+    def test_runtime_patch_repairs_later_property_override(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            config = Path(temporary) / "config"
+            self.create_project_icon(root)
+            module = self.fake_module(root)
+
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+                save_tray_icon_mode(MODE_DARK_THEME)
+                tray_icon_runtime.install_status_notifier_tray_icon(module)
+
+                def translated_override(self, *_args):
+                    return FakeVariant("s", module.APP_ID)
+
+                module.StatusNotifierItem._on_get_property = translated_override
+                tray_icon_runtime.install_status_notifier_tray_icon(module)
+                notifier = module.StatusNotifierItem()
+                icon_name = notifier._on_get_property(
+                    None, None, None, None, "IconName"
+                )
+
+        self.assertEqual(icon_name.value, "")
+
+    def test_refresh_emits_new_icon_and_tooltip(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "project"
             self.create_project_icon(root)
-            module = self.create_app_module(root)
-
-            def translated_colour_icon(
-                self,
-                _connection,
-                _sender,
-                _object_path,
-                _interface_name,
-                property_name,
-            ):
-                return FakeVariant("s", f"colour:{property_name}")
-
-            # Simulate the previous startup order: the grayscale patch ran,
-            # then the i18n layer replaced the SNI property method.
-            tray_icon_runtime._INSTALLED = True
-            FakeNotifier._on_get_property = translated_colour_icon
-
-            install_main_app_overview_auto_refresh(module)
+            module = self.fake_module(root)
             notifier = module.StatusNotifierItem()
-            icon_name = notifier._on_get_property(
-                None, None, None, None, "IconName"
-            )
-            icon_pixmap = notifier._on_get_property(
-                None, None, None, None, "IconPixmap"
+            refreshed = tray_icon_runtime.refresh_status_notifier_icon(
+                module,
+                notifier,
             )
 
-        self.assertEqual(icon_name.value, "")
-        self.assertEqual(icon_pixmap.signature, "a(iiay)")
-        self.assertTrue(icon_pixmap.value)
-        self.assertTrue(
-            getattr(
-                FakeNotifier._on_get_property,
-                "_turing_grayscale_tray_icon",
-                False,
-            )
-        )
+        self.assertTrue(refreshed)
+        names = [signal[3] for signal in notifier.connection.signals]
+        self.assertEqual(names, ["NewIcon", "NewToolTip"])
 
 
 if __name__ == "__main__":
