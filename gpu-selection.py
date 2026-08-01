@@ -11,6 +11,7 @@ from library.gpu_selection import (
     GpuPreference,
     enumerate_amd_gpus,
     load_preference,
+    preference_for_candidate,
     save_preference,
     selection_summary,
 )
@@ -66,13 +67,22 @@ def main(argv: Any = None) -> int:
 
     candidates = enumerate_amd_gpus(pyamdgpuinfo)
     if preference.mode == "index":
-        available = {candidate.index for candidate in candidates}
-        if preference.amd_index not in available:
+        candidate = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.index == preference.amd_index
+            ),
+            None,
+        )
+        if candidate is None:
+            available = [candidate.index for candidate in candidates]
             print(
                 f"AMD GPU index {preference.amd_index} is not currently available. "
-                f"Detected indices: {sorted(available)}"
+                f"Detected indices: {available}"
             )
             return 2
+        preference = preference_for_candidate(candidate)
 
     path = save_preference(preference)
     effective = load_preference(path)
