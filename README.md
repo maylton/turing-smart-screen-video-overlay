@@ -327,28 +327,6 @@ Useful documents there include:
 
 ---
 
-## Suggested upstream sharing message
-
-If introducing this fork upstream, a good framing is:
-
-```markdown
-Hi! First of all, thank you for turing-smart-screen-python.
-
-I have been working on an experimental Linux-focused fork that builds on top of
-this project and explores a GTK4/Libadwaita desktop workflow.
-
-The fork includes Theme Gallery / Theme Manager, embedded editor/video manager,
-media preparation tools, generated-media tracking, theme import/export with
-preflight validation, installer diagnostics, and experimental Rev. C video/storage
-support validated on my 2.1-inch device.
-
-This is not a request to merge the whole fork as-is. I am sharing it in case any
-ideas, implementation details, or hardware findings are useful for the upstream
-project.
-```
-
----
-
 ## Credits
 
 Original project:
