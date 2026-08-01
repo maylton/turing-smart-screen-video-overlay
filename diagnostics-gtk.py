@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 try:
@@ -30,6 +32,8 @@ from library.diagnostics_gtk_i18n import status_text, t as _, tr
 
 
 APP_ID = "io.github.turing.SmartScreen.Diagnostics"
+ROOT = Path(__file__).resolve().parent
+GPU_SELECTOR = ROOT / "gpu-selection-gtk.py"
 
 
 class DiagnosticsWindow(Adw.ApplicationWindow):
@@ -38,9 +42,9 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
             application=app,
             title=_("Turing Smart Screen Diagnostics"),
             default_width=1040,
-            default_height=800,
+            default_height=860,
         )
-        self.set_size_request(820, 600)
+        self.set_size_request(820, 620)
         self.latest_text = ""
         self.latest_json = ""
 
@@ -58,6 +62,13 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
             )
         )
         toolbar.add_top_bar(header)
+
+        gpu_button = Gtk.Button(
+            label="GPU",
+            tooltip_text=_("Configure GPU"),
+        )
+        gpu_button.connect("clicked", self.open_gpu_selector)
+        header.pack_start(gpu_button)
 
         refresh_button = Gtk.Button(
             icon_name="view-refresh-symbolic",
@@ -117,16 +128,18 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
             _("Display state"),
             "video-display-symbolic",
         )
+        self.gpu_card = self._summary_card(_("GPU sensors"), "video-card-symbolic")
         self.theme_card = self._summary_card(_("Theme"), "applications-graphics-symbolic")
         self.video_card = self._summary_card(_("Video"), "video-x-generic-symbolic")
         self.runtime_card = self._summary_card(_("Runtime"), "media-playback-start-symbolic")
         self.serial_card = self._summary_card(_("Serial"), "network-wired-symbolic")
 
         self.summary_grid.attach(self.lifecycle_card["card"], 0, 0, 2, 1)
-        self.summary_grid.attach(self.theme_card["card"], 0, 1, 1, 1)
-        self.summary_grid.attach(self.video_card["card"], 1, 1, 1, 1)
-        self.summary_grid.attach(self.runtime_card["card"], 0, 2, 1, 1)
-        self.summary_grid.attach(self.serial_card["card"], 1, 2, 1, 1)
+        self.summary_grid.attach(self.gpu_card["card"], 0, 1, 2, 1)
+        self.summary_grid.attach(self.theme_card["card"], 0, 2, 1, 1)
+        self.summary_grid.attach(self.video_card["card"], 1, 2, 1, 1)
+        self.summary_grid.attach(self.runtime_card["card"], 0, 3, 1, 1)
+        self.summary_grid.attach(self.serial_card["card"], 1, 3, 1, 1)
 
         report_group = Adw.PreferencesGroup(
             title=_("Full report"),
@@ -143,7 +156,7 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         report_group.add(report_frame)
 
         report_scroll = Gtk.ScrolledWindow()
-        report_scroll.set_min_content_height(340)
+        report_scroll.set_min_content_height(320)
         report_scroll.set_vexpand(True)
         report_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         report_frame.set_child(report_scroll)
@@ -209,6 +222,15 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         card["value"].set_label(value)
         card["detail"].set_label(detail)
 
+    def open_gpu_selector(self, *_args) -> None:
+        if not GPU_SELECTOR.is_file():
+            self.toast(_("GPU selector was not found"))
+            return
+        try:
+            subprocess.Popen([sys.executable, str(GPU_SELECTOR)], cwd=str(ROOT))
+        except Exception as exc:
+            self.toast(tr("Could not open GPU selector: {error}", error=exc))
+
     def refresh_diagnostics(self, *_args) -> bool:
         try:
             payload = collect_diagnostics()
@@ -240,6 +262,7 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
         theme = payload.get("theme", {})
         video = theme.get("video", {})
         lifecycle = payload.get("display_lifecycle", {})
+        gpu = payload.get("gpu", {})
         runtime = payload.get("runtime", {})
         serial = payload.get("serial", {})
 
@@ -258,6 +281,23 @@ class DiagnosticsWindow(Adw.ApplicationWindow):
             self._lifecycle_value(str(lifecycle.get("state") or "unknown")),
             " · ".join(detail_parts),
         )
+
+        preference = gpu.get("preference") or {}
+        selected_label = str(gpu.get("selected_label") or _("No AMD GPU detected"))
+        if preference.get("mode") == "index":
+            selection_detail = tr("Index {index}", index=preference.get("amd_index"))
+        else:
+            selection_detail = _("Automatic selection")
+        metrics = gpu.get("metrics") or {}
+        load = metrics.get("load_percent")
+        temperature = metrics.get("temperature_c")
+        if load is not None or temperature is not None:
+            selection_detail += " · " + tr(
+                "Load {load}% · {temperature} °C",
+                load="—" if load is None else f"{float(load):.0f}",
+                temperature="—" if temperature is None else f"{float(temperature):.0f}",
+            )
+        self._set_card(self.gpu_card, selected_label, selection_detail)
 
         theme_name = config.get("theme") or _("No theme")
         theme_ok = bool(theme.get("directory_exists") and theme.get("yaml_exists"))
