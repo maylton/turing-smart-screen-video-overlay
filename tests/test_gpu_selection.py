@@ -13,6 +13,7 @@ from library.gpu_selection import (
     GpuPreference,
     enumerate_amd_gpus,
     load_preference,
+    preference_for_candidate,
     save_preference,
     select_amd_gpu_index,
 )
@@ -57,11 +58,12 @@ class GpuSelectionTests(unittest.TestCase):
             ]
         )
 
-    def test_enumeration_exposes_index_name_and_vram(self):
+    def test_enumeration_exposes_index_name_vram_and_fingerprint(self):
         candidates = enumerate_amd_gpus(self.api)
         self.assertEqual([item.index for item in candidates], [0, 1])
         self.assertEqual(candidates[1].name, "Radeon discrete graphics")
         self.assertIn("16.0 GiB", candidates[1].label)
+        self.assertEqual(len(candidates[1].fingerprint), 16)
 
     def test_auto_prefers_largest_vram(self):
         self.assertEqual(
@@ -77,19 +79,37 @@ class GpuSelectionTests(unittest.TestCase):
         preference = GpuPreference(mode="index", amd_index=9)
         self.assertEqual(select_amd_gpu_index(self.api, preference), 1)
 
+    def test_fingerprint_survives_adapter_index_reordering(self):
+        candidates = enumerate_amd_gpus(self.api)
+        preference = preference_for_candidate(candidates[1])
+        reordered = FakeApi(
+            [
+                FakeGpu("Radeon discrete graphics", 16 * 1024 ** 3),
+                FakeGpu("Ryzen integrated graphics", 512 * 1024 ** 2),
+            ]
+        )
+        self.assertEqual(select_amd_gpu_index(reordered, preference), 0)
+
     def test_preference_round_trip_is_atomic(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "hardware.json"
-            save_preference(GpuPreference(mode="index", amd_index=1), path)
+            candidate = enumerate_amd_gpus(self.api)[1]
+            preference = preference_for_candidate(candidate)
+            save_preference(preference, path)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
-            self.assertEqual(load_preference(path), GpuPreference(mode="index", amd_index=1))
+            self.assertEqual(load_preference(path), preference)
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["amd_gpu_index"], 1)
+            self.assertEqual(
+                payload["amd_gpu_fingerprint"],
+                candidate.fingerprint,
+            )
 
     def test_environment_override_has_priority(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "hardware.json"
-            save_preference(GpuPreference(mode="index", amd_index=1), path)
+            candidate = enumerate_amd_gpus(self.api)[1]
+            save_preference(preference_for_candidate(candidate), path)
             with mock.patch.dict(os.environ, {"TURING_AMD_GPU_INDEX": "0"}):
                 self.assertEqual(
                     load_preference(path),
@@ -102,7 +122,12 @@ class GpuSelectionTests(unittest.TestCase):
             return_value={
                 "selected_index": 1,
                 "selected_label": "GPU 1",
-                "preference": {"mode": "auto", "amd_index": None},
+                "selected_fingerprint": "abc",
+                "preference": {
+                    "mode": "auto",
+                    "amd_index": None,
+                    "amd_fingerprint": None,
+                },
                 "candidates": [],
                 "configuration_path": "/tmp/hardware.json",
             },
