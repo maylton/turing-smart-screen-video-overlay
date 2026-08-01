@@ -1,0 +1,42 @@
+name: Temporary PR 79 source cleanup
+
+on:
+  push:
+    branches:
+      - agent/automatic-amd-gpu-detection-v2
+    paths:
+      - .github/workflows/agent-fix-pr79.yml
+
+permissions:
+  contents: write
+
+jobs:
+  remove-dead-helper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/automatic-amd-gpu-detection-v2
+
+      - name: Remove duplicate helper
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("configure-gtk.py")
+          text = path.read_text(encoding="utf-8")
+          block = '''    def display_has_video(video: dict) -> bool:\n        args = ["list"]\n        if video.get("internal"):\n            args.append("--internal")\n\n        payload = run_video_manager_json_for_theme_apply(self, args)\n        files = payload.get("data", {}).get("files") or []\n        wanted = str(video.get("filename") or "")\n        return wanted in {str(item) for item in files}\n\n'''
+          count = text.count(block)
+          if count != 1:
+              raise SystemExit(f"Expected one duplicate helper, found {count}")
+          path.write_text(text.replace(block, "", 1), encoding="utf-8")
+          PY
+
+      - name: Commit cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add configure-gtk.py
+          git commit -m "Remove duplicate video helper"
+          git push origin HEAD:agent/automatic-amd-gpu-detection-v2
