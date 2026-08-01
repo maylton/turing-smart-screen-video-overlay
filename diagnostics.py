@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from library.display_lifecycle import inspect_display_lifecycle
+from library.gpu_diagnostics import collect_gpu_diagnostics
 from library.runtime import RuntimeState, get_runtime_state
 
 
@@ -250,6 +251,7 @@ def collect_diagnostics() -> dict[str, Any]:
             "video": parse_theme_video(current_theme) if current_theme else {"configured": False, "reason": "no active theme"},
         },
         "display_lifecycle": lifecycle.to_dict(),
+        "gpu": collect_gpu_diagnostics(),
         "runtime": {
             "monitor_running": lifecycle.state.value == "running",
             "monitor_pids": list(lifecycle.owner_pids) or pids,
@@ -270,6 +272,7 @@ def render_text(payload: dict[str, Any]) -> str:
     theme = payload["theme"]
     video = theme["video"]
     lifecycle = payload.get("display_lifecycle", {})
+    gpu = payload.get("gpu", {})
     runtime = payload["runtime"]
     serial = payload["serial"]
 
@@ -290,6 +293,24 @@ def render_text(payload: dict[str, Any]) -> str:
         lines.append(f"- Owner PID(s): {', '.join(map(str, owners))}")
     if lifecycle.get("warning"):
         lines.append(f"- Warning: {lifecycle['warning']}")
+    lines.append("")
+    lines.append("GPU selection and sensors")
+    preference = gpu.get("preference") or {}
+    lines.append(
+        f"- Preference: {preference.get('mode', 'auto')}"
+        f" · requested index: {preference.get('amd_index')}"
+    )
+    lines.append(f"- Selected: {gpu.get('selected_label') or 'none'}")
+    candidates = gpu.get("candidates") or []
+    lines.append(f"- Detected AMD adapters: {len(candidates)}")
+    if gpu.get("error"):
+        lines.append(f"- Error: {gpu['error']}")
+    metrics = gpu.get("metrics") or {}
+    if metrics:
+        lines.append(f"- Load: {metrics.get('load_percent')}")
+        lines.append(f"- Temperature: {metrics.get('temperature_c')} °C")
+        lines.append(f"- VRAM: {metrics.get('vram_percent')}%")
+        lines.append(f"- Clock: {metrics.get('clock_mhz')} MHz")
     lines.append("")
     lines.append("Theme")
     lines.append(f"- Directory: {'OK' if theme['directory_exists'] else 'missing'} · {theme['directory'] or '—'}")

@@ -57,6 +57,55 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn("build_inline_diagnostics_page", integrations)
         self.assertIn("build_inline_theme_editor_page", integrations)
 
+    def test_stability_stack_runtime_files_are_packaged(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        for excluded in (
+            "VERSION",
+            "library/release_info.py",
+            "library/theme_editor_backups.py",
+            "library/display_lifecycle.py",
+            "library/gpu_selection.py",
+            "gpu-selection-gtk.py",
+        ):
+            with self.subTest(excluded=excluded):
+                self.assertNotIn(f"--exclude '{excluded}'", installer)
+
+        required_files = (
+            "VERSION",
+            "install-checked.sh",
+            "scripts/installation-report.py",
+            "library/release_info.py",
+            "library/theme_editor_backups.py",
+            "library/theme_editor_backup_runtime.py",
+            "theme-backups.py",
+            "library/display_lifecycle.py",
+            "library/gpu_selection.py",
+            "library/gpu_selection_runtime.py",
+            "library/gpu_diagnostics.py",
+            "gpu-selection.py",
+            "gpu-selection-gtk.py",
+        )
+        for relative in required_files:
+            with self.subTest(relative=relative):
+                self.assertTrue((ROOT / relative).is_file())
+
+    def test_gpu_selection_is_connected_to_monitor_and_diagnostics(self):
+        startup = (ROOT / "usercustomize.py").read_text(encoding="utf-8")
+        self.assertIn('"main.py"', startup)
+        self.assertIn("install_gpu_selection", startup)
+
+        diagnostics = (ROOT / "diagnostics.py").read_text(encoding="utf-8")
+        self.assertIn("collect_gpu_diagnostics", diagnostics)
+        self.assertIn('"gpu": collect_gpu_diagnostics()', diagnostics)
+
+        for relative in (
+            "diagnostics-gtk.py",
+            "library/main_app_inline_diagnostics.py",
+        ):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertIn("gpu-selection-gtk.py", text)
+            self.assertIn("GPU sensors", text)
+
     def test_fork_documentation_exists(self):
         for relative in (
             "docs/INSTALLATION.md",
