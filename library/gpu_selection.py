@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 
 CONFIG_DIRECTORY = "turing-smart-screen"
@@ -19,18 +20,24 @@ ENV_AMD_GPU_INDEX = "TURING_AMD_GPU_INDEX"
 class GpuPreference:
     mode: str = "auto"
     amd_index: Optional[int] = None
+    amd_fingerprint: Optional[str] = None
 
     def normalized(self) -> "GpuPreference":
         mode = str(self.mode or "auto").strip().lower()
         if mode != "index":
-            return GpuPreference(mode="auto", amd_index=None)
+            return GpuPreference(mode="auto")
         try:
             index = int(self.amd_index) if self.amd_index is not None else None
         except (TypeError, ValueError):
             index = None
         if index is None or index < 0:
-            return GpuPreference(mode="auto", amd_index=None)
-        return GpuPreference(mode="index", amd_index=index)
+            return GpuPreference(mode="auto")
+        fingerprint = str(self.amd_fingerprint or "").strip().lower() or None
+        return GpuPreference(
+            mode="index",
+            amd_index=index,
+            amd_fingerprint=fingerprint,
+        )
 
 
 @dataclass(frozen=True)
@@ -44,6 +51,12 @@ class AmdGpuCandidate:
         return self.vram_bytes / (1024 ** 3)
 
     @property
+    def fingerprint(self) -> str:
+        normalized_name = " ".join(self.name.casefold().split())
+        material = f"{normalized_name}\0{self.vram_bytes}".encode("utf-8")
+        return hashlib.sha256(material).hexdigest()[:16]
+
+    @property
     def label(self) -> str:
         if self.vram_bytes > 0:
             return f"GPU {self.index} — {self.name} — {self.vram_gib:.1f} GiB"
@@ -52,6 +65,7 @@ class AmdGpuCandidate:
     def to_dict(self) -> Dict[str, Union[int, float, str]]:
         payload = asdict(self)
         payload["vram_gib"] = round(self.vram_gib, 3)
+        payload["fingerprint"] = self.fingerprint
         payload["label"] = self.label
         return payload
 
@@ -93,6 +107,7 @@ def load_preference(path: Optional[Path] = None) -> GpuPreference:
     return GpuPreference(
         mode=str(payload.get("amd_gpu_mode") or "auto"),
         amd_index=payload.get("amd_gpu_index"),
+        amd_fingerprint=payload.get("amd_gpu_fingerprint"),
     ).normalized()
 
 
@@ -103,6 +118,7 @@ def save_preference(preference: GpuPreference, path: Optional[Path] = None) -> P
     payload = {
         "amd_gpu_mode": normalized.mode,
         "amd_gpu_index": normalized.amd_index,
+        "amd_gpu_fingerprint": normalized.amd_fingerprint,
     }
     temporary = selected_path.with_suffix(selected_path.suffix + ".tmp")
     temporary.write_text(
@@ -153,6 +169,14 @@ def enumerate_amd_gpus(api: Any) -> List[AmdGpuCandidate]:
     return candidates
 
 
+def preference_for_candidate(candidate: AmdGpuCandidate) -> GpuPreference:
+    return GpuPreference(
+        mode="index",
+        amd_index=candidate.index,
+        amd_fingerprint=candidate.fingerprint,
+    )
+
+
 def select_amd_gpu_index(
     api: Any,
     preference: Optional[GpuPreference] = None,
@@ -163,9 +187,26 @@ def select_amd_gpu_index(
 
     preference = (preference or load_preference()).normalized()
     if preference.mode == "index" and preference.amd_index is not None:
-        available = {candidate.index for candidate in candidates}
-        if preference.amd_index in available:
-            return preference.amd_index
+        if preference.amd_fingerprint:
+            matches = [
+                candidate
+                for candidate in candidates
+                if candidate.fingerprint == preference.amd_fingerprint
+            ]
+            if matches:
+                exact_index = next(
+                    (
+                        candidate
+                        for candidate in matches
+                        if candidate.index == preference.amd_index
+                    ),
+                    None,
+                )
+                return (exact_index or matches[0]).index
+        else:
+            available = {candidate.index for candidate in candidates}
+            if preference.amd_index in available:
+                return preference.amd_index
 
     # Stable automatic fallback: the discrete adapter normally reports the
     # largest dedicated VRAM. Ties preserve the first enumerated device.
@@ -184,12 +225,14 @@ def selection_summary(api: Any) -> Dict[str, object]:
         "preference": {
             "mode": preference.mode,
             "amd_index": preference.amd_index,
+            "amd_fingerprint": preference.amd_fingerprint,
             "source": "environment"
             if os.environ.get(ENV_AMD_GPU_INDEX, "").strip()
             else "configuration",
         },
         "selected_index": selected_index,
         "selected_label": selected.label if selected is not None else "",
+        "selected_fingerprint": selected.fingerprint if selected is not None else "",
         "candidates": [candidate.to_dict() for candidate in candidates],
         "configuration_path": str(preference_path()),
     }
