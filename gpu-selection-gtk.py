@@ -131,14 +131,15 @@ class GpuSelectionWindow(Adw.ApplicationWindow):
                 )
             )
 
-        save_button = Gtk.Button(
-            label=_("Save selection"),
-            margin_top=18,
-            halign=Gtk.Align.END,
-        )
+        action_group = Adw.PreferencesGroup()
+        page.add(action_group)
+        action_row = Adw.ActionRow(title=_("Save selection"))
+        action_group.add(action_row)
+        save_button = Gtk.Button(label=_("Save selection"), valign=Gtk.Align.CENTER)
         save_button.add_css_class("suggested-action")
         save_button.connect("clicked", self.on_save)
-        page.add(save_button)
+        action_row.add_suffix(save_button)
+        action_row.set_activatable_widget(save_button)
 
     def on_save(self, *_args) -> None:
         selected = int(self.dropdown.get_selected())
