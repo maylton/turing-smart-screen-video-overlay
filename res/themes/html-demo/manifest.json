@@ -1,0 +1,13 @@
+{
+  "engine": "html",
+  "name": "Material Sensor Orbit",
+  "version": 1,
+  "display": {
+    "width": 480,
+    "height": 480
+  },
+  "refreshRate": 2,
+  "entrypoint": "index.html",
+  "permissions": ["sensors"],
+  "network": false
+}

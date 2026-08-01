@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Material Sensor Orbit</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="canvas" aria-label="System monitor preview">
+    <header>
+      <div>
+        <p class="eyebrow">SYSTEM ORBIT</p>
+        <h1 id="clock">--:--:--</h1>
+      </div>
+      <span class="status-dot" title="Live preview"></span>
+    </header>
+
+    <section class="hero">
+      <div class="gauge" id="cpu-gauge">
+        <div class="gauge-inner">
+          <span>CPU</span>
+          <strong id="cpu-value">0%</strong>
+          <small id="cpu-temp">0°C</small>
+        </div>
+      </div>
+      <div class="hero-copy">
+        <span>Frequency</span>
+        <strong id="cpu-frequency">0.00 GHz</strong>
+        <p>Renderer-neutral snapshots drive this HTML/CSS theme.</p>
+      </div>
+    </section>
+
+    <section class="cards">
+      <article class="card card-gpu">
+        <span>GPU</span>
+        <strong id="gpu-value">0%</strong>
+        <div class="bar"><i id="gpu-bar"></i></div>
+        <small id="gpu-meta">0°C · 0 / 0 GB</small>
+      </article>
+      <article class="card card-ram">
+        <span>Memory</span>
+        <strong id="ram-value">0%</strong>
+        <div class="bar"><i id="ram-bar"></i></div>
+        <small id="ram-meta">0 / 0 GB</small>
+      </article>
+    </section>
+
+    <footer>
+      <span>↓ <b id="download">0.0</b> MB/s</span>
+      <span>↑ <b id="upload">0.0</b> MB/s</span>
+      <span id="sequence">FRAME 000</span>
+    </footer>
+  </main>
+  <script src="theme.js"></script>
+</body>
+</html>
