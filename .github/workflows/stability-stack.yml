@@ -15,6 +15,7 @@ on:
       - 'library/release_info.py'
       - 'library/theme_editor_backup*.py'
       - 'library/tray_icon*.py'
+      - 'library/main_app_tray_settings.py'
       - 'library/main_app_inline_diagnostics.py'
       - 'library/diagnostics_gtk_i18n.py'
       - 'scripts/installation-report.py'
@@ -41,6 +42,7 @@ on:
       - 'library/release_info.py'
       - 'library/theme_editor_backup*.py'
       - 'library/tray_icon*.py'
+      - 'library/main_app_tray_settings.py'
       - 'library/main_app_inline_diagnostics.py'
       - 'library/diagnostics_gtk_i18n.py'
       - 'scripts/installation-report.py'
@@ -94,7 +96,9 @@ jobs:
             library/gpu_selection_runtime.py \
             library/gpu_diagnostics.py \
             library/tray_icon.py \
+            library/tray_icon_preferences.py \
             library/tray_icon_runtime.py \
+            library/main_app_tray_settings.py \
             library/main_app_inline_diagnostics.py
 
       - name: Run stability stack tests
