@@ -12,7 +12,7 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Dict, Iterable, List, Optional, Union
 
 
 METADATA_FILENAME = ".installation.json"
@@ -47,7 +47,7 @@ class InstallationMetadata:
     platform: str
     language: str
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> Dict[str, str]:
         return asdict(self)
 
 
@@ -88,7 +88,13 @@ def source_commit(root: Path) -> str:
 
 
 def active_language() -> str:
-    for name in ("TURING_SMART_SCREEN_LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+    for name in (
+        "TURING_SMART_SCREEN_LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_MESSAGES",
+        "LANG",
+    ):
         value = os.environ.get(name, "").strip()
         if value:
             return value
@@ -99,13 +105,21 @@ def active_language() -> str:
     return value or "unknown"
 
 
-def validate_project_tree(root: Path, required: Iterable[str] = REQUIRED_PROJECT_FILES) -> list[str]:
+def validate_project_tree(
+    root: Path,
+    required: Iterable[str] = REQUIRED_PROJECT_FILES,
+) -> List[str]:
     """Return required paths missing from a source or installed application tree."""
     root = Path(root)
     return [relative for relative in required if not (root / relative).is_file()]
 
 
-def build_metadata(*, source_root: Path, install_root: Path, install_mode: str) -> InstallationMetadata:
+def build_metadata(
+    *,
+    source_root: Path,
+    install_root: Path,
+    install_mode: str,
+) -> InstallationMetadata:
     source_root = Path(source_root).resolve()
     install_root = Path(install_root).resolve()
     return InstallationMetadata(
@@ -145,7 +159,7 @@ def write_metadata(
     return destination
 
 
-def load_metadata(root: Path) -> InstallationMetadata | None:
+def load_metadata(root: Path) -> Optional[InstallationMetadata]:
     path = Path(root) / METADATA_FILENAME
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -154,7 +168,7 @@ def load_metadata(root: Path) -> InstallationMetadata | None:
         return None
 
 
-def release_summary(root: Path) -> dict[str, object]:
+def release_summary(root: Path) -> Dict[str, Union[str, List[str]]]:
     root = Path(root)
     metadata = load_metadata(root)
     return {
