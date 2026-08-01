@@ -66,6 +66,18 @@ def _parse_pids(text: str) -> Tuple[int, ...]:
     return tuple(sorted(pids))
 
 
+def _normalized_pids(values: Sequence[int]) -> Tuple[int, ...]:
+    normalized = set()
+    for value in values:
+        try:
+            pid = int(value)
+        except (TypeError, ValueError):
+            continue
+        if pid > 0:
+            normalized.add(pid)
+    return tuple(sorted(normalized))
+
+
 def device_owner_pids(device: str) -> Tuple[int, ...]:
     """Return best-effort fuser ownership without elevation or side effects."""
     if os.name != "posix" or not device or shutil.which("fuser") is None:
@@ -80,7 +92,10 @@ def device_owner_pids(device: str) -> Tuple[int, ...]:
         )
     except (OSError, subprocess.TimeoutExpired):
         return ()
-    return _parse_pids("\n".join((completed.stdout, completed.stderr)))
+
+    # GNU fuser writes the device label to stderr and numeric owners to stdout.
+    # Parsing stderr can mistake the trailing number in /dev/ttyACM1 for PID 1.
+    return _parse_pids(completed.stdout)
 
 
 def inspect_display_lifecycle(
@@ -90,7 +105,7 @@ def inspect_display_lifecycle(
 ) -> DisplayLifecycleSnapshot:
     """Classify the passive display lifecycle with deterministic priorities."""
     runtime_state = runtime_state or RuntimeState(busy=False)
-    fallback_monitor_pids = tuple(sorted({int(pid) for pid in monitor_pids if int(pid) > 0}))
+    fallback_monitor_pids = _normalized_pids(monitor_pids)
 
     real_ports = [
         port
