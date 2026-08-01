@@ -38,14 +38,17 @@ class GpuDependencyDetectionTests(unittest.TestCase):
             root = Path(temporary)
             self.write_vendor(root, "card0", "0x1002")
 
-            with mock.patch.object(
-                checkup.subprocess,
-                "run",
-                return_value=subprocess.CompletedProcess(
-                    ["lspci", "-Dn"],
-                    0,
-                    stdout="",
-                    stderr="",
+            with (
+                mock.patch.object(checkup.sys, "platform", "linux"),
+                mock.patch.object(
+                    checkup.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        ["lspci", "-Dn"],
+                        0,
+                        stdout="",
+                        stderr="",
+                    ),
                 ),
             ):
                 vendors = checkup.detect_linux_gpu_vendors(root)
@@ -61,14 +64,17 @@ class GpuDependencyDetectionTests(unittest.TestCase):
                 "0000:03:00.0 0302: 1002:744c (rev c8)\n"
             )
 
-            with mock.patch.object(
-                checkup.subprocess,
-                "run",
-                return_value=subprocess.CompletedProcess(
-                    ["lspci", "-Dn"],
-                    0,
-                    stdout=lspci,
-                    stderr="",
+            with (
+                mock.patch.object(checkup.sys, "platform", "linux"),
+                mock.patch.object(
+                    checkup.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        ["lspci", "-Dn"],
+                        0,
+                        stdout=lspci,
+                        stderr="",
+                    ),
                 ),
             ):
                 vendors = checkup.detect_linux_gpu_vendors(root)
@@ -87,20 +93,27 @@ class GpuDependencyDetectionTests(unittest.TestCase):
             root = Path(temporary)
             self.write_vendor(root, "card0", "0x1002")
 
-            with mock.patch.object(
-                checkup.subprocess,
-                "run",
-                side_effect=FileNotFoundError("lspci"),
+            with (
+                mock.patch.object(checkup.sys, "platform", "linux"),
+                mock.patch.object(
+                    checkup.subprocess,
+                    "run",
+                    side_effect=FileNotFoundError("lspci"),
+                ),
             ):
                 vendors = checkup.detect_linux_gpu_vendors(root)
 
         self.assertEqual(vendors, {"AMD"})
 
+    def test_non_linux_platform_skips_detection(self):
+        with mock.patch.object(checkup.sys, "platform", "win32"):
+            self.assertEqual(checkup.detect_linux_gpu_vendors(Path("unused")), set())
+
     def test_dependency_profile_covers_supported_python_versions(self):
         text = (ROOT / "requirements-gpu-amd.txt").read_text(encoding="utf-8")
-        self.assertIn('pyamdgpuinfo~=2.1.7', text)
+        self.assertIn("pyamdgpuinfo~=2.1.7", text)
         self.assertIn('python_version < "3.10"', text)
-        self.assertIn('pyamdgpuinfo~=2.1.8', text)
+        self.assertIn("pyamdgpuinfo~=2.1.8", text)
         self.assertIn('python_version >= "3.10"', text)
 
 
