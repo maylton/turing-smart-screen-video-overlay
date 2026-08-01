@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ GPU_VENDOR_NAMES = {
     "0x10de": "NVIDIA",
     "0x8086": "Intel",
 }
+PCI_GPU_CLASS_CODES = {"0300", "0302", "0380"}
 
 
 def result(ok: bool, label: str, details: str = "") -> tuple[bool, str]:
@@ -23,11 +25,36 @@ def result(ok: bool, label: str, details: str = "") -> tuple[bool, str]:
     return ok, f"{prefix} {label}{suffix}"
 
 
+def parse_lspci_gpu_vendors(output: str) -> set[str]:
+    """Return GPU vendors from locale-independent ``lspci -Dn`` output."""
+    vendors: set[str] = set()
+
+    for line in str(output or "").splitlines():
+        match = re.search(
+            r"\b([0-9a-fA-F]{4}):\s+([0-9a-fA-F]{4}):[0-9a-fA-F]{4}\b",
+            line,
+        )
+        if match is None:
+            continue
+
+        class_code = match.group(1).lower()
+        vendor_id = "0x" + match.group(2).lower()
+        if class_code not in PCI_GPU_CLASS_CODES:
+            continue
+
+        vendor_name = GPU_VENDOR_NAMES.get(vendor_id)
+        if vendor_name:
+            vendors.add(vendor_name)
+
+    return vendors
+
+
 def detect_linux_gpu_vendors(sysfs_root: Optional[Path] = None) -> set[str]:
     """Detect Linux GPU vendors without requiring an extra package.
 
-    The primary source is the DRM sysfs vendor ID. lspci is only a fallback for
-    systems where /sys/class/drm is unavailable or not populated yet.
+    DRM sysfs is the primary source. ``lspci -Dn`` is also consulted when
+    available so hybrid systems are not misidentified when sysfs exposes only
+    one adapter during installation.
     """
     if not sys.platform.startswith("linux"):
         return set()
@@ -49,12 +76,9 @@ def detect_linux_gpu_vendors(sysfs_root: Optional[Path] = None) -> set[str]:
     except OSError:
         pass
 
-    if vendors:
-        return vendors
-
     try:
         completed = subprocess.run(
-            ["lspci", "-nn"],
+            ["lspci", "-Dn"],
             text=True,
             capture_output=True,
             check=False,
@@ -62,26 +86,8 @@ def detect_linux_gpu_vendors(sysfs_root: Optional[Path] = None) -> set[str]:
     except OSError:
         return vendors
 
-    if completed.returncode != 0:
-        return vendors
-
-    for line in completed.stdout.splitlines():
-        lowered = line.lower()
-        if not any(
-            controller in lowered
-            for controller in (
-                "vga compatible controller",
-                "3d controller",
-                "display controller",
-            )
-        ):
-            continue
-        if "[1002:" in lowered:
-            vendors.add("AMD")
-        if "[10de:" in lowered:
-            vendors.add("NVIDIA")
-        if "[8086:" in lowered:
-            vendors.add("Intel")
+    if completed.returncode == 0:
+        vendors.update(parse_lspci_gpu_vendors(completed.stdout))
 
     return vendors
 
@@ -150,6 +156,12 @@ def ensure_amd_gpu_support(root: Path, checks: list[tuple[bool, str]]) -> None:
         checks.append(result(True, "AMD GPU dependency installation", "already installed"))
 
     probe_details = (probe.stdout or probe.stderr).strip()[-1000:]
+    if probe.returncode != 0:
+        probe_details = (
+            probe_details
+            + " | Verify that the Linux amdgpu driver is active and that the "
+            "current user can read /sys/class/drm and /sys/class/hwmon."
+        ).strip(" |")
     checks.append(result(
         probe.returncode == 0,
         "AMD GPU monitoring probe",
@@ -189,6 +201,7 @@ def main() -> int:
         "tests/test_video_media.py",
         "tests/test_packaging.py",
         "tests/test_media_preparation.py",
+        "tests/test_gpu_dependency_detection.py",
         "scripts/test-media-preparation.py",
         "docs/MEDIA_PREPARATION.md",
         "scripts/test-install.py",
@@ -263,6 +276,7 @@ def main() -> int:
             "tests.test_video_media",
             "tests.test_packaging",
             "tests.test_media_preparation",
+            "tests.test_gpu_dependency_detection",
         ],
         cwd=str(root),
         text=True,
@@ -271,7 +285,7 @@ def main() -> int:
     )
     checks.append(result(
         automated_tests.returncode == 0,
-        "Runtime and video safety tests",
+        "Runtime, packaging, GPU and video safety tests",
         (automated_tests.stdout or automated_tests.stderr).strip()[-1000:],
     ))
 
