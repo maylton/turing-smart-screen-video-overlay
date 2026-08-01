@@ -548,16 +548,6 @@ def install_runtime_patches(app):
             "internal": remote.startswith("/root/video/"),
         }
 
-    def display_has_video(video: dict) -> bool:
-        args = ["list"]
-        if video.get("internal"):
-            args.append("--internal")
-
-        payload = run_video_manager_json_for_theme_apply(self, args)
-        files = payload.get("data", {}).get("files") or []
-        wanted = str(video.get("filename") or "")
-        return wanted in {str(item) for item in files}
-
     def sync_theme_video_worker(self, record: ThemeRecord):
         error = ""
         message = ""
