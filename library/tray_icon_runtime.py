@@ -126,7 +126,11 @@ def install_status_notifier_tray_icon(app_module: Any) -> None:
     )
 
     pixmap_cache: Dict[str, List[Tuple[int, int, bytes]]] = {}
-    original_get_property = current_get_property
+    original_get_property = getattr(
+        current_get_property,
+        "_turing_tray_icon_original_get_property",
+        current_get_property,
+    )
 
     def current_payload():
         variant = active_tray_icon_variant(app_module)
@@ -186,6 +190,9 @@ def install_status_notifier_tray_icon(app_module: Any) -> None:
     get_property_with_selected_icon._turing_tray_icon_runtime = True
     get_property_with_selected_icon._turing_tray_icon_project_root = str(
         project_root
+    )
+    get_property_with_selected_icon._turing_tray_icon_original_get_property = (
+        original_get_property
     )
     notifier_class._on_get_property = get_property_with_selected_icon
     _INSTALLED = True
