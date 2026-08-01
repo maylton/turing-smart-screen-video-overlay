@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Guarded, bounded live updates for the Rev. C 480x480 display.
+"""Guarded, observable live updates for the Rev. C 480x480 display.
 
-The session sends one validated full frame, followed by a limited number of
-validated partial frames. It never discovers a port automatically and refuses
-updates that exceed conservative region or wire-size budgets.
+The session sends one validated full frame followed by a small, bounded number
+of validated partial frames. Physical writes use the exact protocol blocks that
+passed production parity. Every requested status read is retained instead of
+being discarded by the production driver's private command helper.
 """
 
 from __future__ import annotations
@@ -23,6 +24,10 @@ from library.rev_c_physical_sink import (
     _validate_parity,
     _validate_port,
 )
+from library.rev_c_status_transport import (
+    RevCStatusBatch,
+    send_protocol_with_status,
+)
 
 
 LIVE_CONFIRMATION_TEXT = "LIVE-REV-C-480X480"
@@ -31,6 +36,9 @@ MAX_ALLOWED_DURATION = 120.0
 MIN_ALLOWED_INTERVAL = 0.75
 MAX_ALLOWED_REGIONS = 32
 MAX_ALLOWED_WIRE_BYTES = 500_000
+MIN_ALLOWED_REGION_PACING = 0.05
+MAX_ALLOWED_REGION_PACING = 2.0
+MAX_ALLOWED_MINIMUM_STATUS_BYTES = 1024
 
 
 class LiveWriteRefused(PhysicalWriteRefused):
@@ -43,6 +51,7 @@ class LiveUpdateResult:
     region_count: int
     wire_bytes: int
     partial_frame_number: int
+    status_batch: RevCStatusBatch
     physical_io: bool = True
 
 
@@ -50,29 +59,77 @@ class LiveUpdateResult:
 class LiveSessionSummary:
     port: str
     partial_frames_written: int
+    status_responses: int
     serial_closed: bool
     physical_io: bool = True
 
 
+def _protocol_wire(protocol) -> bytes:
+    wire = getattr(protocol, "wire", None)
+    if wire is not None:
+        return bytes(wire)
+    return b"".join(
+        bytes(getattr(block, "wire", b""))
+        for exchange in tuple(getattr(protocol, "exchanges", ()))
+        for block in tuple(getattr(exchange, "blocks", ()))
+    )
+
+
+def _validate_protocol_parity(protocol, parity, expected_mode: str) -> None:
+    if not bool(getattr(protocol, "valid", False)):
+        raise LiveWriteRefused("Rev. C framing validation failed")
+    if str(getattr(protocol, "mode", "")) != expected_mode:
+        raise LiveWriteRefused(
+            f"Rev. C protocol mode must be {expected_mode!r}"
+        )
+    parity_mode = str(getattr(parity, "mode", ""))
+    if parity_mode != expected_mode:
+        raise LiveWriteRefused(
+            f"production parity mode must be {expected_mode!r}"
+        )
+    if not bool(getattr(parity, "valid", False)):
+        raise LiveWriteRefused("production serializer parity is not valid")
+    if bool(getattr(parity, "physical_io", False)):
+        raise LiveWriteRefused(
+            "production parity unexpectedly reports physical I/O"
+        )
+    if getattr(parity, "mismatch_offset", None) is not None:
+        raise LiveWriteRefused("production serializer bytes do not match")
+
+    expected_wire = bytes(getattr(parity, "expected_wire", b""))
+    production_wire = bytes(getattr(parity, "production_wire", b""))
+    protocol_wire = _protocol_wire(protocol)
+    if not expected_wire or expected_wire != production_wire:
+        raise LiveWriteRefused("production serializer wire image is incomplete")
+    if protocol_wire != expected_wire:
+        raise LiveWriteRefused(
+            "protocol wire image differs from production serializer parity"
+        )
+
+
 class GuardedRevCLiveSession:
-    """Open one Rev. C device and apply a bounded stream of partial updates."""
+    """Open one Rev. C device and apply a bounded stream of observable updates."""
 
     def __init__(
         self,
         initial_frame: Image.Image,
+        initial_protocol,
         initial_parity,
         *,
         port: str,
         confirmation: str,
         monitor_stopped: bool,
-        max_partial_frames: int = 15,
+        max_partial_frames: int = 5,
         max_duration: float = 30.0,
-        min_interval: float = 1.0,
-        max_regions: int = 16,
+        min_interval: float = 2.0,
+        max_regions: int = 4,
         max_wire_bytes: int = 300_000,
+        region_pacing: float = 0.25,
+        minimum_status_bytes: int = 1,
         driver_factory: Optional[Callable[[str], object]] = None,
         lock_path: Path = DEFAULT_LOCK_PATH,
         clock: Callable[[], float] = time.monotonic,
+        sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         if str(confirmation or "") != LIVE_CONFIRMATION_TEXT:
             raise LiveWriteRefused(
@@ -88,6 +145,8 @@ class GuardedRevCLiveSession:
         self.min_interval = float(min_interval)
         self.max_regions = int(max_regions)
         self.max_wire_bytes = int(max_wire_bytes)
+        self.region_pacing = float(region_pacing)
+        self.minimum_status_bytes = int(minimum_status_bytes)
         self._validate_limits()
 
         frame = initial_frame.convert("RGBA")
@@ -97,8 +156,7 @@ class GuardedRevCLiveSession:
                 f"live Rev. C test requires 480x480; received {frame.size}"
             )
         _validate_parity(initial_parity)
-        if str(getattr(initial_parity, "mode", "")) != "full":
-            raise LiveWriteRefused("the live session must start with a full frame")
+        _validate_protocol_parity(initial_protocol, initial_parity, "full")
 
         self._driver_factory = driver_factory or _default_driver_factory
         self._uses_production_driver = driver_factory is None
@@ -107,17 +165,20 @@ class GuardedRevCLiveSession:
             require_device=self._uses_production_driver,
         )
         self._clock = clock
+        self._sleeper = sleeper
         self._lock_path = Path(lock_path).expanduser().resolve()
         self._lock_file = None
         self._driver = None
         self._started_at = 0.0
         self._last_write_at = 0.0
         self._partial_frames_written = 0
+        self._status_responses = 0
+        self._initial_status_batch = None
         self._closed = False
         self._serial_closed = False
         self._last_sequence = int(getattr(initial_parity, "sequence", 0))
 
-        self._open_and_write_initial(frame)
+        self._open_and_write_initial(initial_protocol)
 
     def _validate_limits(self) -> None:
         if not 1 <= self.max_partial_frames <= MAX_ALLOWED_PARTIAL_FRAMES:
@@ -141,8 +202,27 @@ class GuardedRevCLiveSession:
             raise LiveWriteRefused(
                 f"max_wire_bytes must be between 1 and {MAX_ALLOWED_WIRE_BYTES}"
             )
+        if not (
+            MIN_ALLOWED_REGION_PACING
+            <= self.region_pacing
+            <= MAX_ALLOWED_REGION_PACING
+        ):
+            raise LiveWriteRefused(
+                "region_pacing must be between "
+                f"{MIN_ALLOWED_REGION_PACING} and "
+                f"{MAX_ALLOWED_REGION_PACING} seconds"
+            )
+        if not (
+            1
+            <= self.minimum_status_bytes
+            <= MAX_ALLOWED_MINIMUM_STATUS_BYTES
+        ):
+            raise LiveWriteRefused(
+                "minimum_status_bytes must be between 1 and "
+                f"{MAX_ALLOWED_MINIMUM_STATUS_BYTES}"
+            )
 
-    def _open_and_write_initial(self, frame: Image.Image) -> None:
+    def _open_and_write_initial(self, protocol) -> None:
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_file = self._lock_path.open("a+b")
         try:
@@ -156,20 +236,21 @@ class GuardedRevCLiveSession:
         self._lock_file = lock_file
         try:
             from library.lcd.lcd_comm import Orientation
-            from library.lcd.lcd_comm_rev_c import Count
 
-            Count.Start = 0
             driver = self._driver_factory(self.port)
             self._driver = driver
             driver.InitializeComm()
             driver.SetOrientation(Orientation.LANDSCAPE)
-            driver.DisplayPILImage(
-                frame,
-                x=0,
-                y=0,
-                image_width=480,
-                image_height=480,
+            batch = send_protocol_with_status(
+                driver,
+                protocol,
+                minimum_status_bytes=self.minimum_status_bytes,
+                inter_exchange_delay=0.0,
+                sleeper=self._sleeper,
+                clock=self._clock,
             )
+            self._initial_status_batch = batch
+            self._status_responses += len(batch.samples)
             now = self._clock()
             self._started_at = now
             self._last_write_at = now
@@ -178,8 +259,18 @@ class GuardedRevCLiveSession:
             raise
 
     @property
+    def initial_status_batch(self) -> RevCStatusBatch:
+        if self._initial_status_batch is None:
+            raise LiveWriteRefused("initial status batch is unavailable")
+        return self._initial_status_batch
+
+    @property
     def partial_frames_written(self) -> int:
         return self._partial_frames_written
+
+    @property
+    def status_responses(self) -> int:
+        return self._status_responses
 
     @property
     def elapsed(self) -> float:
@@ -230,34 +321,11 @@ class GuardedRevCLiveSession:
             )
         if not bool(getattr(transport, "roundtrip_matches", False)):
             raise LiveWriteRefused("transport roundtrip validation failed")
-        if not bool(getattr(protocol, "valid", False)):
-            raise LiveWriteRefused("Rev. C framing validation failed")
-        parity_mode = str(getattr(parity, "mode", ""))
-        if parity_mode not in {"partial", "noop"}:
-            raise LiveWriteRefused("production parity is not a partial update")
-        if not bool(getattr(parity, "valid", False)):
-            raise LiveWriteRefused("production serializer parity is not valid")
-        if bool(getattr(parity, "physical_io", False)):
-            raise LiveWriteRefused(
-                "production parity unexpectedly reports physical I/O"
-            )
-        if getattr(parity, "mismatch_offset", None) is not None:
-            raise LiveWriteRefused("production serializer bytes do not match")
-        expected_wire = bytes(getattr(parity, "expected_wire", b""))
-        production_wire = bytes(getattr(parity, "production_wire", b""))
-        if expected_wire != production_wire:
-            raise LiveWriteRefused("production serializer wire images differ")
-        if parity_mode == "partial" and not expected_wire:
-            raise LiveWriteRefused(
-                "production serializer partial wire image is incomplete"
-            )
-
-        sequence = int(getattr(parity, "sequence", 0))
-        if sequence <= self._last_sequence:
-            raise LiveWriteRefused("partial update sequence did not increase")
 
         packets = tuple(getattr(transport, "packets", ()))
         exchanges = tuple(getattr(protocol, "exchanges", ()))
+        mode = "partial" if packets else "noop"
+        _validate_protocol_parity(protocol, parity, mode)
         if len(packets) != len(exchanges):
             raise LiveWriteRefused(
                 "transport packet count differs from protocol exchanges"
@@ -275,28 +343,19 @@ class GuardedRevCLiveSession:
                 f"limit is {self.max_wire_bytes}"
             )
 
-        if self._uses_production_driver and packets:
-            from library.lcd.lcd_comm_rev_c import Count
+        sequence = int(getattr(parity, "sequence", 0))
+        if sequence <= self._last_sequence:
+            raise LiveWriteRefused("partial update sequence did not increase")
 
-            expected_count = getattr(exchanges[0], "update_count", None)
-            if expected_count is None or int(expected_count) != int(Count.Start):
-                raise LiveWriteRefused(
-                    "production update counter is not aligned with parity"
-                )
-
-        for packet in packets:
-            region = packet.region
-            crop = current.crop(
-                (region.x, region.y, region.right, region.bottom)
-            )
-            self._driver.DisplayPILImage(
-                crop,
-                x=region.x,
-                y=region.y,
-                image_width=region.width,
-                image_height=region.height,
-            )
-
+        batch = send_protocol_with_status(
+            self._driver,
+            protocol,
+            minimum_status_bytes=self.minimum_status_bytes,
+            inter_exchange_delay=self.region_pacing,
+            sleeper=self._sleeper,
+            clock=self._clock,
+        )
+        self._status_responses += len(batch.samples)
         self._last_sequence = sequence
         if packets:
             self._partial_frames_written += 1
@@ -307,6 +366,7 @@ class GuardedRevCLiveSession:
             region_count=len(packets),
             wire_bytes=wire_bytes,
             partial_frame_number=self._partial_frames_written,
+            status_batch=batch,
         )
 
     def close(self) -> LiveSessionSummary:
@@ -314,6 +374,7 @@ class GuardedRevCLiveSession:
             return LiveSessionSummary(
                 port=self.port,
                 partial_frames_written=self._partial_frames_written,
+                status_responses=self._status_responses,
                 serial_closed=self._serial_closed,
             )
 
@@ -340,6 +401,7 @@ class GuardedRevCLiveSession:
         return LiveSessionSummary(
             port=self.port,
             partial_frames_written=self._partial_frames_written,
+            status_responses=self._status_responses,
             serial_closed=self._serial_closed,
         )
 

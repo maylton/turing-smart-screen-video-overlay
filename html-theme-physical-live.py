@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Preflight and run a bounded live HTML theme test on Rev. C hardware."""
+"""Preflight and run a status-observable Rev. C HTML theme diagnostic."""
 
 from __future__ import annotations
 
@@ -28,6 +28,9 @@ from library.simulated_display_transport import (
 )
 
 
+DEFAULT_STATUS_LOG = Path("/tmp/turing-html-physical-status.jsonl")
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -47,13 +50,36 @@ def parse_args(argv):
         default="",
         help=f"Required live confirmation token: {LIVE_CONFIRMATION_TEXT}",
     )
-    parser.add_argument("--max-frames", type=int, default=15)
+    parser.add_argument("--max-frames", type=int, default=5)
     parser.add_argument("--duration", type=float, default=30.0)
-    parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument("--interval", type=float, default=2.0)
     parser.add_argument("--poll-interval", type=float, default=0.10)
-    parser.add_argument("--stale-after", type=float, default=5.0)
-    parser.add_argument("--max-regions", type=int, default=16)
+    parser.add_argument("--stale-after", type=float, default=10.0)
+    parser.add_argument(
+        "--max-regions",
+        type=int,
+        default=4,
+        help="Maximum physical UPDATE_BITMAP transactions per logical frame.",
+    )
     parser.add_argument("--max-wire-bytes", type=int, default=300_000)
+    parser.add_argument(
+        "--region-pacing",
+        type=float,
+        default=0.25,
+        help="Seconds to wait between physical region transactions.",
+    )
+    parser.add_argument(
+        "--status-min-bytes",
+        type=int,
+        default=1,
+        help="Stop if a requested hardware status read returns fewer bytes.",
+    )
+    parser.add_argument(
+        "--status-log",
+        type=Path,
+        default=DEFAULT_STATUS_LOG,
+        help="JSONL file containing complete captured status responses.",
+    )
     return parser.parse_args(argv)
 
 
@@ -92,12 +118,14 @@ def load_coherent_frame(
     return frame, int(payload["sequence"])
 
 
-def build_engines(frame: Image.Image, max_regions: int):
+def build_engines(frame: Image.Image):
+    # Keep component discovery generous. The optimizer applies the much smaller
+    # physical transaction budget after every changed tile has been found.
     pipeline = FramePipeline(
         tile_size=16,
         pixel_threshold=0,
         full_refresh_ratio=0.45,
-        max_regions=max_regions,
+        max_regions=64,
     )
     transport = SimulatedDisplayTransport(
         get_transport_profile("rev-c-2inch")
@@ -111,6 +139,8 @@ def validate_frame(
     pipeline: FramePipeline,
     transport_engine: SimulatedDisplayTransport,
     protocol_engine: RevCProtocolSimulator,
+    *,
+    max_regions: int,
 ):
     previous = pipeline.previous
     analysis = pipeline.process(frame)
@@ -120,13 +150,49 @@ def validate_frame(
         analysis,
         tile_size=pipeline.tile_size,
         pixel_threshold=pipeline.pixel_threshold,
-        max_regions=pipeline.max_regions,
+        max_regions=max_regions,
         full_refresh_ratio=pipeline.full_refresh_ratio,
     )
     transport = transport_engine.submit(frame, analysis)
     protocol = protocol_engine.submit(transport)
     parity = compare_with_production_driver(frame, transport, protocol)
     return analysis, transport, protocol, parity
+
+
+def status_summary(batch) -> str:
+    return (
+        f"status={len(batch.samples):02d} "
+        f"bytes={batch.minimum_received_bytes}-"
+        f"{batch.maximum_received_bytes} "
+        f"nonzero={batch.total_nonzero_bytes} "
+        f"sha={batch.fingerprint} "
+        f"io={batch.elapsed_ms:.1f}ms"
+    )
+
+
+def write_status_record(
+    path: Path,
+    *,
+    kind: str,
+    source_sequence: int,
+    validated_sequence: int,
+    batch,
+    reset: bool = False,
+) -> Path:
+    destination = Path(path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "recordedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "kind": kind,
+        "sourceSequence": int(source_sequence),
+        "validatedSequence": int(validated_sequence),
+        "status": batch.as_dict(),
+    }
+    mode = "w" if reset else "a"
+    with destination.open(mode, encoding="utf-8") as output:
+        output.write(json.dumps(record, sort_keys=True) + "\n")
+        output.flush()
+    return destination
 
 
 def run(args) -> int:
@@ -149,10 +215,7 @@ def run(args) -> int:
         )
         return 2
 
-    pipeline, transport_engine, protocol_engine = build_engines(
-        initial_frame,
-        args.max_regions,
-    )
+    pipeline, transport_engine, protocol_engine = build_engines(initial_frame)
     try:
         _analysis, initial_transport, initial_protocol, initial_parity = (
             validate_frame(
@@ -160,6 +223,7 @@ def run(args) -> int:
                 pipeline,
                 transport_engine,
                 protocol_engine,
+                max_regions=args.max_regions,
             )
         )
     except Exception as exc:
@@ -178,6 +242,12 @@ def run(args) -> int:
         "Production parity: " + ("ok" if initial_parity.valid else "FAILED")
     )
     print(f"Initial wire bytes: {initial_protocol.wire_bytes}")
+    print(
+        "Diagnostic limits: "
+        f"frames={args.max_frames} regions={args.max_regions} "
+        f"interval={args.interval:.2f}s "
+        f"region-pacing={args.region_pacing:.2f}s"
+    )
 
     if not (
         initial_transport.roundtrip_matches
@@ -193,6 +263,7 @@ def run(args) -> int:
     try:
         session = GuardedRevCLiveSession(
             initial_frame,
+            initial_protocol,
             initial_parity,
             port=args.port,
             confirmation=args.confirm,
@@ -202,6 +273,8 @@ def run(args) -> int:
             min_interval=args.interval,
             max_regions=args.max_regions,
             max_wire_bytes=args.max_wire_bytes,
+            region_pacing=args.region_pacing,
+            minimum_status_bytes=args.status_min_bytes,
         )
     except LiveWriteRefused as exc:
         print(f"Live session refused: {exc}", file=sys.stderr)
@@ -210,15 +283,24 @@ def run(args) -> int:
         print(f"Live session failed to start: {exc}", file=sys.stderr)
         return 5
 
+    initial_status = session.initial_status_batch
+    status_log = write_status_record(
+        args.status_log,
+        kind="initial-full",
+        source_sequence=source_sequence,
+        validated_sequence=initial_transport.sequence,
+        batch=initial_status,
+        reset=True,
+    )
+    print("Initial physical frame written with observable status reads.")
+    print(f"INITIAL {status_summary(initial_status)}")
+    print(f"Status log: {status_log}")
+
     last_source_sequence = source_sequence
     last_new_frame_at = time.monotonic()
 
     try:
         with session:
-            print(
-                "Initial physical frame written. "
-                "Partial updates are now bounded and parity-gated."
-            )
             while session.can_continue:
                 loaded = load_coherent_frame(args.input)
                 if loaded is None:
@@ -261,6 +343,7 @@ def run(args) -> int:
                         pipeline,
                         transport_engine,
                         protocol_engine,
+                        max_regions=args.max_regions,
                     )
                 except Exception as exc:
                     print(
@@ -291,6 +374,13 @@ def run(args) -> int:
                     print(f"Live update failed: {exc}", file=sys.stderr)
                     return 7
 
+                write_status_record(
+                    args.status_log,
+                    kind="partial",
+                    source_sequence=current_source_sequence,
+                    validated_sequence=update.sequence,
+                    batch=update.status_batch,
+                )
                 print(
                     f"LIVE source={current_source_sequence:04d} "
                     f"validated={update.sequence:04d} "
@@ -298,6 +388,7 @@ def run(args) -> int:
                     f"wire={update.wire_bytes:7d} "
                     f"frame={update.partial_frame_number:02d}/"
                     f"{session.max_partial_frames} "
+                    f"{status_summary(update.status_batch)} "
                     "roundtrip=ok framing=ok production=ok",
                     flush=True,
                 )
@@ -306,16 +397,18 @@ def run(args) -> int:
 
             summary = session.close()
             print(
-                "Live session completed: "
+                "Live diagnostic completed: "
                 f"partial-frames={summary.partial_frames_written} "
+                f"status-responses={summary.status_responses} "
                 f"serial-closed={'yes' if summary.serial_closed else 'no'}"
             )
             return 0
     except KeyboardInterrupt:
         summary = session.close()
         print(
-            "\nLive session interrupted: "
+            "\nLive diagnostic interrupted: "
             f"partial-frames={summary.partial_frames_written} "
+            f"status-responses={summary.status_responses} "
             f"serial-closed={'yes' if summary.serial_closed else 'no'}"
         )
         return 130
