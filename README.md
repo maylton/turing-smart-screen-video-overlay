@@ -179,7 +179,8 @@ The Theme Gallery provides a visual entry point for themes:
 - open/edit actions;
 - duplicate, rename, and delete with confirmation;
 - import from folder/archive;
-- export to `.zip` archive;
+- export to a versioned single-file `.theme` package;
+- import `.theme`, theme folders, and legacy `.zip` archives;
 - export preflight warnings for missing/generated/outside assets.
 
 ### Embedded Theme Editor

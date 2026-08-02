@@ -53,8 +53,8 @@ Included so far:
 - rename action with sanitization, overwrite protection, and current-theme config update;
 - guarded delete action that requires typing the exact theme name;
 - delete moves themes to Trash and refuses to delete the current theme;
-- import action for theme folders or safe `.zip` archives;
-- export action for selected themes as `.zip` archives;
+- import action for `.theme` packages, theme folders, or safe legacy `.zip` archives;
+- export action for selected themes as versioned `.theme` packages;
 - export skips temporary/editor-backup/cache files and refuses to overwrite existing archives;
 - compact gallery card action layout with secondary actions in an overflow menu;
 - embedded Theme Editor page inside the main app stack for the gallery card `Edit` flow;
@@ -187,7 +187,7 @@ Completed through the merged Theme Gallery app-shell stack:
 - Phase 12 — fix gallery layout expansion in the main app.
 - Phase 13 — filter gallery themes to the detected/configured display size.
 - Phase 14 — fix open theme folder in niri with direct file-manager fallback and debug logs.
-- Phase 15 — export theme to `.zip` archive.
+- Phase 15 — export theme to a versioned `.theme` package.
 - Phase 16 — polish Theme Gallery card actions into an overflow menu.
 - Phase 17 — embed Theme Editor into the main app stack.
 - Phase 18 — guard Rev. C bitmap updates against offscreen image coordinates.

@@ -82,7 +82,7 @@ legacy/runtime launcher: .venv/bin/python configure-gtk.py
 - [x] Set active/current theme from gallery.
 - [x] Duplicate, rename, delete with confirmation.
 - [x] Import from folder/archive.
-- [x] Export selected theme to `.zip` archive.
+- [x] Export selected theme to a versioned `.theme` package; retain legacy `.zip` compatibility.
 - [x] Export completeness preflight for referenced/generated media.
 - [x] Theme card action polish with overflow menu.
 - [x] Embedded Theme Editor inside the main app stack.

@@ -26,6 +26,15 @@ from library.html_theme_authoring import (
     save_html_theme_authoring,
 )
 from library.theme_engine import ThemeManifest, ThemeValidationError
+from library.theme_package import (
+    PACKAGE_EXTENSION,
+    PACKAGE_FILENAME,
+    SUPPORTED_PACKAGE_EXTENSIONS,
+    ThemePackageDescriptor,
+    ThemePackageError,
+    load_theme_package_descriptor,
+    validate_archive_members,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILE = ROOT / "config.yaml"
@@ -42,6 +51,8 @@ ExportThemeCallback = Callable[["ThemeRecord", str], None]
 IGNORE_PATTERNS = (
     "*.tmp",
     "*.editor-backup",
+    "*.video-working",
+    "*.before-*-repair",
     "*.before-sequence-repair",
     "__pycache__",
 )
@@ -159,7 +170,11 @@ def ensure_theme_child(path: Path) -> None:
         raise RuntimeError(f"Refusing to modify a folder outside {THEMES_DIR}")
 
 
-def next_available_theme_name(base_name: str, themes_dir: Path = THEMES_DIR) -> str:
+def next_available_theme_name(
+    base_name: str,
+    themes_dir: Path | None = None,
+) -> str:
+    themes_dir = themes_dir or THEMES_DIR
     base = sanitize_theme_folder_name(base_name) or "theme"
     candidate = base
     index = 2
@@ -169,12 +184,15 @@ def next_available_theme_name(base_name: str, themes_dir: Path = THEMES_DIR) -> 
     return candidate
 
 
-def suggested_duplicate_name(theme_name: str, themes_dir: Path = THEMES_DIR) -> str:
+def suggested_duplicate_name(
+    theme_name: str,
+    themes_dir: Path | None = None,
+) -> str:
     return next_available_theme_name(f"{theme_name}-copy", themes_dir)
 
 
 def default_export_path(theme_name: str) -> Path:
-    return Path.home() / "Downloads" / f"{theme_name}.zip"
+    return Path.home() / "Downloads" / f"{theme_name}{PACKAGE_EXTENSION}"
 
 
 def read_scalar_from_yaml_text(path: Path, key: str) -> str:
@@ -407,10 +425,8 @@ def delete_theme(record: ThemeRecord) -> None:
 
 
 def validate_zip_members(zip_file: zipfile.ZipFile) -> None:
-    for member in zip_file.infolist():
-        member_path = Path(member.filename)
-        if member_path.is_absolute() or ".." in member_path.parts:
-            raise RuntimeError(f"Unsafe archive path: {member.filename}")
+    """Backward-compatible wrapper around the shared archive validator."""
+    validate_archive_members(zip_file)
 
 
 def is_theme_directory(path: Path) -> bool:
@@ -463,11 +479,34 @@ def resolve_import_theme_source(path: Path) -> Path:
     raise RuntimeError("Imported folder/archive contains multiple themes. Import one at a time.")
 
 
-def copy_imported_theme(source_dir: Path) -> str:
+def validate_theme_package_directory(
+    source_dir: Path,
+    descriptor: ThemePackageDescriptor,
+) -> None:
+    if descriptor.engine == "html":
+        try:
+            manifest = ThemeManifest.load(source_dir)
+        except ThemeValidationError as exc:
+            raise ThemePackageError(f"Invalid packaged HTML theme: {exc}") from exc
+        if manifest.engine != "html":
+            raise ThemePackageError("Package descriptor and HTML manifest engine disagree")
+        policy_issue = html_theme_gallery_issue(manifest)
+        if policy_issue is not None:
+            raise ThemePackageError(policy_issue)
+        return
+
+    yaml_file = find_theme_file(source_dir)
+    if yaml_file is None or yaml_file.name.casefold() != descriptor.definition.casefold():
+        raise ThemePackageError(
+            f"Packaged YAML definition is missing: {descriptor.definition}"
+        )
+
+
+def copy_imported_theme(source_dir: Path, preferred_name: str = "") -> str:
     if not is_theme_directory(source_dir):
         raise RuntimeError("Imported theme package is invalid.")
 
-    target_name = next_available_theme_name(source_dir.name)
+    target_name = next_available_theme_name(preferred_name or source_dir.name)
     target_dir = THEMES_DIR / target_name
     shutil.copytree(
         source_dir,
@@ -486,15 +525,20 @@ def import_theme(source_path_text: str) -> str:
     if source_path.is_dir():
         return copy_imported_theme(resolve_import_theme_source(source_path))
 
-    if source_path.is_file() and source_path.suffix.casefold() == ".zip":
+    suffix = source_path.suffix.casefold()
+    if source_path.is_file() and suffix in SUPPORTED_PACKAGE_EXTENSIONS:
         with tempfile.TemporaryDirectory(prefix="turing-theme-import-") as tmp_dir:
             tmp_path = Path(tmp_dir)
             with zipfile.ZipFile(source_path) as archive:
                 validate_zip_members(archive)
                 archive.extractall(tmp_path)
+            if suffix == PACKAGE_EXTENSION:
+                descriptor = load_theme_package_descriptor(tmp_path)
+                validate_theme_package_directory(tmp_path, descriptor)
+                return copy_imported_theme(tmp_path, descriptor.name)
             return copy_imported_theme(resolve_import_theme_source(tmp_path))
 
-    raise RuntimeError("Import expects a theme folder or a .zip archive.")
+    raise RuntimeError("Import expects a theme folder, .theme package, or .zip archive.")
 
 
 def should_skip_export_path(path: Path) -> bool:
@@ -511,9 +555,9 @@ def resolve_export_destination(record: ThemeRecord, destination_text: str) -> Pa
     else:
         destination = Path(value).expanduser()
         if destination.exists() and destination.is_dir():
-            destination = destination / f"{record.name}.zip"
-        elif destination.suffix.casefold() != ".zip":
-            destination = destination.with_suffix(".zip")
+            destination = destination / f"{record.name}{PACKAGE_EXTENSION}"
+        elif destination.suffix.casefold() not in SUPPORTED_PACKAGE_EXTENSIONS:
+            destination = destination.with_suffix(PACKAGE_EXTENSION)
 
     if destination.exists():
         raise FileExistsError(f"Export already exists: {destination}")
@@ -539,13 +583,33 @@ def export_theme(record: ThemeRecord, destination_text: str = "") -> Path:
 
     try:
         with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            portable = destination.suffix.casefold() == PACKAGE_EXTENSION
+            if portable:
+                definition = (
+                    "manifest.json"
+                    if record.engine == "html"
+                    else (record.yaml_file.name if record.yaml_file is not None else "theme.yaml")
+                )
+                descriptor = ThemePackageDescriptor(
+                    name=record.name,
+                    engine=record.engine,
+                    definition=definition,
+                )
+                archive.writestr(PACKAGE_FILENAME, descriptor.as_json())
             for path in sorted(record.directory.rglob("*")):
                 if any(should_skip_export_path(parent) for parent in [path, *path.parents]):
                     continue
+                if path.is_symlink():
+                    raise RuntimeError(
+                        f"Theme cannot be exported with symbolic links: {path}"
+                    )
                 if path.is_dir():
                     continue
                 relative = path.relative_to(record.directory)
-                archive.write(path, Path(record.name) / relative)
+                if relative.as_posix() == PACKAGE_FILENAME:
+                    continue
+                archive_name = relative if portable else Path(record.name) / relative
+                archive.write(path, archive_name)
         os.replace(tmp_path, destination)
     except Exception:
         try:
@@ -964,14 +1028,14 @@ def show_delete_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm
 
 def show_import_theme_dialog(parent: Gtk.Widget, on_confirm: ImportThemeCallback) -> None:
     entry = Gtk.Entry()
-    entry.set_placeholder_text("/path/to/theme-folder or /path/to/theme.zip")
+    entry.set_placeholder_text("/path/to/theme.theme, theme.zip, or theme-folder")
     entry.set_activates_default(True)
     entry.set_margin_top(6)
     entry.set_margin_bottom(6)
 
     dialog = Adw.AlertDialog(
         heading="Import Theme",
-        body="Import a theme from a folder or .zip archive. Existing themes are never overwritten.",
+        body="Import a theme from a .theme package, folder, or legacy .zip archive. Existing themes are never overwritten.",
     )
     dialog.set_extra_child(entry)
     dialog.add_response("cancel", "Cancel")
@@ -991,14 +1055,14 @@ def show_import_theme_dialog(parent: Gtk.Widget, on_confirm: ImportThemeCallback
 def show_export_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm: ExportThemeCallback) -> None:
     entry = Gtk.Entry()
     entry.set_text(str(default_export_path(record.name)))
-    entry.set_placeholder_text("/path/to/theme.zip or /path/to/folder")
+    entry.set_placeholder_text("/path/to/theme.theme or /path/to/folder")
     entry.set_activates_default(True)
     entry.set_margin_top(6)
     entry.set_margin_bottom(6)
 
     dialog = Adw.AlertDialog(
         heading=f"Export {record.name}",
-        body="Export this theme as a .zip archive. Existing files are never overwritten.",
+        body="Export this theme as one portable .theme file. Existing files are never overwritten.",
     )
     dialog.set_extra_child(entry)
     dialog.add_response("cancel", "Cancel")
@@ -1258,7 +1322,7 @@ class ThemeGalleryPane(Gtk.Box):
         controls.append(self.search_entry)
 
         import_button = Gtk.Button(label="Import")
-        import_button.set_tooltip_text("Import a theme folder or .zip archive")
+        import_button.set_tooltip_text("Import a .theme package, folder, or legacy .zip archive")
         import_button.connect("clicked", lambda *_args: self.confirm_import_theme())
         controls.append(import_button)
 
