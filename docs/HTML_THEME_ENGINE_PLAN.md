@@ -3,17 +3,17 @@
 Branch: `feature/html-theme-engine`
 
 This branch introduces a second theme engine without replacing or mutating the
-existing YAML runtime. Hardware writes stay outside the experimental path until
-the simulator, security boundary, and frame pipeline have separate tests.
+existing YAML runtime. Physical support remains opt-in and is gated by manifest,
+media, protocol, and lifecycle validation.
 
 ## Safety rules
 
 1. Existing YAML themes remain the default and must render exactly as before.
-2. HTML themes initially run only in a developer simulator.
+2. HTML themes run only when explicitly selected in `renderer.engine`.
 3. The HTML engine receives JSON snapshots, never Python objects or shell access.
 4. Network requests are denied by default.
 5. Theme paths are confined to the selected theme directory.
-6. No display upload or serial operation is introduced before a later milestone.
+6. Automated tests never open the display serial port.
 7. Each milestone is one coherent commit and can be reverted independently.
 
 ## Milestones
@@ -47,6 +47,21 @@ pipeline that:
 - writes simulator-only inspection artifacts.
 
 This milestone still has no USB, serial, or physical display sink.
+
+### 5. Integrated bitmap renderer
+
+The monitor owns one renderer lifecycle and runs GTK/WebKit in a child process.
+The bitmap path keeps its validated limits of eight regions and 300,000 bytes
+per cycle and remains available as a diagnostic/fallback implementation.
+
+### 6. Compiled native video with HTML overlays
+
+An HTML theme may opt in with `nativeVideoOverlay`. Elements explicitly marked
+with `data-turing-overlay` remain live; every other element and CSS animation is
+compiled into a local H.264 480x480 video. Runtime WebKit renders only a
+transparent text/bar canvas and submits it through the existing native Rev. C
+video-overlay transaction. No network assets or implicit display upload are
+allowed.
 
 ## Testable prototype
 
@@ -105,6 +120,27 @@ python html-theme-preview-gtk.py \
   --snapshot /tmp/html-theme-preview.png
 ```
 
+Build the Material Expressive native background without accessing hardware:
+
+```bash
+python html-theme-build-video.py \
+  --theme res/themes/html-aio-material-expressive
+```
+
+Inspect only its transparent runtime layer and exit automatically:
+
+```bash
+python html-theme-preview-gtk.py \
+  --theme res/themes/html-aio-material-expressive \
+  --native-overlay \
+  --snapshot /tmp/html-aio-overlay.png \
+  --exit-after-snapshot
+```
+
+The generated MP4 must be synchronized explicitly to the exact `devicePath`
+from `manifest.json` before starting the physical renderer. The monitor never
+uploads or overwrites display media implicitly.
+
 Run the pure-Python regression suite:
 
 ```bash
@@ -121,11 +157,11 @@ The preview requires the GTK4 and WebKitGTK 6.0 GI namespaces. The core modules
 and their tests do not import GI, so machines without WebKitGTK can still run all
 non-visual validation.
 
-## Later work, intentionally not in this milestone
+## Later work
 
 - a simulated display sink that consumes RGB565 region payloads;
 - full-frame and dirty-region conversion for tested hardware profiles;
 - watchdog and frame-rate budgets;
 - gallery/editor integration;
 - import/export permission review;
-- compiled HTML-to-video mode.
+- visual authoring for HTML overlay markers and native-video settings.

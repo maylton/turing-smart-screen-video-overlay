@@ -24,6 +24,7 @@ from library.html_theme_engine import (
     WebKitGtkBackend,
     WebKitUnavailableError,
 )
+from library.html_hybrid import OVERLAY_SELECTOR, overlay_layer_script
 from library.real_sensor_source import RealSensorSource
 from library.sensor_snapshot import SensorSnapshotCollector
 from library.theme_engine import ThemeManifest, ThemeValidationError
@@ -72,6 +73,16 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--theme", type=Path, default=DEFAULT_THEME)
     parser.add_argument("--snapshot", type=Path)
+    parser.add_argument(
+        "--native-overlay",
+        action="store_true",
+        help="Render only data-turing-overlay elements on transparency.",
+    )
+    parser.add_argument(
+        "--exit-after-snapshot",
+        action="store_true",
+        help="Exit after --snapshot completes (diagnostic automation).",
+    )
     parser.add_argument("--check", action="store_true")
     parser.add_argument(
         "--real-sensors",
@@ -114,6 +125,12 @@ def validate(args):
         raise ThemeValidationError("--frame-interval must be greater than zero")
     if not 0 <= args.frame_threshold <= 255:
         raise ThemeValidationError("--frame-threshold must be between 0 and 255")
+    if args.exit_after_snapshot and not args.snapshot:
+        raise ThemeValidationError("--exit-after-snapshot requires --snapshot")
+    if args.native_overlay and manifest.native_video_overlay is None:
+        raise ThemeValidationError(
+            "--native-overlay requires a nativeVideoOverlay theme"
+        )
     return manifest
 
 
@@ -282,6 +299,9 @@ def run_preview(manifest, args):
                 self.window.present()
                 return
             engine.load(manifest)
+            if args.native_overlay:
+                engine.set_transparent_background()
+                engine.evaluate(overlay_layer_script(OVERLAY_SELECTOR))
             self.window = Gtk.ApplicationWindow(application=self)
             self.window.set_title(
                 f"HTML Theme Preview — {manifest.name} — {source_name}"
@@ -320,6 +340,9 @@ def run_preview(manifest, args):
                                 print(
                                     f"Snapshot written to {args.snapshot}"
                                 )
+                            if args.exit_after_snapshot:
+                                self._begin_close()
+                                self.quit()
 
                         engine.snapshot_png(args.snapshot, finished)
                         return False

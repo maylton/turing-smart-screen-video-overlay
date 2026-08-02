@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import json
+import threading
 import unittest
 
 from library.renderer_lifecycle import (
@@ -77,6 +78,42 @@ class RendererLifecycleTests(unittest.TestCase):
             controller.start(selection)
         self.assertEqual(events, ["start", "stop"])
         self.assertFalse(controller.state.running)
+
+    def test_wait_survives_renderer_reload(self):
+        runners = []
+
+        class BlockingRunner(FakeRunner):
+            def __init__(self):
+                super().__init__([])
+                self.released = threading.Event()
+
+            def stop(self):
+                self.released.set()
+
+            def wait(self):
+                self.released.wait(timeout=2)
+                return 0
+
+        def factory(_selection):
+            runner = BlockingRunner()
+            runners.append(runner)
+            return runner
+
+        controller = RendererController({"yaml": factory})
+        selection = select_renderer({"config": {"THEME": "x"}}, Path("/unused"))
+        controller.start(selection)
+        result = []
+        waiter = threading.Thread(target=lambda: result.append(controller.wait()))
+        waiter.start()
+
+        controller.reload(selection)
+        self.assertTrue(waiter.is_alive())
+        self.assertEqual(len(runners), 2)
+
+        controller.stop()
+        waiter.join(timeout=2)
+        self.assertFalse(waiter.is_alive())
+        self.assertEqual(result, [0])
 
 
 if __name__ == "__main__":

@@ -138,6 +138,9 @@ class VideoProbe:
     duration: float | None
     container: str | None
     has_audio: bool
+    profile: str | None
+    level: int | None
+    has_b_frames: int | None
     compatible: bool
     issues: tuple[str, ...]
 
@@ -171,6 +174,9 @@ def evaluate_probe(path: Path, payload: dict[str, Any]) -> VideoProbe:
     width = video_stream.get("width")
     height = video_stream.get("height")
     pixel_format = video_stream.get("pix_fmt")
+    profile = video_stream.get("profile")
+    level = video_stream.get("level")
+    has_b_frames = video_stream.get("has_b_frames")
     fps = parse_rate(
         video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")
     )
@@ -206,6 +212,11 @@ def evaluate_probe(path: Path, payload: dict[str, Any]) -> VideoProbe:
             else None
         ),
         has_audio=audio_stream is not None,
+        profile=str(profile) if profile is not None else None,
+        level=int(level) if isinstance(level, int) else None,
+        has_b_frames=(
+            int(has_b_frames) if isinstance(has_b_frames, int) else None
+        ),
         compatible=not issues,
         issues=tuple(issues),
     )
@@ -230,7 +241,7 @@ def probe_video(path: Path) -> VideoProbe:
             "-show_entries",
             (
                 "stream=codec_type,codec_name,width,height,pix_fmt,"
-                "avg_frame_rate,r_frame_rate,duration:"
+                "avg_frame_rate,r_frame_rate,duration,profile,level,has_b_frames:"
                 "format=format_name,duration"
             ),
             "-of",

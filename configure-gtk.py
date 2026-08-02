@@ -510,6 +510,23 @@ def install_runtime_patches(app):
         raise RuntimeError("video_manager.py did not return a JSON payload")
 
     def read_theme_video_config_from_record(record: ThemeRecord) -> dict:
+        if record.engine == "html":
+            from library.html_hybrid import validate_native_video
+            from library.theme_engine import ThemeManifest
+
+            manifest = ThemeManifest.load(record.directory)
+            spec = manifest.native_video_overlay
+            if spec is None:
+                return {}
+            validate_native_video(manifest)
+            return {
+                "theme": record.name,
+                "local": spec.local_file(manifest.root),
+                "remote": spec.device_path,
+                "filename": Path(spec.device_path).name,
+                "internal": spec.device_path.startswith("/root/video/"),
+            }
+
         if record.yaml_file is None or not record.yaml_file.is_file():
             raise RuntimeError(f"{record.name} has no theme.yaml/theme.yml")
 

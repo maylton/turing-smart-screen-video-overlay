@@ -55,6 +55,10 @@ class HtmlWorkerRunner:
     def start(self) -> None:
         if self.selection.manifest is None:
             raise RuntimeError("HTML worker requires a validated manifest")
+        if self.selection.manifest.native_video_overlay is not None:
+            from library.html_hybrid import validate_native_video
+
+            validate_native_video(self.selection.manifest)
         env = os.environ.copy()
         env.setdefault("GSK_RENDERER", "gl")
         env.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
@@ -90,4 +94,3 @@ class HtmlWorkerRunner:
         if self.process is None:
             return 0
         return int(self.process.wait())
-

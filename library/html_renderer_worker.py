@@ -14,6 +14,13 @@ import yaml
 from library.budgeted_frame_planner import BudgetedFramePlanner
 from library.frame_pipeline import FramePipeline, decode_png_frame, write_frame_artifacts
 from library.html_theme_engine import HtmlThemeEngine, WebKitGtkBackend
+from library.html_hybrid import (
+    OVERLAY_SELECTOR,
+    overlay_frames_equal,
+    overlay_layer_script,
+    validate_native_video,
+)
+from library.html_native_video_sink import HtmlNativeVideoSink
 from library.real_sensor_source import RealSensorSource
 from library.rev_c_integrated_sink import (
     MAX_REGIONS_PER_CYCLE,
@@ -28,6 +35,44 @@ from library.theme_engine import ThemeManifest, ThemeValidationError
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUPPORTED_NATIVE_VIDEO_SIZES = {'2.1"', '2.8"'}
+
+
+def schedule_once(glib, delay_ms, callback, source_ids) -> int:
+    """Schedule a GTK callback once, even when the callback returns True."""
+    holder = {}
+
+    def invoke():
+        source_ids.discard(holder.get("source_id"))
+        callback()
+        return False
+
+    source_id = glib.timeout_add(delay_ms, invoke)
+    holder["source_id"] = source_id
+    source_ids.add(source_id)
+    return source_id
+
+
+def configured_display_size(config: dict, root: Path = ROOT) -> str:
+    """Use the preserved YAML theme as the Rev. C physical-size safety hint."""
+    legacy = config.get("config", {})
+    legacy = legacy if isinstance(legacy, dict) else {}
+    theme_name = str(legacy.get("THEME") or "").strip()
+    themes_root = (Path(root) / "res" / "themes").resolve()
+    theme_dir = (themes_root / theme_name).resolve()
+    try:
+        theme_dir.relative_to(themes_root)
+    except ValueError:
+        return ""
+    theme_file = theme_dir / "theme.yaml"
+    try:
+        payload = yaml.safe_load(theme_file.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return ""
+    display = payload.get("display", {})
+    if not isinstance(display, dict):
+        return ""
+    return str(display.get("DISPLAY_SIZE") or "").strip()
 
 
 def _args(argv):
@@ -65,6 +110,18 @@ def run(theme: Path) -> int:
         raise ThemeValidationError("integrated HTML transport currently supports Rev. C only")
     port = str(config.get("config", {}).get("COM_PORT") or "AUTO")
     network_interface = str(config.get("config", {}).get("ETH") or "")
+    brightness = int(display.get("BRIGHTNESS", 20))
+    hybrid_spec = manifest.native_video_overlay
+    if hybrid_spec is not None:
+        display_size = configured_display_size(config)
+        if display_size not in SUPPORTED_NATIVE_VIDEO_SIZES:
+            raise ThemeValidationError(
+                "native HTML video currently requires a configured Rev. C "
+                "2.1/2.8-inch display hint"
+            )
+        # Local codec/size/profile validation happens before the driver factory
+        # can construct LcdCommRevC (whose constructor opens serial).
+        validate_native_video(manifest)
 
     import gi
     gi.require_version("Gtk", "4.0")
@@ -73,8 +130,14 @@ def run(theme: Path) -> int:
 
     collector = SensorSnapshotCollector(RealSensorSource(network_interface=network_interface).readers())
     engine = _safe_engine(WebKit)
-    transport_engine = SimulatedDisplayTransport(get_transport_profile("rev-c-2inch"))
-    protocol_engine = RevCProtocolSimulator(display_stride=480)
+    transport_engine = (
+        None
+        if hybrid_spec is not None
+        else SimulatedDisplayTransport(get_transport_profile("rev-c-2inch"))
+    )
+    protocol_engine = (
+        None if hybrid_spec is not None else RevCProtocolSimulator(display_stride=480)
+    )
     diagnostic_dir = os.environ.get("TURING_HTML_FRAME_ARTIFACTS", "").strip()
 
     class Worker(Gtk.Application):
@@ -86,6 +149,8 @@ def run(theme: Path) -> int:
             self.capture_busy = False
             self.closing = False
             self.source_ids = set()
+            self.last_overlay = None
+            self.diagnostic_pipeline = FramePipeline(pixel_threshold=4)
 
         def stop(self, *_args):
             if self.closing:
@@ -118,7 +183,29 @@ def run(theme: Path) -> int:
                     return
                 try:
                     frame = decode_png_frame(payload, (480, 480))
-                    if self.sink is None:
+                    if hybrid_spec is not None:
+                        if self.sink is not None:
+                            self.sink.check_health()
+                        if (
+                            self.last_overlay is not None
+                            and overlay_frames_equal(self.last_overlay, frame)
+                        ):
+                            return
+                        if self.sink is None:
+                            self.sink = HtmlNativeVideoSink(
+                                frame,
+                                hybrid_spec,
+                                port=port,
+                                brightness=brightness,
+                                refresh_interval=1.0 / manifest.refresh_rate,
+                            )
+                        else:
+                            self.sink.submit(frame)
+                        self.last_overlay = frame.copy()
+                        if diagnostic_dir:
+                            analysis = self.diagnostic_pipeline.process(frame)
+                            write_frame_artifacts(Path(diagnostic_dir), frame, analysis)
+                    elif self.sink is None:
                         pipeline = FramePipeline(pixel_threshold=0)
                         analysis = pipeline.process(frame)
                         transport = transport_engine.submit(frame, analysis)
@@ -142,7 +229,7 @@ def run(theme: Path) -> int:
                         parity = compare_with_production_driver(frame, transport, protocol)
                         self.sink.submit(frame, transport, protocol, parity)
                         self.planner.commit(frame, plan)
-                    if diagnostic_dir:
+                    if diagnostic_dir and hybrid_spec is None:
                         write_frame_artifacts(Path(diagnostic_dir), frame, plan.analysis if self.planner and 'plan' in locals() else analysis)
                 except Exception as exc:
                     print(f"HTML renderer stopped safely: {exc}", file=sys.stderr, flush=True)
@@ -150,6 +237,34 @@ def run(theme: Path) -> int:
 
             engine.snapshot_png_bytes(finished)
             return True
+
+        def update_and_capture(self):
+            if self.closing or self.capture_busy:
+                return not self.closing
+
+            def updated(error):
+                if self.closing:
+                    return
+                if error is not None:
+                    print(f"HTML update failed: {error}", file=sys.stderr, flush=True)
+                    self.stop()
+                    return
+                # Wait one paint turn after JavaScript has completed before
+                # asking WebKit for a texture.
+                schedule_once(GLib, 12, self.capture, self.source_ids)
+
+            engine.update_async(collector.collect(), updated)
+            return True
+
+        def start_updates(self, error=None):
+            if error is not None:
+                print(f"HTML layer configuration failed: {error}", file=sys.stderr, flush=True)
+                self.stop()
+                return
+            interval = max(500, int(round(1000 / manifest.refresh_rate)))
+            self.update_and_capture()
+            source_id = GLib.timeout_add(interval, self.update_and_capture)
+            self.source_ids.add(source_id)
 
         def do_activate(self):
             engine.load(manifest)
@@ -159,19 +274,16 @@ def run(theme: Path) -> int:
             self.window.set_child(engine.render())
             self.window.connect("close-request", self.stop)
             self.window.present()
-            engine.update(collector.collect())
-            interval = max(500, int(round(1000 / manifest.refresh_rate)))
-
-            def tick():
-                if self.closing: return False
-                engine.update(collector.collect())
-                return self.capture()
-            source_id = GLib.timeout_add(interval, tick)
-            self.source_ids.add(source_id)
-            def first_capture():
-                self.capture()
-                return False
-            self.source_ids.add(GLib.timeout_add(1200, first_capture))
+            if hybrid_spec is not None:
+                engine.set_transparent_background()
+                engine.evaluate(
+                    overlay_layer_script(OVERLAY_SELECTOR),
+                    self.start_updates,
+                )
+            else:
+                # evaluate() queues until LOAD_FINISHED, replacing the old
+                # fixed 1.2-second startup sleep with an explicit barrier.
+                engine.evaluate("true", self.start_updates)
             if hasattr(GLib, "unix_signal_add"):
                 for signum in (signal.SIGINT, signal.SIGTERM):
                     self.source_ids.add(GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self.stop))

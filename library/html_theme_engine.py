@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sandboxed HTML theme engine used by the developer simulator.
+"""Sandboxed, transport-agnostic HTML engine for preview and worker runtimes.
 
-The current milestones intentionally render only inside WebKitGTK. They never
-import or call display transports. Physical frame upload belongs to a later,
-separately reviewed stage.
+This module renders only inside WebKitGTK and never imports a display transport.
+The integrated worker owns the separately validated physical sink.
 """
 
 from __future__ import annotations
@@ -133,7 +132,9 @@ class WebKitGtkBackend:
     def __init__(self, manifest: ThemeManifest) -> None:
         self.manifest = manifest
         self._loaded = False
-        self._pending_script: Optional[str] = None
+        self._pending_scripts: list[
+            tuple[str, Optional[Callable[[Optional[Exception]], None]]]
+        ] = []
         self._load_gi()
         self.view = self.WebKit.WebView()
         settings = self.view.get_settings()
@@ -164,12 +165,13 @@ class WebKitGtkBackend:
 
             gi.require_version("Gtk", "4.0")
             gi.require_version("WebKit", "6.0")
-            from gi.repository import GLib, Gtk, WebKit
+            from gi.repository import Gdk, GLib, Gtk, WebKit
         except Exception as exc:
             raise WebKitUnavailableError(
                 "WebKitGTK 6.0 GI bindings are required for HTML theme preview"
             ) from exc
         self.GLib = GLib
+        self.Gdk = Gdk
         self.Gtk = Gtk
         self.WebKit = WebKit
 
@@ -207,32 +209,79 @@ class WebKitGtkBackend:
         if finished is not None and event != finished:
             return
         self._loaded = True
-        if self._pending_script:
-            script = self._pending_script
-            self._pending_script = None
-            self.evaluate(script)
+        pending, self._pending_scripts = self._pending_scripts, []
+        for script, callback in pending:
+            self.evaluate(script, callback)
 
     def load(self) -> None:
         self.view.load_uri(self.manifest.entrypoint_path.as_uri())
 
-    def evaluate(self, script: str) -> None:
+    def evaluate(
+        self,
+        script: str,
+        callback: Optional[Callable[[Optional[Exception]], None]] = None,
+    ) -> None:
         if not self._loaded:
-            self._pending_script = script
+            self._pending_scripts.append((script, callback))
             return
 
         evaluator = getattr(self.view, "evaluate_javascript", None)
         if callable(evaluator):
+            def evaluated(view: Any, result: Any, _user_data: Any = None) -> None:
+                error = None
+                try:
+                    finisher = getattr(view, "evaluate_javascript_finish", None)
+                    if callable(finisher):
+                        finisher(result)
+                except Exception as exc:
+                    error = exc
+                if callback:
+                    callback(error)
+
             try:
-                evaluator(script, -1, None, None, None, None, None)
+                evaluator(
+                    script,
+                    -1,
+                    None,
+                    None,
+                    None,
+                    evaluated if callback else None,
+                    None,
+                )
             except TypeError:
-                evaluator(script, -1, None, None, None, None)
+                evaluator(
+                    script,
+                    -1,
+                    None,
+                    None,
+                    None,
+                    evaluated if callback else None,
+                )
             return
 
         runner = getattr(self.view, "run_javascript", None)
         if callable(runner):
-            runner(script, None, None, None)
+            def ran(view: Any, result: Any, _user_data: Any = None) -> None:
+                error = None
+                try:
+                    finisher = getattr(view, "run_javascript_finish", None)
+                    if callable(finisher):
+                        finisher(result)
+                except Exception as exc:
+                    error = exc
+                if callback:
+                    callback(error)
+
+            runner(script, None, ran if callback else None, None)
             return
         raise ThemeEngineError("WebKit view has no JavaScript evaluation API")
+
+    def set_transparent_background(self) -> None:
+        setter = getattr(self.view, "set_background_color", None)
+        if callable(setter):
+            color = self.Gdk.RGBA()
+            color.red = color.green = color.blue = color.alpha = 0.0
+            setter(color)
 
     def _request_snapshot(
         self,
@@ -321,7 +370,7 @@ BackendFactory = Callable[[ThemeManifest], Any]
 
 
 class HtmlThemeEngine(ThemeEngine):
-    """Experimental HTML engine restricted to the simulator in this milestone."""
+    """Experimental local-only HTML engine shared by preview and runtime."""
 
     def __init__(
         self,
@@ -368,6 +417,42 @@ class HtmlThemeEngine(ThemeEngine):
         scheduled = self._scheduler.apply(snapshot)
         self._last_snapshot = scheduled
         self._backend.evaluate(build_snapshot_script(scheduled))
+
+    def update_async(
+        self,
+        snapshot: SensorSnapshot,
+        callback: Callable[[Optional[Exception]], None],
+    ) -> None:
+        if self._backend is None or self._scheduler is None:
+            raise ThemeEngineError("HTML theme has not been loaded")
+        scheduled = self._scheduler.apply(snapshot)
+        self._last_snapshot = scheduled
+        try:
+            self._backend.evaluate(build_snapshot_script(scheduled), callback)
+        except TypeError:
+            self._backend.evaluate(build_snapshot_script(scheduled))
+            callback(None)
+
+    def evaluate(
+        self,
+        script: str,
+        callback: Optional[Callable[[Optional[Exception]], None]] = None,
+    ) -> None:
+        if self._backend is None:
+            raise ThemeEngineError("HTML theme has not been loaded")
+        try:
+            self._backend.evaluate(script, callback)
+        except TypeError:
+            self._backend.evaluate(script)
+            if callback:
+                callback(None)
+
+    def set_transparent_background(self) -> None:
+        if self._backend is None:
+            raise ThemeEngineError("HTML theme has not been loaded")
+        setter = getattr(self._backend, "set_transparent_background", None)
+        if callable(setter):
+            setter()
 
     def render(self) -> Any:
         if self._backend is None:

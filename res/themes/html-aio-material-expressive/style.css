@@ -270,12 +270,14 @@ body { background: #050608; color: var(--on-surface); }
 .cooling-heading {
   display: flex;
   align-items: center;
+  width: 118px;
   gap: 6px;
   color: var(--liquid);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .15em;
 }
+.cooling-heading span { white-space: nowrap; }
 .fan-icon {
   width: 21px;
   height: 21px;

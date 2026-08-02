@@ -10,6 +10,14 @@
   "entrypoint": "index.html",
   "permissions": ["sensors"],
   "network": false,
+  "nativeVideoOverlay": {
+    "enabled": true,
+    "localPath": "html-aio-material-expressive.mp4",
+    "devicePath": "/mnt/SDCARD/video/html-aio-material-expressive.mp4",
+    "fps": 24,
+    "duration": 8,
+    "backgroundFrame": 0
+  },
   "dataUpdateIntervals": {
     "default": 5,
     "$sequence": 5,

@@ -24,13 +24,13 @@
               </svg>
               CPU
             </span>
-            <strong class="load-value cpu-accent" id="cpu-load">--%</strong>
+            <strong class="load-value cpu-accent" id="cpu-load" data-turing-overlay>--%</strong>
           </header>
-          <div class="temperature-row">
+          <div class="temperature-row" data-turing-overlay>
             <strong id="cpu-temp">--</strong><span>°C</span>
           </div>
           <div class="progress-track" aria-hidden="true">
-            <i class="progress-fill fill-cpu" id="cpu-bar"></i>
+            <i class="progress-fill fill-cpu" id="cpu-bar" data-turing-overlay></i>
           </div>
         </article>
 
@@ -45,13 +45,13 @@
               </svg>
               GPU
             </span>
-            <strong class="load-value gpu-accent" id="gpu-load">--%</strong>
+            <strong class="load-value gpu-accent" id="gpu-load" data-turing-overlay>--%</strong>
           </header>
-          <div class="temperature-row">
+          <div class="temperature-row" data-turing-overlay>
             <strong id="gpu-temp">--</strong><span>°C</span>
           </div>
           <div class="progress-track" aria-hidden="true">
-            <i class="progress-fill fill-gpu" id="gpu-bar"></i>
+            <i class="progress-fill fill-gpu" id="gpu-bar" data-turing-overlay></i>
           </div>
         </article>
       </section>
@@ -62,11 +62,11 @@
           <div class="blob"></div>
         </div>
         <div class="liquid-data">
-          <span class="liquid-label" id="liquid-label">LIQUID</span>
-          <div class="liquid-value-row">
+          <span class="liquid-label" id="liquid-label" data-turing-overlay>LIQUID</span>
+          <div class="liquid-value-row" data-turing-overlay>
             <strong id="liquid-temp">--</strong><span>°</span>
           </div>
-          <small id="liquid-status">NO SENSOR</small>
+          <small id="liquid-status" data-turing-overlay>NO SENSOR</small>
         </div>
       </section>
 
@@ -80,7 +80,7 @@
           </span>
           <div class="memory-copy">
             <span>MEMORY</span>
-            <strong id="ram-usage">-- GB</strong>
+            <strong id="ram-usage" data-turing-overlay>-- GB</strong>
           </div>
         </article>
 
@@ -90,11 +90,11 @@
               <circle cx="12" cy="12" r="2.2"></circle>
               <path d="M12 3c3 0 4.8 2 3.8 4.2C14.8 9.4 12 10 12 10S9.2 8.3 9.5 6C9.8 4 10.5 3 12 3zM21 12c0 3-2 4.8-4.2 3.8C14.6 14.8 14 12 14 12s1.7-2.8 4-2.5C20 9.8 21 10.5 21 12zM12 21c-3 0-4.8-2-3.8-4.2C9.2 14.6 12 14 12 14s2.8 1.7 2.5 4C14.2 20 13.5 21 12 21zM3 12c0-3 2-4.8 4.2-3.8C9.4 9.2 10 12 10 12s-1.7 2.8-4 2.5C4 14.2 3 13.5 3 12z"></path>
             </svg>
-            <span id="cooling-label">PUMP</span>
+            <span id="cooling-label" data-turing-overlay>PUMP</span>
           </div>
           <div class="cooling-value-row">
-            <strong id="pump-value">--</strong>
-            <span id="pump-unit">RPM</span>
+            <strong id="pump-value" data-turing-overlay>--</strong>
+            <span id="pump-unit" data-turing-overlay>RPM</span>
           </div>
         </article>
       </section>

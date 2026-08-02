@@ -53,6 +53,8 @@ class ThemeRecord:
     engine: str = "yaml"
     resolution: tuple[int, int] | None = None
     permissions: tuple[str, ...] = ()
+    native_video_local: str = ""
+    native_video_device: str = ""
 
     @property
     def editable(self) -> bool:
@@ -445,6 +447,8 @@ def discover_themes(
         engine = "yaml"
         resolution = None
         permissions = ()
+        native_video_local = ""
+        native_video_device = ""
         manifest_issue = None
         if (theme_dir / "manifest.json").is_file():
             try:
@@ -452,6 +456,9 @@ def discover_themes(
                 engine = manifest.engine
                 resolution = (manifest.width, manifest.height)
                 permissions = manifest.permissions
+                if manifest.native_video_overlay is not None:
+                    native_video_local = manifest.native_video_overlay.local_path
+                    native_video_device = manifest.native_video_overlay.device_path
             except ThemeValidationError as exc:
                 manifest_issue = f"Invalid manifest: {exc}"
 
@@ -478,6 +485,8 @@ def discover_themes(
                 engine=engine,
                 resolution=resolution,
                 permissions=permissions,
+                native_video_local=native_video_local,
+                native_video_device=native_video_device,
             )
         )
 
@@ -1101,7 +1110,10 @@ class ThemeGalleryPane(Gtk.Box):
 
         if self.on_sync_theme_video is not None:
             sync_button = Gtk.Button(label="Sync video")
-            sync_button.set_sensitive(record.editable)
+            sync_button.set_sensitive(
+                record.editable
+                or bool(record.native_video_local and record.native_video_device)
+            )
             sync_button.set_tooltip_text("Sync this theme video to the display")
             sync_button.connect("clicked", lambda *_args: self.on_sync_theme_video(record))
             primary_actions.append(sync_button)

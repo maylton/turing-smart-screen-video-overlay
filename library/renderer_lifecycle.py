@@ -8,6 +8,7 @@ created.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Protocol
@@ -95,11 +96,15 @@ class RendererController:
     def __init__(self, factories: Mapping[str, RunnerFactory]) -> None:
         self._factories = dict(factories)
         self._runner: Optional[RendererRunner] = None
+        self._condition = threading.Condition()
+        self._generation = 0
+        self._replacement_in_progress = False
         self.state = RendererState()
 
     def start(self, selection: RendererSelection) -> RendererState:
-        if self._runner is not None:
-            raise RuntimeError("a renderer is already active")
+        with self._condition:
+            if self._runner is not None:
+                raise RuntimeError("a renderer is already active")
         factory = self._factories.get(selection.engine)
         if factory is None:
             raise RuntimeError(f"no runner is registered for {selection.engine}")
@@ -110,31 +115,53 @@ class RendererController:
             try:
                 runner.stop()
             finally:
-                self.state = RendererState(
-                    engine=selection.engine,
-                    theme=selection.theme,
-                    error=str(exc),
-                )
+                with self._condition:
+                    self.state = RendererState(
+                        engine=selection.engine,
+                        theme=selection.theme,
+                        error=str(exc),
+                    )
+                    self._condition.notify_all()
             raise
-        self._runner = runner
-        self.state = RendererState(selection.engine, selection.theme, True, "")
-        return self.state
+        with self._condition:
+            self._runner = runner
+            self._generation += 1
+            self.state = RendererState(selection.engine, selection.theme, True, "")
+            self._condition.notify_all()
+            return self.state
 
     def stop(self) -> RendererState:
-        runner, self._runner = self._runner, None
+        with self._condition:
+            runner, self._runner = self._runner, None
+            self._generation += 1
+            self.state = RendererState()
+            self._condition.notify_all()
         if runner is not None:
-            try:
-                runner.stop()
-            finally:
-                self.state = RendererState()
+            runner.stop()
         return self.state
 
     def reload(self, selection: RendererSelection) -> RendererState:
-        self.stop()
-        return self.start(selection)
+        with self._condition:
+            self._replacement_in_progress = True
+            self._condition.notify_all()
+        try:
+            self.stop()
+            return self.start(selection)
+        finally:
+            with self._condition:
+                self._replacement_in_progress = False
+                self._condition.notify_all()
 
     def wait(self) -> int:
-        if self._runner is None:
-            return 0
-        return int(self._runner.wait())
-
+        while True:
+            with self._condition:
+                while self._runner is None and self._replacement_in_progress:
+                    self._condition.wait()
+                runner = self._runner
+                generation = self._generation
+                if runner is None:
+                    return 0
+            result = int(runner.wait())
+            with self._condition:
+                if self._runner is runner and self._generation == generation:
+                    return result

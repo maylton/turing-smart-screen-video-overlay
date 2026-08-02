@@ -1,11 +1,13 @@
 (() => {
   const clampPercent = value => {
+    if (value === null || value === undefined || value === '') return null;
     const number = Number(value);
     return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : null;
   };
 
   const finite = (...values) => {
     for (const value of values) {
+      if (value === null || value === undefined || value === '') continue;
       const number = Number(value);
       if (Number.isFinite(number)) return number;
     }
@@ -24,6 +26,12 @@
 
   const showTemperature = (id, value) => {
     text(id, value === null ? '--' : String(Math.round(value)));
+  };
+
+  const setFanPaused = paused => {
+    if (document.documentElement.dataset.turingRenderMode === 'overlay') return;
+    const fanIcon = document.getElementById('fan-icon');
+    if (fanIcon) fanIcon.classList.toggle('paused', paused);
   };
 
   const updatePrimaryTemperature = (cpu, cooling) => {
@@ -49,13 +57,12 @@
   const updateCoolingSpeed = (gpu, cooling) => {
     const pumpRpm = finite(cooling.pumpRpm, cooling.pumpRPM, cooling.rpm);
     const gpuFan = finite(gpu.fan);
-    const fanIcon = document.getElementById('fan-icon');
 
     if (pumpRpm !== null) {
       text('cooling-label', 'PUMP');
       text('pump-value', String(Math.round(pumpRpm)));
       text('pump-unit', 'RPM');
-      if (fanIcon) fanIcon.classList.remove('paused');
+      setFanPaused(false);
       return;
     }
 
@@ -63,14 +70,14 @@
       text('cooling-label', 'GPU FAN');
       text('pump-value', String(Math.round(gpuFan)));
       text('pump-unit', '%');
-      if (fanIcon) fanIcon.classList.remove('paused');
+      setFanPaused(false);
       return;
     }
 
     text('cooling-label', 'COOLING');
     text('pump-value', '--');
     text('pump-unit', '');
-    if (fanIcon) fanIcon.classList.add('paused');
+    setFanPaused(true);
   };
 
   window.TuringTheme = {

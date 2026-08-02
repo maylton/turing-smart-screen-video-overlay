@@ -148,6 +148,7 @@ class LcdCommRevC(LcdComm):
         self._video_overlay_event = threading.Event()
         self._video_overlay_stop = threading.Event()
         self._video_overlay_thread = None
+        self.video_overlay_error = None
         self._video_overlay_min_interval = 1.0
         self._video_overlay_debounce = 0.20
         self._video_overlay_last_sent = 0.0
@@ -231,7 +232,7 @@ class LcdCommRevC(LcdComm):
         if not self.update_queue or bypass_queue:
             self.WriteData(message)
             if readsize:
-                self.ReadData(readsize)
+                return self.ReadData(readsize)
         else:
             # Lock queue mutex then queue the request
             self.update_queue.put((self.WriteData, [message]))
@@ -397,6 +398,7 @@ class LcdCommRevC(LcdComm):
             raise RuntimeError("Previous video overlay worker is still running")
 
         self.video_overlay_enabled = True
+        self.video_overlay_error = None
         self.video_overlay_path = path
         self.video_overlay_saved_orientation = self.orientation
         self._video_overlay_min_interval = max(0.25, float(refresh_interval))
@@ -466,6 +468,10 @@ class LcdCommRevC(LcdComm):
         No serial command is queued here. Sensor callbacks return quickly, and
         intermediate clock/sensor states are naturally replaced by newer ones.
         """
+        if self.video_overlay_error is not None:
+            raise RuntimeError(
+                f"Native video overlay transport failed: {self.video_overlay_error}"
+            ) from self.video_overlay_error
         if not self.video_overlay_enabled:
             return
 
@@ -575,6 +581,9 @@ class LcdCommRevC(LcdComm):
         payload += self._pad_to_250(d0_header)
         payload += visible_chunked
 
+        # Rev. C ROMs may acknowledge D0 with zero bytes even after applying
+        # the visibility map successfully. Keep the read to drain any optional
+        # reply, but do not treat an empty reply as a transport failure.
         self._send_command(
             Command.SEND_PAYLOAD,
             payload=payload,
@@ -586,12 +595,20 @@ class LcdCommRevC(LcdComm):
         # Official TURZX sends CF after D0.
         cf_command = bytearray((0xCF, 0xEF, 0x69, 0x00, 0x00, 0x00, 0x01))
 
+        # CF acknowledgements are optional on the same ROMs as D0 replies.
         self._send_command(
             Command.SEND_PAYLOAD,
             payload=self._pad_to_250(cf_command),
             bypass_queue=True,
             readsize=1024,
         )
+
+    @staticmethod
+    def _require_video_overlay_status(response, operation: str):
+        if response is None or len(response) < 1:
+            raise RuntimeError(
+                f"Native video overlay {operation} returned an empty status"
+            )
 
     def _start_video_overlay_worker(self):
         self._video_overlay_stop.clear()
@@ -673,13 +690,12 @@ class LcdCommRevC(LcdComm):
                     "Video overlay latest frame sent in %.2fs",
                     self._video_overlay_last_sent - started,
                 )
-            except Exception:
+            except Exception as exc:
                 logger.exception("Failed to send native video overlay frame")
-                with self._video_overlay_lock:
-                    if self.video_overlay_enabled:
-                        self._video_overlay_dirty = True
+                self.video_overlay_error = exc
+                self._video_overlay_stop.set()
                 self._video_overlay_event.set()
-                self._video_overlay_stop.wait(1.0)
+                break
 
     def _send_full_video_overlay(self, image: Image.Image):
         """Send one proven CA + bitmap + D0 + CF overlay transaction."""
@@ -710,12 +726,13 @@ class LcdCommRevC(LcdComm):
                     payload=video_overlay_cmd,
                     bypass_queue=True,
                 )
-                self._send_command(
+                response = self._send_command(
                     Command.SEND_PAYLOAD,
                     payload=bytearray(self._generate_full_image(image)),
                     bypass_queue=True,
                     readsize=1024,
                 )
+                self._require_video_overlay_status(response, "bitmap payload")
 
                 self._send_video_visible_pixels(image)
                 self._apply_video_overlay()
