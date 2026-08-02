@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from library.html_theme_authoring import discover_overlay_candidates
 from library.runtime_python import (
     DOM_INSPECT_HANDLER,
     _decode_javascript_json,
@@ -19,6 +20,7 @@ from library.runtime_python import (
     _script_message_text,
     resolve_project_python,
 )
+from library.theme_engine import ThemeManifest
 
 
 class FakeJavascriptValue:
@@ -52,15 +54,35 @@ class RuntimePythonTests(unittest.TestCase):
 
     def test_dom_inspection_uses_native_script_message_transport(self):
         script = _dom_inspection_script(["clock", "cpu-card"])
-        self.assertIn(
-            f"window.webkit.messageHandlers", script
-        )
+        self.assertIn("window.webkit.messageHandlers", script)
         self.assertIn(f"handlers.{DOM_INSPECT_HANDLER}", script)
         self.assertIn("postMessage(JSON.stringify(message))", script)
         self.assertIn('"clock"', script)
         self.assertIn('"cpu-card"', script)
         self.assertNotIn("document.title", script)
         self.assertNotIn("evaluate_javascript_finish", script)
+
+    def test_dom_inspection_is_single_flight(self):
+        class FakeWindow:
+            _turing_dom_request_in_flight = True
+
+        window = FakeWindow()
+        self.assertFalse(_query_dom_styles_message_bridge(window))
+
+    def test_cosmic_portal_exposes_three_editable_overlays(self):
+        root = (
+            Path(__file__).resolve().parents[1]
+            / "res"
+            / "themes"
+            / "html-cosmic-portal-clock"
+        )
+        manifest = ThemeManifest.load(root)
+        overlays = [
+            candidate.element_id
+            for candidate in discover_overlay_candidates(manifest)
+            if candidate.marked
+        ]
+        self.assertEqual(overlays, ["date-card", "clock", "cpu-card"])
 
     def test_reads_direct_jsc_script_message(self):
         value = FakeJavascriptValue('{"payload":[]}')
