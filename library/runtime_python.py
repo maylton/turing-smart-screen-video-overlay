@@ -23,7 +23,7 @@ def _install_html_editor_background_extension() -> None:
     if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
         return
     try:
-        from library.html_theme_background_editor import install_background_editor_hook
+        from library.html_theme_background_compat import install_background_editor_hook
 
         install_background_editor_hook()
     except Exception as exc:
