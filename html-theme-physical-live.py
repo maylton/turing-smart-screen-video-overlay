@@ -13,8 +13,8 @@ from typing import Optional, Tuple
 
 from PIL import Image
 
-from library.dirty_region_optimizer import optimize_frame_analysis
 from library.atomic_regions import AtomicRegion
+from library.dirty_region_optimizer import optimize_frame_analysis
 from library.frame_pipeline import FramePipeline
 from library.rev_c_live_sink import (
     LIVE_CONFIRMATION_TEXT,
@@ -33,6 +33,7 @@ from library.theme_engine import ThemeManifest, ThemeValidationError
 ROOT = Path(__file__).resolve().parent
 DEFAULT_THEME = ROOT / "res" / "themes" / "html-demo"
 DEFAULT_STATUS_LOG = Path("/tmp/turing-html-physical-status.jsonl")
+PLANNING_MAX_REGIONS = 64
 
 
 def parse_args(argv):
@@ -68,15 +69,30 @@ def parse_args(argv):
     parser.add_argument(
         "--max-regions",
         type=int,
-        default=4,
-        help="Maximum physical UPDATE_BITMAP transactions per logical frame.",
+        default=8,
+        help="Maximum UPDATE_BITMAP transactions in one physical batch.",
+    )
+    parser.add_argument(
+        "--max-total-regions",
+        type=int,
+        default=32,
+        help=(
+            "Maximum tight regions in one logical update before refusing it; "
+            "regions are never merged merely to fit --max-regions."
+        ),
     )
     parser.add_argument("--max-wire-bytes", type=int, default=300_000)
     parser.add_argument(
         "--region-pacing",
         type=float,
         default=0.25,
-        help="Seconds to wait between physical region transactions.",
+        help="Seconds to wait between regions inside one physical batch.",
+    )
+    parser.add_argument(
+        "--batch-pacing",
+        type=float,
+        default=0.35,
+        help="Seconds to wait at boundaries between physical region batches.",
     )
     parser.add_argument(
         "--status-min-bytes",
@@ -129,13 +145,13 @@ def load_coherent_frame(
 
 
 def build_engines(frame: Image.Image):
-    # Keep component discovery generous. The optimizer applies the much smaller
-    # physical transaction budget after every changed tile has been found.
+    # Keep component discovery generous. Planning remains independent from the
+    # much smaller number of physical exchanges permitted in each batch.
     pipeline = FramePipeline(
         tile_size=16,
         pixel_threshold=0,
         full_refresh_ratio=0.45,
-        max_regions=64,
+        max_regions=PLANNING_MAX_REGIONS,
     )
     transport = SimulatedDisplayTransport(
         get_transport_profile("rev-c-2inch")
@@ -150,7 +166,6 @@ def validate_frame(
     transport_engine: SimulatedDisplayTransport,
     protocol_engine: RevCProtocolSimulator,
     *,
-    max_regions: int,
     atomic_regions: Tuple[AtomicRegion, ...] = (),
 ):
     previous = pipeline.previous
@@ -161,7 +176,7 @@ def validate_frame(
         analysis,
         tile_size=pipeline.tile_size,
         pixel_threshold=pipeline.pixel_threshold,
-        max_regions=max_regions,
+        max_regions=PLANNING_MAX_REGIONS,
         full_refresh_ratio=pipeline.full_refresh_ratio,
         atomic_regions=atomic_regions,
     )
@@ -210,7 +225,9 @@ def write_status_record(
 def load_theme_manifest(theme: Path) -> ThemeManifest:
     manifest = ThemeManifest.load(theme)
     if manifest.engine != "html":
-        raise ThemeValidationError("the physical HTML diagnostic requires an HTML theme")
+        raise ThemeValidationError(
+            "the physical HTML diagnostic requires an HTML theme"
+        )
     if (manifest.width, manifest.height) != (480, 480):
         raise ThemeValidationError(
             "the Rev. C physical diagnostic requires a 480x480 theme"
@@ -252,7 +269,6 @@ def run(args) -> int:
                 pipeline,
                 transport_engine,
                 protocol_engine,
-                max_regions=args.max_regions,
                 atomic_regions=manifest.atomic_regions,
             )
         )
@@ -276,9 +292,12 @@ def run(args) -> int:
     print(f"Initial wire bytes: {initial_protocol.wire_bytes}")
     print(
         "Diagnostic limits: "
-        f"frames={args.max_frames} regions={args.max_regions} "
+        f"frames={args.max_frames} "
+        f"regions-per-batch={args.max_regions} "
+        f"total-regions={args.max_total_regions} "
         f"interval={args.interval:.2f}s "
-        f"region-pacing={args.region_pacing:.2f}s"
+        f"region-pacing={args.region_pacing:.2f}s "
+        f"batch-pacing={args.batch_pacing:.2f}s"
     )
 
     if not (
@@ -303,9 +322,11 @@ def run(args) -> int:
             max_partial_frames=args.max_frames,
             max_duration=args.duration,
             min_interval=args.interval,
-            max_regions=args.max_regions,
+            max_regions=args.max_total_regions,
+            batch_regions=args.max_regions,
             max_wire_bytes=args.max_wire_bytes,
             region_pacing=args.region_pacing,
+            batch_pacing=args.batch_pacing,
             minimum_status_bytes=args.status_min_bytes,
         )
     except LiveWriteRefused as exc:
@@ -375,7 +396,6 @@ def run(args) -> int:
                         pipeline,
                         transport_engine,
                         protocol_engine,
-                        max_regions=args.max_regions,
                         atomic_regions=manifest.atomic_regions,
                     )
                 except Exception as exc:
@@ -418,6 +438,7 @@ def run(args) -> int:
                     f"LIVE source={current_source_sequence:04d} "
                     f"validated={update.sequence:04d} "
                     f"regions={update.region_count:02d} "
+                    f"batches={update.batch_count:02d} "
                     f"wire={update.wire_bytes:7d} "
                     f"frame={update.partial_frame_number:02d}/"
                     f"{session.max_partial_frames} "

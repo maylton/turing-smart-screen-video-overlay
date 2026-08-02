@@ -75,6 +75,7 @@ class RevCStatusBatch:
     wire_bytes: int
     elapsed_ms: float
     samples: Tuple[RevCStatusSample, ...]
+    batch_count: int = 1
     physical_io: bool = True
 
     @property
@@ -104,6 +105,7 @@ class RevCStatusBatch:
         return {
             "mode": self.mode,
             "exchangeCount": self.exchange_count,
+            "batchCount": self.batch_count,
             "wireBytes": self.wire_bytes,
             "elapsedMs": round(self.elapsed_ms, 3),
             "statusCount": len(self.samples),
@@ -137,16 +139,26 @@ def send_protocol_with_status(
     *,
     minimum_status_bytes: int = 1,
     inter_exchange_delay: float = 0.25,
+    exchange_batch_size: Optional[int] = None,
+    inter_batch_delay: Optional[float] = None,
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> RevCStatusBatch:
-    """Write validated protocol blocks and retain every requested status read."""
+    """Write validated protocol blocks and retain every requested status read.
+
+    ``exchange_batch_size`` does not change the validated wire image. It only
+    groups consecutive exchanges for pacing: ordinary neighbors use
+    ``inter_exchange_delay`` and batch boundaries use ``inter_batch_delay``.
+    """
     minimum = int(minimum_status_bytes)
     delay = float(inter_exchange_delay)
+    batch_delay = delay if inter_batch_delay is None else float(inter_batch_delay)
     if minimum <= 0:
         raise ValueError("minimum_status_bytes must be greater than zero")
     if delay < 0:
         raise ValueError("inter_exchange_delay must not be negative")
+    if batch_delay < 0:
+        raise ValueError("inter_batch_delay must not be negative")
     if not bool(getattr(protocol, "valid", False)):
         raise RevCStatusError("protocol framing is not valid")
 
@@ -156,6 +168,18 @@ def send_protocol_with_status(
         raise RevCStatusError(f"unsupported protocol mode: {mode!r}")
     if mode != "noop" and not exchanges:
         raise RevCStatusError("protocol contains no exchanges")
+
+    if exchange_batch_size is None:
+        batch_size = len(exchanges) if exchanges else 1
+    else:
+        batch_size = int(exchange_batch_size)
+        if batch_size <= 0:
+            raise ValueError("exchange_batch_size must be greater than zero")
+    batch_count = (
+        (len(exchanges) + batch_size - 1) // batch_size
+        if exchanges
+        else 0
+    )
 
     write = getattr(driver, "WriteData", None)
     read = getattr(driver, "ReadData", None)
@@ -222,8 +246,11 @@ def send_protocol_with_status(
                 )
             samples.append(sample)
 
-        if exchange_index + 1 < len(exchanges) and delay:
-            sleeper(delay)
+        if exchange_index + 1 < len(exchanges):
+            at_batch_boundary = (exchange_index + 1) % batch_size == 0
+            pause = batch_delay if at_batch_boundary else delay
+            if pause:
+                sleeper(pause)
 
     expected_wire_bytes = int(getattr(protocol, "wire_bytes", written_bytes))
     if written_bytes != expected_wire_bytes:
@@ -237,6 +264,7 @@ def send_protocol_with_status(
     return RevCStatusBatch(
         mode=mode,
         exchange_count=len(exchanges),
+        batch_count=batch_count,
         wire_bytes=written_bytes,
         elapsed_ms=(clock() - started) * 1000.0,
         samples=tuple(samples),

@@ -35,9 +35,12 @@ MAX_ALLOWED_PARTIAL_FRAMES = 60
 MAX_ALLOWED_DURATION = 120.0
 MIN_ALLOWED_INTERVAL = 0.75
 MAX_ALLOWED_REGIONS = 32
+MAX_ALLOWED_BATCH_REGIONS = 16
 MAX_ALLOWED_WIRE_BYTES = 500_000
 MIN_ALLOWED_REGION_PACING = 0.05
 MAX_ALLOWED_REGION_PACING = 2.0
+MIN_ALLOWED_BATCH_PACING = 0.05
+MAX_ALLOWED_BATCH_PACING = 3.0
 MAX_ALLOWED_MINIMUM_STATUS_BYTES = 1024
 
 
@@ -52,6 +55,7 @@ class LiveUpdateResult:
     wire_bytes: int
     partial_frame_number: int
     status_batch: RevCStatusBatch
+    batch_count: int = 1
     physical_io: bool = True
 
 
@@ -123,8 +127,10 @@ class GuardedRevCLiveSession:
         max_duration: float = 30.0,
         min_interval: float = 2.0,
         max_regions: int = 4,
+        batch_regions: Optional[int] = None,
         max_wire_bytes: int = 300_000,
         region_pacing: float = 0.25,
+        batch_pacing: Optional[float] = None,
         minimum_status_bytes: int = 1,
         driver_factory: Optional[Callable[[str], object]] = None,
         lock_path: Path = DEFAULT_LOCK_PATH,
@@ -144,8 +150,14 @@ class GuardedRevCLiveSession:
         self.max_duration = float(max_duration)
         self.min_interval = float(min_interval)
         self.max_regions = int(max_regions)
+        self.batch_regions = int(
+            self.max_regions if batch_regions is None else batch_regions
+        )
         self.max_wire_bytes = int(max_wire_bytes)
         self.region_pacing = float(region_pacing)
+        self.batch_pacing = float(
+            self.region_pacing if batch_pacing is None else batch_pacing
+        )
         self.minimum_status_bytes = int(minimum_status_bytes)
         self._validate_limits()
 
@@ -198,6 +210,15 @@ class GuardedRevCLiveSession:
             raise LiveWriteRefused(
                 f"max_regions must be between 1 and {MAX_ALLOWED_REGIONS}"
             )
+        if not 1 <= self.batch_regions <= MAX_ALLOWED_BATCH_REGIONS:
+            raise LiveWriteRefused(
+                "batch_regions must be between 1 and "
+                f"{MAX_ALLOWED_BATCH_REGIONS}"
+            )
+        if self.batch_regions > self.max_regions:
+            raise LiveWriteRefused(
+                "batch_regions must not exceed the total max_regions limit"
+            )
         if not 1 <= self.max_wire_bytes <= MAX_ALLOWED_WIRE_BYTES:
             raise LiveWriteRefused(
                 f"max_wire_bytes must be between 1 and {MAX_ALLOWED_WIRE_BYTES}"
@@ -211,6 +232,16 @@ class GuardedRevCLiveSession:
                 "region_pacing must be between "
                 f"{MIN_ALLOWED_REGION_PACING} and "
                 f"{MAX_ALLOWED_REGION_PACING} seconds"
+            )
+        if not (
+            MIN_ALLOWED_BATCH_PACING
+            <= self.batch_pacing
+            <= MAX_ALLOWED_BATCH_PACING
+        ):
+            raise LiveWriteRefused(
+                "batch_pacing must be between "
+                f"{MIN_ALLOWED_BATCH_PACING} and "
+                f"{MAX_ALLOWED_BATCH_PACING} seconds"
             )
         if not (
             1
@@ -246,6 +277,8 @@ class GuardedRevCLiveSession:
                 protocol,
                 minimum_status_bytes=self.minimum_status_bytes,
                 inter_exchange_delay=0.0,
+                exchange_batch_size=1,
+                inter_batch_delay=0.0,
                 sleeper=self._sleeper,
                 clock=self._clock,
             )
@@ -332,7 +365,7 @@ class GuardedRevCLiveSession:
             )
         if len(packets) > self.max_regions:
             raise LiveWriteRefused(
-                f"partial update has {len(packets)} regions; "
+                f"partial update has {len(packets)} total regions; "
                 f"limit is {self.max_regions}"
             )
 
@@ -352,6 +385,8 @@ class GuardedRevCLiveSession:
             protocol,
             minimum_status_bytes=self.minimum_status_bytes,
             inter_exchange_delay=self.region_pacing,
+            exchange_batch_size=self.batch_regions,
+            inter_batch_delay=self.batch_pacing,
             sleeper=self._sleeper,
             clock=self._clock,
         )
@@ -367,6 +402,7 @@ class GuardedRevCLiveSession:
             wire_bytes=wire_bytes,
             partial_frame_number=self._partial_frames_written,
             status_batch=batch,
+            batch_count=batch.batch_count,
         )
 
     def close(self) -> LiveSessionSummary:
