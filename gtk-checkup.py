@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import yaml
+
 
 GPU_VENDOR_NAMES = {
     "0x1002": "AMD",
@@ -181,6 +183,24 @@ def main() -> int:
         checks.append(result(True, "GTK4 and Libadwaita imports"))
     except Exception as exc:
         checks.append(result(False, "GTK4 and Libadwaita imports", str(exc)))
+
+    # WebKit is optional for existing YAML installations. It becomes a hard
+    # check only when the experimental HTML renderer is explicitly enabled.
+    try:
+        configured = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8")) or {}
+        renderer = configured.get("renderer", {})
+        html_enabled = isinstance(renderer, dict) and str(renderer.get("engine", "")).lower() == "html"
+    except Exception:
+        html_enabled = False
+    if html_enabled:
+        try:
+            import gi
+            gi.require_version("WebKit", "6.0")
+            from gi.repository import WebKit  # noqa: F401
+            from PIL import Image  # noqa: F401
+            checks.append(result(True, "Experimental HTML renderer dependencies"))
+        except Exception as exc:
+            checks.append(result(False, "Experimental HTML renderer dependencies", str(exc)))
 
     required_files = (
         "configure-gtk.py",

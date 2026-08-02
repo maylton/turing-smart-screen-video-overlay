@@ -19,6 +19,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk, Pango
+from library.theme_engine import ThemeManifest, ThemeValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILE = ROOT / "config.yaml"
@@ -49,6 +50,9 @@ class ThemeRecord:
     current: bool = False
     issue: str | None = None
     display_size: str = ""
+    engine: str = "yaml"
+    resolution: tuple[int, int] | None = None
+    permissions: tuple[str, ...] = ()
 
     @property
     def editable(self) -> bool:
@@ -67,7 +71,7 @@ class ThemeRecord:
         return f'{self.display_size}" display' if self.display_size else "Unknown display size"
 
     def search_text(self) -> str:
-        parts = [self.name, self.status_label, self.display_label]
+        parts = [self.name, self.status_label, self.display_label, self.engine]
         try:
             parts.append(os.path.relpath(self.directory, ROOT))
         except ValueError:
@@ -150,6 +154,19 @@ def read_current_theme(config_file: Path = CONFIG_FILE) -> str | None:
     if match is None:
         return None
     return match.group(1).strip()
+
+
+def read_current_renderer_theme(config_file: Path = CONFIG_FILE) -> str | None:
+    """Return the opt-in HTML theme, otherwise the legacy YAML selection."""
+    try:
+        import yaml
+        payload = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+        renderer = payload.get("renderer", {})
+        if isinstance(renderer, dict) and str(renderer.get("engine", "")).lower() == "html":
+            return str(renderer.get("theme") or "").strip() or None
+    except Exception:
+        pass
+    return read_current_theme(config_file)
 
 
 def replace_current_theme_name(
@@ -411,7 +428,7 @@ def discover_themes(
     *,
     only_compatible: bool = True,
 ) -> list[ThemeRecord]:
-    current_theme = read_current_theme(config_file)
+    current_theme = read_current_renderer_theme(config_file)
     target_display_size = selected_display_size(config_file) if only_compatible else ""
     records: list[ThemeRecord] = []
 
@@ -425,13 +442,28 @@ def discover_themes(
         yaml_file = find_theme_file(theme_dir)
         display_size = theme_display_size_from_yaml(yaml_file)
 
-        if only_compatible and target_display_size and display_size != target_display_size:
+        engine = "yaml"
+        resolution = None
+        permissions = ()
+        manifest_issue = None
+        if (theme_dir / "manifest.json").is_file():
+            try:
+                manifest = ThemeManifest.load(theme_dir)
+                engine = manifest.engine
+                resolution = (manifest.width, manifest.height)
+                permissions = manifest.permissions
+            except ThemeValidationError as exc:
+                manifest_issue = f"Invalid manifest: {exc}"
+
+        if only_compatible and target_display_size and engine == "yaml" and display_size != target_display_size:
             continue
 
         issue = None
-        if yaml_file is None:
+        if manifest_issue:
+            issue = manifest_issue
+        elif yaml_file is None and engine != "html":
             issue = "Missing theme.yaml"
-        elif target_display_size and not display_size:
+        elif target_display_size and not display_size and engine == "yaml":
             issue = "Missing DISPLAY_SIZE"
 
         records.append(
@@ -443,6 +475,9 @@ def discover_themes(
                 current=theme_dir.name == current_theme,
                 issue=issue,
                 display_size=display_size,
+                engine=engine,
+                resolution=resolution,
+                permissions=permissions,
             )
         )
 

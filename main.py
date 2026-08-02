@@ -22,6 +22,8 @@ try:
     import time
     from pathlib import Path
 
+    import yaml
+
     if platform.system() == "Windows":
         import win32api
         import win32con
@@ -54,6 +56,8 @@ MAIN_DIRECTORY = Path(__file__).resolve().parent
 _DISPLAY = None
 _TRAY_ICON = None
 _DEVICE_LOCK = None
+_RENDERER_CONTROLLER = None
+_RENDERER_SELECTION = None
 _CLEANUP_LOCK = threading.Lock()
 _CLEANUP_STARTED = False
 
@@ -84,8 +88,35 @@ def perform_cleanup(tray_icon=None) -> None:
     except Exception:
         pass
 
-    if _DISPLAY is not None:
-        lcd = getattr(_DISPLAY, "lcd", None)
+    if _RENDERER_CONTROLLER is not None:
+        try:
+            _RENDERER_CONTROLLER.stop()
+        except Exception as exc:
+            logger.warning("Could not stop renderer cleanly: %s", exc)
+
+    close_yaml_display()
+
+    icon = tray_icon or _TRAY_ICON
+    if icon is not None:
+        try:
+            icon.visible = False
+        except Exception:
+            pass
+
+    if _DEVICE_LOCK is not None:
+        _DEVICE_LOCK.release()
+
+
+def close_yaml_display() -> None:
+    """Close the legacy renderer transport without touching process ownership."""
+    global _DISPLAY
+    try:
+        scheduler.STOPPING = True
+    except Exception:
+        pass
+    display, _DISPLAY = _DISPLAY, None
+    if display is not None:
+        lcd = getattr(display, "lcd", None)
 
         # Final shutdown commands must not remain stranded in the asynchronous
         # update queue. From this point onward, communicate synchronously.
@@ -108,7 +139,7 @@ def perform_cleanup(tray_icon=None) -> None:
                 )
 
         try:
-            _DISPLAY.turn_off()
+            display.turn_off()
             # Give Rev. C firmware time to process STOP_MEDIA and TURNOFF
             # before closing the serial connection.
             time.sleep(0.35)
@@ -123,16 +154,10 @@ def perform_cleanup(tray_icon=None) -> None:
                 lcd.closeSerial()
         except Exception:
             pass
+        # Scheduler callbacks observe STOPPING and leave their loops. Give
+        # them a bounded opportunity to finish before reload can reopen serial.
+        time.sleep(0.25)
 
-    icon = tray_icon or _TRAY_ICON
-    if icon is not None:
-        try:
-            icon.visible = False
-        except Exception:
-            pass
-
-    if _DEVICE_LOCK is not None:
-        _DEVICE_LOCK.release()
 
 
 def request_process_exit(exit_code: int = 0) -> None:
@@ -172,6 +197,16 @@ def on_exit_tray(tray_icon, _item) -> None:
     os.kill(os.getpid(), signal.SIGTERM)
 
 
+def on_reload_renderer(_tray_icon, _item) -> None:
+    if _RENDERER_CONTROLLER is None or _RENDERER_SELECTION is None:
+        return
+    logger.info("Reloading %s renderer safely", _RENDERER_SELECTION.engine)
+    try:
+        _RENDERER_CONTROLLER.reload(_RENDERER_SELECTION)
+    except Exception as exc:
+        logger.error("Renderer reload failed: %s", exc)
+
+
 def install_signal_handlers() -> None:
     atexit.register(on_clean_exit)
     signal.signal(signal.SIGINT, on_signal_caught)
@@ -180,7 +215,7 @@ def install_signal_handlers() -> None:
         signal.signal(signal.SIGQUIT, on_signal_caught)
 
 
-def create_tray_icon():
+def create_tray_icon(renderer_label="YAML"):
     disable_legacy_tray = (
         os.environ.get("TURING_DISABLE_PYSTRAY", "").strip().lower()
         in {"1", "true", "yes", "on"}
@@ -195,9 +230,11 @@ def create_tray_icon():
     try:
         icon = pystray.Icon(
             name="Turing System Monitor",
-            title="Turing System Monitor",
+            title=f"Turing System Monitor — {renderer_label}",
             icon=load_pystray_image(MAIN_DIRECTORY),
             menu=pystray.Menu(
+                pystray.MenuItem(text=f"Renderer: {renderer_label}", action=None, enabled=False),
+                pystray.MenuItem(text="Reload renderer", action=on_reload_renderer),
                 pystray.MenuItem(text="Configure", action=on_configure_tray),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(text="Exit", action=on_exit_tray),
@@ -308,7 +345,7 @@ def run_forever() -> None:
 
 
 def main() -> int:
-    global _DEVICE_LOCK, _DISPLAY, _TRAY_ICON
+    global _DEVICE_LOCK, _DISPLAY, _TRAY_ICON, _RENDERER_CONTROLLER, _RENDERER_SELECTION
 
     locale.setlocale(locale.LC_ALL, "")
     logger.debug("Using Python %s", sys.version)
@@ -335,22 +372,62 @@ def main() -> int:
                 exc,
             )
 
-        # Import only after detection, because library.display constructs the
-        # driver selected by config.yaml.
-        from library.display import display
-        _DISPLAY = display
-
         install_signal_handlers()
-        _TRAY_ICON = create_tray_icon()
+        from library.monitor_renderers import HtmlWorkerRunner, LegacyYamlRunner
+        from library.renderer_lifecycle import (
+            RendererConfigurationError,
+            RendererController,
+            RendererSelection,
+            select_renderer,
+        )
 
-        logger.info("Initialize display")
-        _DISPLAY.initialize_display()
-        scheduler.QueueHandler()
-        _DISPLAY.start_theme_video()
-        _DISPLAY.display_static_images()
-        _DISPLAY.display_static_text()
-        wait_for_empty_queue(10)
-        start_schedulers()
+        raw_config = yaml.safe_load((MAIN_DIRECTORY / "config.yaml").read_text(encoding="utf-8")) or {}
+        try:
+            selection = select_renderer(raw_config, MAIN_DIRECTORY / "res" / "themes")
+        except RendererConfigurationError as exc:
+            logger.error("Renderer configuration error: %s", exc)
+            # Invalid renderer syntax falls back to the unchanged legacy theme.
+            # A malformed explicitly selected HTML package is refused instead,
+            # because opening another serial session could hide the real error.
+            renderer = raw_config.get("renderer")
+            if isinstance(renderer, dict) and str(renderer.get("engine", "")).lower() == "html":
+                print(str(exc), file=sys.stderr)
+                return 2
+            selection = RendererSelection("yaml", str(raw_config.get("config", {}).get("THEME") or ""))
+
+        def start_yaml():
+            global _DISPLAY
+            scheduler.STOPPING = False
+            # Imported lazily: HTML-only installations do not load the YAML
+            # display/scheduler renderer or construct its LcdComm.
+            from library.display import display
+            _DISPLAY = display
+            logger.info("Initialize YAML display renderer")
+            _DISPLAY.initialize_display()
+            scheduler.QueueHandler()
+            _DISPLAY.start_theme_video()
+            _DISPLAY.display_static_images()
+            _DISPLAY.display_static_text()
+            wait_for_empty_queue(10)
+            start_schedulers()
+
+        def yaml_factory(selected):
+            return LegacyYamlRunner(
+                selected,
+                start_callback=start_yaml,
+                stop_callback=close_yaml_display,
+                wait_callback=lambda: (run_forever() or 0),
+            )
+
+        _RENDERER_CONTROLLER = RendererController({
+            "yaml": yaml_factory,
+            "html": lambda selected: HtmlWorkerRunner(selected, root=MAIN_DIRECTORY),
+        })
+        _RENDERER_SELECTION = selection
+        _TRAY_ICON = create_tray_icon(f"{selection.engine.upper()} — {selection.theme}")
+        _RENDERER_CONTROLLER.start(selection)
+        if selection.engine == "html":
+            return _RENDERER_CONTROLLER.wait()
         run_forever()
         return 0
     except KeyboardInterrupt:

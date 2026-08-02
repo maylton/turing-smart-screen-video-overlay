@@ -87,3 +87,9 @@ display:
   # This behavior causes the display to disconnect/reconnect, and the COM port to change.
   # On some displays (like rev. A) it can be an issue, in this case change the value to "false".
   RESET_ON_STARTUP: false
+
+# Renderer selection. YAML is also the default when this section is absent.
+# HTML is experimental and starts only when engine is explicitly set to html;
+# in that case also set theme to an HTML theme folder under res/themes.
+renderer:
+  engine: yaml
