@@ -127,6 +127,13 @@ class HtmlThemeComponentTests(unittest.TestCase):
         self.assertIn('data-turing-binding="network.download"', block)
 
     def test_custom_bindings_and_formatters_are_strictly_validated(self):
+        numeric_segment = generated_widget_markup(
+            "turing-cpu-load-1",
+            binding="cpu.load.0",
+            formatter="load",
+            sample="1.25",
+        )
+        self.assertIn('data-turing-binding="cpu.load.0"', numeric_segment)
         with self.assertRaisesRegex(ThemeValidationError, "binding"):
             generated_widget_markup(
                 "turing-invalid-1",

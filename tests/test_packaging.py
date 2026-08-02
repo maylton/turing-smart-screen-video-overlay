@@ -41,6 +41,8 @@ class PackagingContractTests(unittest.TestCase):
                 "theme-migrate.py",
                 "library/runtime.py",
                 "res/themes/core/theme.yaml",
+                "res/theme-templates/html-ide-starter.theme",
+                "res/theme-templates/html-ide-starter/manifest.json",
                 "res/docs/no-preview.png",
                 "res/fonts/roboto/Roboto-Regular.ttf",
                 "tools/render_theme_preview.py",

@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 
 PACKAGE_FILENAME = "theme-package.json"
@@ -178,3 +180,64 @@ def validate_archive_members(archive: zipfile.ZipFile) -> None:
                 raise ThemePackageError(
                     f"Archive member has a suspicious compression ratio: {member.filename}"
                 )
+
+
+def write_theme_package(
+    source_root: str | Path,
+    destination: str | Path,
+    descriptor: ThemePackageDescriptor,
+    *,
+    skip: Callable[[Path], bool] | None = None,
+) -> Path:
+    """Atomically create one canonical `.theme` archive from a directory."""
+
+    descriptor = ThemePackageDescriptor.from_mapping(descriptor.as_dict())
+    source = Path(source_root).expanduser().resolve()
+    target = Path(destination).expanduser().resolve()
+    if not source.is_dir():
+        raise ThemePackageError(f"Theme package source does not exist: {source}")
+    if target.suffix.casefold() != PACKAGE_EXTENSION:
+        raise ThemePackageError(f"Theme package destination must use {PACKAGE_EXTENSION}")
+    if target.exists():
+        raise FileExistsError(f"Theme package already exists: {target}")
+    definition = source / descriptor.definition
+    if not definition.is_file():
+        raise ThemePackageError(
+            f"Theme package definition is missing: {descriptor.definition}"
+        )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    os.close(file_descriptor)
+    temporary = Path(temporary_name)
+    try:
+        with zipfile.ZipFile(
+            temporary,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as archive:
+            archive.writestr(PACKAGE_FILENAME, descriptor.as_json())
+            for path in sorted(source.rglob("*")):
+                relative = path.relative_to(source)
+                if skip is not None and skip(relative):
+                    continue
+                if path.is_symlink():
+                    raise ThemePackageError(
+                        f"Theme packages cannot contain symbolic links: {relative}"
+                    )
+                if path.is_dir():
+                    continue
+                if relative.as_posix() == PACKAGE_FILENAME:
+                    continue
+                _safe_archive_path(relative.as_posix(), "theme package path")
+                archive.write(path, relative.as_posix())
+        with zipfile.ZipFile(temporary) as archive:
+            validate_archive_members(archive)
+        os.replace(temporary, target)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    return target

@@ -12,6 +12,7 @@ from library.theme_package import (
     ThemePackageError,
     load_theme_package_descriptor,
     validate_archive_members,
+    write_theme_package,
 )
 
 
@@ -88,6 +89,40 @@ class ThemePackageTests(unittest.TestCase):
             with zipfile.ZipFile(compressed) as archive:
                 with self.assertRaisesRegex(ThemePackageError, "compression ratio"):
                     validate_archive_members(archive)
+
+    def test_writer_creates_atomic_canonical_package_without_mutating_source(self):
+        with tempfile.TemporaryDirectory(prefix="turing-theme-writer-") as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            (source / "manifest.json").write_text("{}", encoding="utf-8")
+            (source / "index.html").write_text("<html></html>", encoding="utf-8")
+            descriptor = ThemePackageDescriptor(
+                name="writer-test",
+                engine="html",
+                definition="manifest.json",
+            )
+            destination = root / "writer-test.theme"
+
+            result = write_theme_package(source, destination, descriptor)
+
+            self.assertEqual(result, destination)
+            self.assertFalse((source / PACKAGE_FILENAME).exists())
+            with zipfile.ZipFile(destination) as archive:
+                self.assertEqual(
+                    set(archive.namelist()),
+                    {PACKAGE_FILENAME, "manifest.json", "index.html"},
+                )
+            with self.assertRaises(FileExistsError):
+                write_theme_package(source, destination, descriptor)
+
+            unsafe = ThemePackageDescriptor(
+                name="writer-test",
+                engine="html",
+                definition="../manifest.json",
+            )
+            with self.assertRaisesRegex(ThemePackageError, "Unsafe"):
+                write_theme_package(source, root / "unsafe.theme", unsafe)
 
 
 if __name__ == "__main__":

@@ -110,7 +110,7 @@ HTML_WIDGET_COMPONENTS = (
 _COMPONENTS_BY_KEY = {component.key: component for component in HTML_WIDGET_COMPONENTS}
 
 _WIDGET_BINDING = re.compile(
-    r"^(?:\$timestamp|[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*)$"
+    r"^(?:\$timestamp|[A-Za-z][A-Za-z0-9]*(?:\.(?:[A-Za-z][A-Za-z0-9]*|[0-9]+))*)$"
 )
 SUPPORTED_WIDGET_FORMATTERS = frozenset(
     {

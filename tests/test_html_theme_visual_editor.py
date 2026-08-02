@@ -600,6 +600,13 @@ class HtmlThemeVisualEditorTests(unittest.TestCase):
         self.assertIn('"style", "Estilo"', source)
         self.assertIn('"effects", "Efeitos"', source)
         self.assertIn("actions.set_column_homogeneous(True)", source)
+        self.assertIn("Importar tema", source)
+        self.assertIn("Exportar tema", source)
+        self.assertIn("show_import_theme_dialog", source)
+        self.assertIn("show_export_theme_dialog", source)
+        self.assertIn("def _import_theme_from_path", source)
+        self.assertIn("def _export_theme_to_path", source)
+        self.assertIn("self._dirty", source)
 
 
 if __name__ == "__main__":

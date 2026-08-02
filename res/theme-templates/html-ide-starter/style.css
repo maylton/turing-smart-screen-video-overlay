@@ -1,0 +1,76 @@
+/* Author-owned stylesheet. The visual editor does not overwrite this file. */
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #090b18;
+  color: #f4f5ff;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  width: 480px;
+  height: 480px;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.screen {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 10%, #4d39a0 0, transparent 34%),
+    linear-gradient(145deg, #171a36, #080a14 70%);
+}
+
+.ambient {
+  position: absolute;
+  width: 210px;
+  height: 210px;
+  border-radius: 50%;
+  filter: blur(50px);
+  opacity: 0.3;
+}
+
+.ambient-one { left: -60px; bottom: -50px; background: #5e7cff; }
+.ambient-two { right: -70px; top: 90px; background: #e05bc7; }
+
+.eyebrow,
+h1,
+.hint {
+  position: absolute;
+  left: 32px;
+  right: 32px;
+  margin: 0;
+}
+
+.eyebrow { top: 82px; color: #9ca8ff; font-size: 12px; letter-spacing: 0.2em; }
+h1 { top: 101px; font-size: 28px; }
+.hint { bottom: 32px; color: #aeb2cc; font-size: 12px; }
+
+.card {
+  position: absolute;
+  top: 138px;
+  width: 180px;
+  height: 142px;
+  padding: 18px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 24px;
+  background: rgb(255 255 255 / 8%);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 25%);
+}
+
+.card span { color: #bfc5ea; font-size: 13px; font-weight: 700; }
+.card-cpu { left: 42px; }
+.card-memory { right: 42px; }
+
+#custom-status {
+  display: flex;
+  align-items: center;
+  color: #dbe0ff;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}

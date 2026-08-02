@@ -22,7 +22,29 @@ Audit date: 2026-08-02
 - Completed: read-only YAML conversion analyzer with human and JSON reports.
 - Current analyzer result: 53 automatic, 21 assisted, and 2 manual migrations
   across the 76 directly tracked YAML themes.
-- Next: generate non-destructive HTML drafts for the text-and-bar cohort.
+- Completed: non-destructive single-theme and batch HTML generation for the
+  text-and-bar cohort, with portable `.theme` output and migration reports.
+- Completed: import/export actions in the HTML editor, a validated IDE starter
+  template, and a complete authoring guide.
+- Validation run: 53 automatic packages plus one partial Material Expressive
+  draft; all 54 archives passed package, manifest, policy, and overlay checks.
+
+### Delivery checklist
+
+- [x] Explicit lightweight Linux runtime payload.
+- [x] Portable, versioned, safely validated `.theme` package.
+- [x] Canonical schema-5 `overlays.json` with bindings and formatters.
+- [x] YAML compatibility analyzer for all 76 tracked legacy themes.
+- [x] Text/bar converter for one theme and for an entire collection.
+- [x] HTML editor import and export with no-overwrite behavior.
+- [x] Importable `.theme` starter and editable source template for IDE users.
+- [x] Authoring, package, overlay, and migration documentation.
+- [ ] Review screenshots and approve pixel/layout parity per converted theme.
+- [ ] Bake legacy static/animated layers into a single native MP4 automatically.
+- [ ] Implement radial and stateful history widgets.
+- [ ] Add ping, CPU fan, per-interface network, and custom-data adapters.
+- [ ] Render canonical text/bar overlays without WebKit when possible.
+- [ ] Publish large legacy examples and non-core fonts as optional packs.
 
 ## Executive summary
 
