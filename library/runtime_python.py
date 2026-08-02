@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import os
 import sys
@@ -11,6 +12,8 @@ from pathlib import Path
 
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
+_BUILD_CLASS_HOOK_INSTALLED = False
+_BUILD_CLASS_HOOK_ORIGINAL = None
 
 
 def _javascript_json_script(script: str) -> str:
@@ -66,20 +69,62 @@ def _patch_html_editor_class(editor_class) -> bool:
     return True
 
 
-def _install_html_editor_class_patch() -> bool:
-    """Patch the editor class before any WebKit load callback can inspect the DOM."""
-    main_module = sys.modules.get("__main__")
-    editor_class = getattr(main_module, "HtmlThemeEditorWindow", None)
-    if editor_class is None:
+def _restore_build_class_hook() -> None:
+    global _BUILD_CLASS_HOOK_INSTALLED, _BUILD_CLASS_HOOK_ORIGINAL
+    original = _BUILD_CLASS_HOOK_ORIGINAL
+    if original is not None:
+        builtins.__build_class__ = original
+    _BUILD_CLASS_HOOK_ORIGINAL = None
+    _BUILD_CLASS_HOOK_INSTALLED = False
+
+
+def _install_html_editor_build_class_hook(*, target_module: str = "__main__") -> bool:
+    """Patch HtmlThemeEditorWindow synchronously when Python creates the class."""
+    global _BUILD_CLASS_HOOK_INSTALLED, _BUILD_CLASS_HOOK_ORIGINAL
+    if _BUILD_CLASS_HOOK_INSTALLED:
         return True
-    _patch_html_editor_class(editor_class)
-    return False
+
+    original = builtins.__build_class__
+    _BUILD_CLASS_HOOK_ORIGINAL = original
+
+    def guarded_build_class(func, name, *bases, **kwargs):
+        editor_class = original(func, name, *bases, **kwargs)
+        if (
+            name == "HtmlThemeEditorWindow"
+            and getattr(editor_class, "__module__", "") == target_module
+        ):
+            try:
+                _patch_html_editor_class(editor_class)
+            finally:
+                _restore_build_class_hook()
+        return editor_class
+
+    builtins.__build_class__ = guarded_build_class
+    _BUILD_CLASS_HOOK_INSTALLED = True
+    return True
+
+
+def _install_html_editor_class_patch() -> bool:
+    """Fallback patch for launchers that import the editor as a module."""
+    for module_name in ("__main__", "html_theme_editor_gtk"):
+        module = sys.modules.get(module_name)
+        editor_class = getattr(module, "HtmlThemeEditorWindow", None)
+        if editor_class is not None:
+            _patch_html_editor_class(editor_class)
+            return False
+    return True
 
 
 def _install_html_editor_extensions() -> None:
     """Attach editor extensions after the HTML editor window is fully built."""
     if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
         return
+
+    # runtime_python is imported before HtmlThemeEditorWindow is declared.
+    # Hook class construction now so _evaluate_json is replaced synchronously,
+    # before an instance or WebKit load callback can exist.
+    _install_html_editor_build_class_hook()
+
     try:
         import gi
 
@@ -90,9 +135,7 @@ def _install_html_editor_extensions() -> None:
         print(f"Erro ao preparar extensões do editor HTML: {exc}", file=sys.stderr)
         return
 
-    # This source is registered while html-theme-editor-gtk.py is still being
-    # imported. It runs as soon as the GTK main loop starts, after the class has
-    # been defined but before WebKit can complete the first page load.
+    # Keep a fallback for wrappers that load the file under a module name.
     GLib.idle_add(_install_html_editor_class_patch)
 
     attempts = 0
