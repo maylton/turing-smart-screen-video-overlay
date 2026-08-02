@@ -139,6 +139,111 @@ class BudgetedFramePlannerTests(unittest.TestCase):
         self.assertGreater(second_plan.deferred_region_count, 0)
         self.assertEqual(second_plan.analysis.sequence, 3)
 
+    def test_candidate_limit_defers_regions_without_merging_them(self):
+        initial = Image.new("RGBA", (480, 480), (0, 0, 0, 255))
+        current = initial.copy()
+        atomic_regions = tuple(
+            AtomicRegion(f"value-{index}", index * 24, 0, 12, 12)
+            for index in range(6)
+        )
+        draw = ImageDraw.Draw(current)
+        for region in atomic_regions:
+            draw.rectangle(
+                (region.x, region.y, region.right - 1, region.bottom - 1),
+                fill=(255, 255, 255, 255),
+            )
+        planner = BudgetedFramePlanner(
+            initial,
+            atomic_regions=atomic_regions,
+            initial_sequence=1,
+            tile_size=4,
+        )
+
+        plan = planner.plan(
+            current,
+            max_regions=8,
+            max_candidate_regions=4,
+            max_wire_bytes=300_000,
+        )
+
+        self.assertEqual(len(plan.selected_regions), 4)
+        self.assertEqual(plan.deferred_region_count, 2)
+        self.assertEqual(
+            [region.as_dict() for region in plan.selected_regions],
+            [
+                {
+                    "x": region.x,
+                    "y": region.y,
+                    "width": region.width,
+                    "height": region.height,
+                }
+                for region in atomic_regions[:4]
+            ],
+        )
+
+    def test_deferred_atomic_widgets_receive_priority_next_cycle(self):
+        initial = Image.new("RGBA", (480, 480), (0, 0, 0, 255))
+        atomic_regions = tuple(
+            AtomicRegion(
+                f"value-{index}",
+                (index % 6) * 32,
+                (index // 6) * 32,
+                12,
+                12,
+            )
+            for index in range(12)
+        )
+        first = initial.copy()
+        first_draw = ImageDraw.Draw(first)
+        for index, region in enumerate(atomic_regions):
+            value = 80 + index
+            first_draw.rectangle(
+                (region.x, region.y, region.right - 1, region.bottom - 1),
+                fill=(value, value, value, 255),
+            )
+
+        planner = BudgetedFramePlanner(
+            initial,
+            atomic_regions=atomic_regions,
+            initial_sequence=1,
+            tile_size=4,
+        )
+        first_plan = planner.plan(
+            first,
+            max_regions=8,
+            max_candidate_regions=32,
+            max_wire_bytes=300_000,
+        )
+        planner.commit(first, first_plan)
+
+        second = first.copy()
+        second_draw = ImageDraw.Draw(second)
+        for index, region in enumerate(atomic_regions[:8]):
+            value = 160 + index
+            second_draw.rectangle(
+                (region.x, region.y, region.right - 1, region.bottom - 1),
+                fill=(value, value, value, 255),
+            )
+
+        second_plan = planner.plan(
+            second,
+            max_regions=8,
+            max_candidate_regions=32,
+            max_wire_bytes=300_000,
+        )
+        selected = {
+            (region.x, region.y, region.width, region.height)
+            for region in second_plan.selected_regions
+        }
+        previously_deferred = {
+            (region.x, region.y, region.width, region.height)
+            for region in atomic_regions[8:]
+        }
+
+        self.assertEqual(len(second_plan.selected_regions), 8)
+        self.assertTrue(previously_deferred.issubset(selected))
+        self.assertEqual(second_plan.selected_atomic_regions, 8)
+
 
 if __name__ == "__main__":
     unittest.main()

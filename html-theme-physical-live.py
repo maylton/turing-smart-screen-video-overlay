@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_THEME = ROOT / "res" / "themes" / "html-demo"
 DEFAULT_STATUS_LOG = Path("/tmp/turing-html-physical-status.jsonl")
 PLANNING_MAX_REGIONS = 512
+MAX_SAFE_EXCHANGES_PER_CYCLE = 8
 
 
 def parse_args(argv):
@@ -72,27 +73,33 @@ def parse_args(argv):
     parser.add_argument(
         "--max-regions",
         type=int,
-        default=8,
-        help="Maximum UPDATE_BITMAP transactions in one physical batch.",
+        default=MAX_SAFE_EXCHANGES_PER_CYCLE,
+        help=(
+            "Maximum UPDATE_BITMAP transactions sent in one physical cycle; "
+            f"the guarded Rev. C ceiling is {MAX_SAFE_EXCHANGES_PER_CYCLE}."
+        ),
     )
     parser.add_argument(
         "--max-total-regions",
         type=int,
         default=32,
-        help="Maximum tight regions selected for one logical update.",
+        help=(
+            "Maximum prioritized candidate regions considered per cycle; "
+            "excess regions remain deferred."
+        ),
     )
     parser.add_argument("--max-wire-bytes", type=int, default=300_000)
     parser.add_argument(
         "--region-pacing",
         type=float,
         default=0.25,
-        help="Seconds to wait between regions inside one physical batch.",
+        help="Seconds to wait between regions inside one physical cycle.",
     )
     parser.add_argument(
         "--batch-pacing",
         type=float,
         default=0.35,
-        help="Seconds to wait at boundaries between physical region batches.",
+        help="Reserved pause between physical batches; retained for compatibility.",
     )
     parser.add_argument(
         "--status-min-bytes",
@@ -254,8 +261,13 @@ def validate_cli_args(args) -> Optional[str]:
         return "--poll-interval must be greater than zero"
     if args.stale_after <= 0:
         return "--stale-after must be greater than zero"
-    if args.max_total_regions <= 0:
-        return "--max-total-regions must be greater than zero"
+    if not 1 <= args.max_regions <= MAX_SAFE_EXCHANGES_PER_CYCLE:
+        return (
+            "--max-regions must be between 1 and "
+            f"{MAX_SAFE_EXCHANGES_PER_CYCLE}"
+        )
+    if args.max_total_regions < args.max_regions:
+        return "--max-total-regions must be at least --max-regions"
     if args.max_wire_bytes <= 0:
         return "--max-wire-bytes must be greater than zero"
     return None
@@ -315,12 +327,11 @@ def run(args) -> int:
     print(
         "Diagnostic limits: "
         f"frames={args.max_frames} "
-        f"regions-per-batch={args.max_regions} "
-        f"selected-regions={args.max_total_regions} "
+        f"physical-regions={args.max_regions} "
+        f"candidate-regions={args.max_total_regions} "
         f"wire-budget={args.max_wire_bytes} "
         f"interval={args.interval:.2f}s "
-        f"region-pacing={args.region_pacing:.2f}s "
-        f"batch-pacing={args.batch_pacing:.2f}s"
+        f"region-pacing={args.region_pacing:.2f}s"
     )
 
     if not (
@@ -345,7 +356,7 @@ def run(args) -> int:
             max_partial_frames=args.max_frames,
             max_duration=args.duration,
             min_interval=args.interval,
-            max_regions=args.max_total_regions,
+            max_regions=args.max_regions,
             batch_regions=args.max_regions,
             max_wire_bytes=args.max_wire_bytes,
             region_pacing=args.region_pacing,
@@ -419,7 +430,8 @@ def run(args) -> int:
                 try:
                     plan = planner.plan(
                         frame,
-                        max_regions=args.max_total_regions,
+                        max_regions=args.max_regions,
+                        max_candidate_regions=args.max_total_regions,
                         max_wire_bytes=args.max_wire_bytes,
                     )
                 except FrameBudgetError as exc:
@@ -458,10 +470,22 @@ def run(args) -> int:
                         parity,
                     )
                 except LiveWriteRefused as exc:
-                    print(f"Live update refused: {exc}", file=sys.stderr)
+                    summary = session.close()
+                    print(
+                        f"Live update refused: {exc}; "
+                        f"serial-closed="
+                        f"{'yes' if summary.serial_closed else 'no'}",
+                        file=sys.stderr,
+                    )
                     return 6
                 except Exception as exc:
-                    print(f"Live update failed: {exc}", file=sys.stderr)
+                    summary = session.close()
+                    print(
+                        f"Live update failed: {exc}; "
+                        f"serial-closed="
+                        f"{'yes' if summary.serial_closed else 'no'}",
+                        file=sys.stderr,
+                    )
                     return 7
 
                 planner.commit(frame, plan)

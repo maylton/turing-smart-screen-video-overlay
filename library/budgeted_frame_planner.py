@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Dict, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 from PIL import Image
 
@@ -89,6 +89,9 @@ class BudgetedFramePlanner:
             (item.x, item.y, item.width, item.height): index
             for index, item in enumerate(self._atomic_regions)
         }
+        self._atomic_last_committed: Dict[Tuple[int, int, int, int], int] = {
+            coordinates: -1 for coordinates in self._atomic_order
+        }
 
     @property
     def physical_frame(self) -> Image.Image:
@@ -124,7 +127,13 @@ class BudgetedFramePlanner:
         coordinates = (region.x, region.y, region.width, region.height)
         atomic_index = self._atomic_order.get(coordinates)
         if atomic_index is not None:
-            return (0, atomic_index, 0, region.y, region.x)
+            return (
+                0,
+                self._atomic_last_committed[coordinates],
+                atomic_index,
+                region.y,
+                region.x,
+            )
         return (1, 0, region.area, region.y, region.x)
 
     def plan(
@@ -133,6 +142,7 @@ class BudgetedFramePlanner:
         *,
         max_regions: int,
         max_wire_bytes: int,
+        max_candidate_regions: Optional[int] = None,
     ) -> BudgetedFramePlan:
         current = current_frame.convert("RGBA")
         current.load()
@@ -143,10 +153,17 @@ class BudgetedFramePlanner:
             )
         region_limit = int(max_regions)
         wire_limit = int(max_wire_bytes)
+        candidate_limit = (
+            None
+            if max_candidate_regions is None
+            else int(max_candidate_regions)
+        )
         if region_limit <= 0:
             raise ValueError("max_regions must be greater than zero")
         if wire_limit <= 0:
             raise ValueError("max_wire_bytes must be greater than zero")
+        if candidate_limit is not None and candidate_limit <= 0:
+            raise ValueError("max_candidate_regions must be greater than zero")
 
         candidate = self._candidate_analysis(current)
         if candidate.full_refresh:
@@ -155,12 +172,17 @@ class BudgetedFramePlanner:
             )
 
         ordered = sorted(candidate.regions, key=self._priority)
-        selected = []
+        considered = ordered
         deferred = []
+        if candidate_limit is not None and len(ordered) > candidate_limit:
+            considered = ordered[:candidate_limit]
+            deferred.extend(ordered[candidate_limit:])
+
+        selected = []
         wire_bytes = 0
         atomic_selected = 0
 
-        for region in ordered:
+        for region in considered:
             cost = estimate_rev_c_partial_wire_bytes(region)
             if len(selected) >= region_limit or wire_bytes + cost > wire_limit:
                 deferred.append(region)
@@ -178,7 +200,7 @@ class BudgetedFramePlanner:
         if ordered and not selected:
             smallest = min(
                 estimate_rev_c_partial_wire_bytes(region)
-                for region in ordered
+                for region in considered
             )
             raise FrameBudgetError(
                 "no changed region fits the physical budget; "
@@ -220,4 +242,12 @@ class BudgetedFramePlanner:
                 (region.x, region.y, region.right, region.bottom)
             )
             self._physical_frame.paste(crop, (region.x, region.y))
+            coordinates = (
+                region.x,
+                region.y,
+                region.width,
+                region.height,
+            )
+            if coordinates in self._atomic_last_committed:
+                self._atomic_last_committed[coordinates] = plan.analysis.sequence
         self._sequence = plan.analysis.sequence
