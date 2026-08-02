@@ -16,8 +16,9 @@ Audit date: 2026-08-02
   files, before the Python environment and system libraries.
 - Completed: versioned `.theme` container with canonical root layout, atomic
   export, safe extraction limits, and legacy `.zip` compatibility.
-- Next: canonical `overlays.json` representation for editor-managed HTML
-  elements.
+- Completed: canonical `overlays.json` representation for editor-managed HTML
+  elements, including automatic migration from legacy hidden metadata.
+- Next: explicit custom sensor bindings and the YAML conversion analyzer.
 
 ## Executive summary
 

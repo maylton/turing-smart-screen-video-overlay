@@ -21,7 +21,11 @@ from library.theme_gallery import (
     replace_current_theme_name,
     set_current_theme,
 )
-from library.theme_package import PACKAGE_FILENAME, ThemePackageError
+from library.theme_package import (
+    PACKAGE_FILENAME,
+    ThemePackageDescriptor,
+    ThemePackageError,
+)
 
 
 class HtmlThemeGalleryTests(unittest.TestCase):
@@ -225,6 +229,47 @@ class HtmlThemeGalleryTests(unittest.TestCase):
 
             with mock.patch("library.theme_gallery.THEMES_DIR", themes):
                 with self.assertRaisesRegex(ThemePackageError, PACKAGE_FILENAME):
+                    import_theme(str(archive_path))
+
+    def test_theme_package_rejects_invalid_declared_overlay_document(self):
+        with tempfile.TemporaryDirectory(prefix="turing-invalid-overlays-") as temporary:
+            root = Path(temporary)
+            themes = root / "themes"
+            themes.mkdir()
+            archive_path = root / "invalid-overlays.theme"
+            descriptor = ThemePackageDescriptor(
+                name="invalid-overlays",
+                engine="html",
+                definition="manifest.json",
+            )
+            manifest = {
+                "engine": "html",
+                "name": "Invalid overlays",
+                "version": 1,
+                "display": {"width": 480, "height": 480},
+                "entrypoint": "index.html",
+                "overlayDocument": "overlays.json",
+                "permissions": ["sensors"],
+                "network": False,
+            }
+            overlays = {
+                "format": "turing-html-overlays",
+                "formatVersion": 1,
+                "schemaVersion": 4,
+                "display": {"width": 320, "height": 480},
+                "elements": [],
+            }
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(PACKAGE_FILENAME, descriptor.as_json())
+                archive.writestr("manifest.json", json.dumps(manifest))
+                archive.writestr(
+                    "index.html",
+                    '<meta http-equiv="Content-Security-Policy" content="default-src self">',
+                )
+                archive.writestr("overlays.json", json.dumps(overlays))
+
+            with mock.patch("library.theme_gallery.THEMES_DIR", themes):
+                with self.assertRaisesRegex(ThemePackageError, "overlay document"):
                     import_theme(str(archive_path))
 
     def test_default_export_extension_is_theme(self):

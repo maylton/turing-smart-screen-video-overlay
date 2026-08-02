@@ -21,7 +21,13 @@ from library.html_theme_components import (
 from library.theme_engine import ThemeManifest, ThemeValidationError
 
 
-EDITOR_METADATA_FILENAME = ".html-theme-editor.json"
+OVERLAY_DOCUMENT_FILENAME = "overlays.json"
+OVERLAY_DOCUMENT_FORMAT = "turing-html-overlays"
+OVERLAY_DOCUMENT_FORMAT_VERSION = 1
+LEGACY_EDITOR_METADATA_FILENAME = ".html-theme-editor.json"
+# Compatibility name imported by the editor and older integrations. It now
+# points at the public, canonical overlay document rather than hidden metadata.
+EDITOR_METADATA_FILENAME = OVERLAY_DOCUMENT_FILENAME
 EDITOR_STYLESHEET_FILENAME = "theme-editor-overrides.css"
 EDITOR_SCHEMA_VERSION = 4
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -413,22 +419,69 @@ def metadata_path(manifest: ThemeManifest) -> Path:
     return manifest.root / EDITOR_METADATA_FILENAME
 
 
+def legacy_metadata_path(manifest: ThemeManifest) -> Path:
+    return manifest.root / LEGACY_EDITOR_METADATA_FILENAME
+
+
 def stylesheet_path(manifest: ThemeManifest) -> Path:
     return manifest.root / EDITOR_STYLESHEET_FILENAME
+
+
+def render_overlay_document(
+    manifest: ThemeManifest,
+    styles: Iterable[HtmlVisualElementStyle],
+) -> str:
+    return json.dumps(
+        {
+            "format": OVERLAY_DOCUMENT_FORMAT,
+            "formatVersion": OVERLAY_DOCUMENT_FORMAT_VERSION,
+            "schemaVersion": EDITOR_SCHEMA_VERSION,
+            "display": {
+                "width": manifest.width,
+                "height": manifest.height,
+            },
+            "elements": [style.as_dict() for style in styles],
+        },
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+
+def _visual_metadata_source(manifest: ThemeManifest) -> tuple[Path, bool]:
+    canonical = metadata_path(manifest)
+    if canonical.is_file():
+        return canonical, True
+    return legacy_metadata_path(manifest), False
 
 
 def load_visual_styles(
     manifest: ThemeManifest,
 ) -> tuple[HtmlVisualElementStyle, ...]:
-    path = metadata_path(manifest)
+    path, canonical = _visual_metadata_source(manifest)
     if not path.is_file():
         return ()
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ThemeValidationError(f"invalid {EDITOR_METADATA_FILENAME}: {exc}") from exc
+        raise ThemeValidationError(f"invalid {path.name}: {exc}") from exc
     if not isinstance(payload, Mapping):
-        raise ThemeValidationError(f"{EDITOR_METADATA_FILENAME} must contain an object")
+        raise ThemeValidationError(f"{path.name} must contain an object")
+    if canonical:
+        if payload.get("format") != OVERLAY_DOCUMENT_FORMAT:
+            raise ThemeValidationError(
+                f"{OVERLAY_DOCUMENT_FILENAME} has an unsupported format"
+            )
+        if payload.get("formatVersion") != OVERLAY_DOCUMENT_FORMAT_VERSION:
+            raise ThemeValidationError(
+                f"unsupported {OVERLAY_DOCUMENT_FILENAME} format version"
+            )
+        display = payload.get("display")
+        if not isinstance(display, Mapping) or (
+            display.get("width"), display.get("height")
+        ) != (manifest.width, manifest.height):
+            raise ThemeValidationError(
+                f"{OVERLAY_DOCUMENT_FILENAME} display does not match the theme manifest"
+            )
     if payload.get("schemaVersion") not in {1, 2, 3, EDITOR_SCHEMA_VERSION}:
         raise ThemeValidationError("unsupported HTML visual editor schema")
     raw_elements = payload.get("elements")
@@ -742,14 +795,23 @@ def save_visual_styles(
     entrypoint_path = manifest.entrypoint_path
     css_path = stylesheet_path(manifest)
     editor_path = metadata_path(manifest)
+    legacy_editor_path = legacy_metadata_path(manifest)
     runtime_path = manifest.root / WIDGET_RUNTIME_FILENAME
-    paths = (manifest_path, entrypoint_path, css_path, editor_path, runtime_path)
+    paths = (
+        manifest_path,
+        entrypoint_path,
+        css_path,
+        editor_path,
+        legacy_editor_path,
+        runtime_path,
+    )
     originals = {
         path: path.read_text(encoding="utf-8") if path.is_file() else None
         for path in paths
     }
 
     payload = json.loads(originals[manifest_path] or "{}")
+    payload["overlayDocument"] = OVERLAY_DOCUMENT_FILENAME
     payload["atomicRegions"] = [
         {
             "name": f"overlay:{style.element_id}",
@@ -773,21 +835,18 @@ def save_visual_styles(
     )
     html_text = ensure_widget_runtime_script(html_text)
     css_text = render_visual_stylesheet(ordered)
-    metadata_text = json.dumps(
-        {
-            "schemaVersion": EDITOR_SCHEMA_VERSION,
-            "elements": [style.as_dict() for style in ordered],
-        },
-        ensure_ascii=False,
-        indent=2,
-    ) + "\n"
+    metadata_text = render_overlay_document(manifest, ordered)
     runtime_text = render_widget_runtime_script()
+    # Publish the manifest last. If the process is interrupted mid-save, the
+    # previous manifest never points at a canonical overlay document that has
+    # not been written yet.
     outputs = {
-        manifest_path: manifest_text,
-        entrypoint_path: html_text,
-        css_path: css_text,
         editor_path: metadata_text,
+        css_path: css_text,
+        entrypoint_path: html_text,
+        legacy_editor_path: None,
         runtime_path: runtime_text,
+        manifest_path: manifest_text,
     }
 
     for path in paths:

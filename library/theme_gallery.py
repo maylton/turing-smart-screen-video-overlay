@@ -25,6 +25,7 @@ from library.html_theme_authoring import (
     inspect_native_video_artifact,
     save_html_theme_authoring,
 )
+from library.html_theme_visual_editor import load_visual_styles
 from library.theme_engine import ThemeManifest, ThemeValidationError
 from library.theme_package import (
     PACKAGE_EXTENSION,
@@ -493,6 +494,13 @@ def validate_theme_package_directory(
         policy_issue = html_theme_gallery_issue(manifest)
         if policy_issue is not None:
             raise ThemePackageError(policy_issue)
+        if manifest.overlay_document is not None:
+            try:
+                load_visual_styles(manifest)
+            except ThemeValidationError as exc:
+                raise ThemePackageError(
+                    f"Invalid packaged HTML overlay document: {exc}"
+                ) from exc
         return
 
     yaml_file = find_theme_file(source_dir)

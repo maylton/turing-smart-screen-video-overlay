@@ -25,6 +25,7 @@ HTML package:
 material-expressive.theme
 ├── theme-package.json
 ├── manifest.json
+├── overlays.json
 ├── index.html
 ├── style.css
 ├── theme.js
@@ -86,8 +87,8 @@ Before extraction the importer rejects:
 - large members with a suspicious compression ratio.
 
 After extraction it validates the descriptor, required definition file, engine,
-HTML manifest, CSP, local-only permissions, and network policy. Existing themes
-are never overwritten.
+HTML manifest, declared overlay document, CSP, local-only permissions, and
+network policy. Existing themes are never overwritten.
 
 ## Export behavior
 

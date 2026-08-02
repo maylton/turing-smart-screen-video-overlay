@@ -11,6 +11,9 @@ from library.html_theme_visual_editor import (
     EDITOR_METADATA_FILENAME,
     EDITOR_SCHEMA_VERSION,
     EDITOR_STYLESHEET_FILENAME,
+    LEGACY_EDITOR_METADATA_FILENAME,
+    OVERLAY_DOCUMENT_FORMAT,
+    OVERLAY_DOCUMENT_FORMAT_VERSION,
     HtmlVisualElementStyle,
     VisualStyleHistory,
     align_visual_style,
@@ -22,6 +25,7 @@ from library.html_theme_visual_editor import (
     nudge_visual_style,
     place_visual_style,
     render_visual_stylesheet,
+    render_overlay_document,
     resize_visual_style,
     save_visual_styles,
     visual_style_snapshot,
@@ -173,7 +177,21 @@ class HtmlThemeVisualEditorTests(unittest.TestCase):
             saved = save_visual_styles(manifest, self.styles())
 
             self.assertEqual(load_visual_styles(saved), self.styles())
+            self.assertEqual(saved.overlay_document, EDITOR_METADATA_FILENAME)
+            self.assertEqual(
+                saved.overlay_document_path,
+                saved.root / EDITOR_METADATA_FILENAME,
+            )
             self.assertTrue((saved.root / EDITOR_METADATA_FILENAME).is_file())
+            document = json.loads(
+                (saved.root / EDITOR_METADATA_FILENAME).read_text(encoding="utf-8")
+            )
+            self.assertEqual(document["format"], OVERLAY_DOCUMENT_FORMAT)
+            self.assertEqual(
+                document["formatVersion"],
+                OVERLAY_DOCUMENT_FORMAT_VERSION,
+            )
+            self.assertEqual(document["display"], {"width": 480, "height": 480})
             self.assertTrue((saved.root / EDITOR_STYLESHEET_FILENAME).is_file())
             self.assertIn(
                 EDITOR_STYLESHEET_FILENAME,
@@ -376,7 +394,7 @@ class HtmlThemeVisualEditorTests(unittest.TestCase):
     def test_loads_version_one_metadata_with_non_destructive_defaults(self):
         with tempfile.TemporaryDirectory() as temporary:
             manifest = self.make_theme(Path(temporary) / "theme")
-            (manifest.root / EDITOR_METADATA_FILENAME).write_text(
+            (manifest.root / LEGACY_EDITOR_METADATA_FILENAME).write_text(
                 json.dumps(
                     {
                         "schemaVersion": 1,
@@ -413,7 +431,8 @@ class HtmlThemeVisualEditorTests(unittest.TestCase):
                 ):
                     value.pop(key)
                 legacy_elements.append(value)
-            (manifest.root / EDITOR_METADATA_FILENAME).write_text(
+            legacy_path = manifest.root / LEGACY_EDITOR_METADATA_FILENAME
+            legacy_path.write_text(
                 json.dumps({"schemaVersion": 3, "elements": legacy_elements}),
                 encoding="utf-8",
             )
@@ -437,7 +456,46 @@ class HtmlThemeVisualEditorTests(unittest.TestCase):
                 (saved.root / EDITOR_METADATA_FILENAME).read_text(encoding="utf-8")
             )
             self.assertEqual(metadata["schemaVersion"], EDITOR_SCHEMA_VERSION)
+            self.assertFalse(legacy_path.exists())
+            self.assertTrue(
+                legacy_path.with_name(
+                    f"{LEGACY_EDITOR_METADATA_FILENAME}.visual.editor-backup"
+                ).is_file()
+            )
             self.assertEqual(load_visual_styles(saved)[0], styled)
+
+    def test_canonical_overlay_document_takes_precedence_over_legacy_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = self.make_theme(Path(temporary) / "theme")
+            legacy = (self.styles()[0], replace(self.styles()[1], color="#ff0000"))
+            (manifest.root / LEGACY_EDITOR_METADATA_FILENAME).write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 4,
+                        "elements": [style.as_dict() for style in legacy],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (manifest.root / EDITOR_METADATA_FILENAME).write_text(
+                render_overlay_document(manifest, self.styles()),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(load_visual_styles(manifest), self.styles())
+
+    def test_rejects_overlay_document_for_a_different_display(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = self.make_theme(Path(temporary) / "theme")
+            payload = json.loads(render_overlay_document(manifest, self.styles()))
+            payload["display"]["width"] = 320
+            (manifest.root / EDITOR_METADATA_FILENAME).write_text(
+                json.dumps(payload),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ThemeValidationError, "display"):
+                load_visual_styles(manifest)
 
     def test_history_supports_bounded_undo_and_redo(self):
         first = {style.element_id: style for style in self.styles()}

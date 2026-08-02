@@ -1,5 +1,11 @@
 {
+  "format": "turing-html-overlays",
+  "formatVersion": 1,
   "schemaVersion": 4,
+  "display": {
+    "width": 480,
+    "height": 480
+  },
   "elements": [
     {
       "id": "time-display",
