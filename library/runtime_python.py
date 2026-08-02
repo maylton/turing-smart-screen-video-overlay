@@ -9,6 +9,7 @@ import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from types import MethodType
 
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
@@ -39,6 +40,9 @@ def _decode_javascript_json(value):
 def _evaluate_json_bridge(self, script: str, callback) -> None:
     """Evaluate JavaScript while returning only a JSON string through WebKitGTK."""
     wrapped_script = _javascript_json_script(script)
+    self._turing_json_bridge_calls = (
+        int(getattr(self, "_turing_json_bridge_calls", 0)) + 1
+    )
 
     def finished(view, result, _user_data=None):
         try:
@@ -66,6 +70,15 @@ def _patch_html_editor_class(editor_class) -> bool:
         return True
     editor_class._evaluate_json = _evaluate_json_bridge
     editor_class._turing_json_bridge_installed = True
+    return True
+
+
+def _patch_html_editor_instance(window) -> bool:
+    """Bind the bridge directly to a live window, independent of class timing."""
+    if window is None:
+        return False
+    window._evaluate_json = MethodType(_evaluate_json_bridge, window)
+    window._turing_json_bridge_instance_installed = True
     return True
 
 
@@ -121,8 +134,7 @@ def _install_html_editor_extensions() -> None:
         return
 
     # runtime_python is imported before HtmlThemeEditorWindow is declared.
-    # Hook class construction now so _evaluate_json is replaced synchronously,
-    # before an instance or WebKit load callback can exist.
+    # Hook class construction now so _evaluate_json is replaced synchronously.
     _install_html_editor_build_class_hook()
 
     try:
@@ -135,7 +147,6 @@ def _install_html_editor_extensions() -> None:
         print(f"Erro ao preparar extensões do editor HTML: {exc}", file=sys.stderr)
         return
 
-    # Keep a fallback for wrappers that load the file under a module name.
     GLib.idle_add(_install_html_editor_class_patch)
 
     attempts = 0
@@ -153,10 +164,36 @@ def _install_html_editor_extensions() -> None:
                     continue
                 if getattr(window, "inspector_stack", None) is None:
                     return attempts < 150
+
                 _patch_html_editor_class(window.__class__)
+                _patch_html_editor_instance(window)
                 _attach_background_page(window, Gtk, Gio)
                 if not getattr(window, "_turing_background_page_attached", False):
                     raise RuntimeError("a página Fundo não foi anexada ao inspector_stack")
+
+                if not getattr(window, "_turing_json_bridge_retry_scheduled", False):
+                    window._turing_json_bridge_retry_scheduled = True
+
+                    def retry_dom_inspection() -> bool:
+                        try:
+                            _patch_html_editor_instance(window)
+                            status = getattr(window, "status_label", None)
+                            if status is not None:
+                                status.set_text("Reinspecionando elementos…")
+                            window._query_dom_styles()
+                            print(
+                                "Ponte JSON do editor HTML instalada; "
+                                "nova inspeção solicitada.",
+                                file=sys.stderr,
+                            )
+                        except Exception as exc:
+                            print(
+                                f"Erro ao repetir inspeção do editor HTML: {exc}",
+                                file=sys.stderr,
+                            )
+                        return False
+
+                    GLib.idle_add(retry_dom_inspection)
                 return False
         except Exception as exc:
             print(f"Erro ao carregar extensões do editor HTML: {exc}", file=sys.stderr)
