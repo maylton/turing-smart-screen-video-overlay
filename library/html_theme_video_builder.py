@@ -11,7 +11,7 @@ from typing import Optional
 from library.html_background_video import (
     extract_preview_frame,
     image_pipe_ffmpeg_command,
-    load_background_video,
+    load_background_media,
 )
 from library.html_hybrid import (
     OVERLAY_SELECTOR,
@@ -52,7 +52,7 @@ def build_native_video(
     spec = manifest.native_video_overlay
     if manifest.engine != "html" or spec is None:
         raise ThemeValidationError("an opt-in HTML native-video theme is required")
-    background = load_background_video(manifest)
+    background = load_background_media(manifest)
     destination = (
         Path(destination).expanduser().resolve()
         if destination is not None
@@ -153,9 +153,6 @@ def build_native_video(
             return False
 
         def seek_next(self) -> None:
-            # Warm up one complete loop before frame zero so positive CSS
-            # animation delays are already in their periodic phase. This keeps
-            # the last-to-first MP4 transition continuous.
             milliseconds = (
                 spec.duration + self.index / spec.fps
             ) * 1000.0
@@ -164,8 +161,6 @@ def build_native_video(
                 if error is not None:
                     self.fail(error)
                     return
-                # Evaluation completion is a JS barrier; one short GTK paint
-                # turn makes the selected animation time visible to snapshot.
                 GLib.timeout_add(12, self.capture_frame)
 
             engine.evaluate(seek_animations_script(milliseconds), sought)
