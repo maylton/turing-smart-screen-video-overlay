@@ -4,7 +4,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from library.runtime_python import resolve_project_python
+from library.runtime_python import (
+    _decode_javascript_json,
+    _javascript_json_script,
+    resolve_project_python,
+)
+
+
+class FakeJavascriptValue:
+    def __init__(self, value: str):
+        self.value = value
+
+    def to_string(self) -> str:
+        return self.value
 
 
 class RuntimePythonTests(unittest.TestCase):
@@ -13,6 +25,23 @@ class RuntimePythonTests(unittest.TestCase):
         path.write_text("#!/bin/sh\n", encoding="utf-8")
         path.chmod(0o755)
         return path
+
+    def test_wraps_structured_javascript_result_as_json_string(self):
+        script = _javascript_json_script("(() => [{id: 'clock'}])();")
+        self.assertTrue(script.startswith("JSON.stringify(("))
+        self.assertIn("[{id: 'clock'}]", script)
+        self.assertFalse(script.rstrip().endswith(";"))
+
+    def test_decodes_json_string_from_javascript_value(self):
+        value = FakeJavascriptValue('[{"id":"clock","visible":true}]')
+        self.assertEqual(
+            _decode_javascript_json(value),
+            [{"id": "clock", "visible": True}],
+        )
+
+    def test_rejects_missing_javascript_result(self):
+        with self.assertRaises(RuntimeError):
+            _decode_javascript_json(None)
 
     def test_prefers_explicit_override(self):
         with tempfile.TemporaryDirectory() as temporary:
