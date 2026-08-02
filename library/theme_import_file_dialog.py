@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import tempfile
+import zipfile
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -49,8 +51,43 @@ def install() -> bool:
     Gtk = gallery.Gtk
     original_import_theme = gallery.import_theme
 
+    def import_legacy_theme_archive(source: Path) -> str:
+        """Import old ``.theme`` files that are plain validated ZIP archives."""
+        with tempfile.TemporaryDirectory(prefix="turing-theme-import-") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            with zipfile.ZipFile(source) as archive:
+                gallery.validate_zip_members(archive)
+                archive.extractall(tmp_path)
+
+            theme_source = gallery.resolve_import_theme_source(tmp_path)
+            preferred_name = source.stem
+
+            manifest_path = theme_source / "manifest.json"
+            if manifest_path.is_file():
+                try:
+                    preferred_name = gallery.ThemeManifest.load(theme_source).name
+                except gallery.ThemeValidationError:
+                    # resolve_import_theme_source() already rejects invalid themes.
+                    pass
+            elif theme_source != tmp_path:
+                preferred_name = theme_source.name
+
+            return gallery.copy_imported_theme(theme_source, preferred_name)
+
     def import_theme_from_selection(source_path_text: str) -> str:
         source = normalize_theme_import_path(source_path_text)
+
+        if source.is_file() and source.suffix.casefold() == gallery.PACKAGE_EXTENSION:
+            with zipfile.ZipFile(source) as archive:
+                gallery.validate_zip_members(archive)
+                root_members = {
+                    name.rstrip("/")
+                    for name in archive.namelist()
+                    if name and "/" not in name.rstrip("/")
+                }
+            if gallery.PACKAGE_FILENAME not in root_members:
+                return import_legacy_theme_archive(source)
+
         return original_import_theme(str(source))
 
     def close_chooser(pane, chooser) -> None:
