@@ -6,7 +6,9 @@ from pathlib import Path
 
 from library.runtime_python import (
     _decode_javascript_json,
+    _evaluate_json_bridge,
     _javascript_json_script,
+    _patch_html_editor_class,
     resolve_project_python,
 )
 
@@ -42,6 +44,16 @@ class RuntimePythonTests(unittest.TestCase):
     def test_rejects_missing_javascript_result(self):
         with self.assertRaises(RuntimeError):
             _decode_javascript_json(None)
+
+    def test_patches_editor_class_before_instance_creation(self):
+        class FakeEditor:
+            def _evaluate_json(self, script, callback):
+                raise AssertionError("legacy bridge should be replaced")
+
+        self.assertTrue(_patch_html_editor_class(FakeEditor))
+        self.assertIs(FakeEditor._evaluate_json, _evaluate_json_bridge)
+        self.assertTrue(FakeEditor._turing_json_bridge_installed)
+        self.assertTrue(_patch_html_editor_class(FakeEditor))
 
     def test_prefers_explicit_override(self):
         with tempfile.TemporaryDirectory() as temporary:
