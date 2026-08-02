@@ -32,6 +32,10 @@ and this project intends to use semantic versioning for fork releases.
 - Theme Gallery / Theme Manager app shell integration.
 - Theme import/export with export completeness preflight for referenced and
   generated media.
+- HTML editor import/export actions and an importable IDE starter theme.
+- Non-destructive YAML-to-HTML text/bar conversion for individual themes and
+  atomic collection batches.
+- Complete HTML theme authoring, overlay, package, and migration documentation.
 - Installer `--check-only` diagnostics for distro/package manager, runtime
   dependencies, PATH, venv health, and serial/USB permissions.
 

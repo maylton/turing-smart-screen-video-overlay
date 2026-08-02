@@ -205,6 +205,7 @@ class ThemeManifest:
     root: Path
     atomic_regions: Tuple[AtomicRegion, ...] = ()
     native_video_overlay: Optional[NativeVideoOverlay] = None
+    overlay_document: Optional[str] = None
     data_update_policy: SensorUpdatePolicy = field(
         default_factory=lambda: SensorUpdatePolicy(default_interval=1.0)
     )
@@ -212,6 +213,16 @@ class ThemeManifest:
     @property
     def entrypoint_path(self) -> Path:
         return _safe_relative_path(self.root, self.entrypoint, "entrypoint")
+
+    @property
+    def overlay_document_path(self) -> Optional[Path]:
+        if self.overlay_document is None:
+            return None
+        return _safe_relative_path(
+            self.root,
+            self.overlay_document,
+            "overlayDocument",
+        )
 
     @classmethod
     def load(cls, theme_directory: Path) -> "ThemeManifest":
@@ -287,6 +298,26 @@ class ThemeManifest:
                 "network=true requires the explicit 'network' permission"
             )
 
+        overlay_document_raw = payload.get("overlayDocument")
+        overlay_document: Optional[str] = None
+        if overlay_document_raw is not None:
+            if engine != "html":
+                raise ThemeValidationError("overlayDocument is supported only by HTML themes")
+            if not isinstance(overlay_document_raw, str):
+                raise ThemeValidationError("overlayDocument must be a string")
+            overlay_document = overlay_document_raw.strip()
+            if overlay_document != "overlays.json":
+                raise ThemeValidationError("overlayDocument must use overlays.json")
+            overlay_path = _safe_relative_path(
+                root,
+                overlay_document,
+                "overlayDocument",
+            )
+            if not overlay_path.is_file():
+                raise ThemeValidationError(
+                    f"Theme overlay document is missing: {overlay_document}"
+                )
+
         try:
             atomic_regions = parse_atomic_regions(
                 payload.get("atomicRegions", []),
@@ -330,6 +361,7 @@ class ThemeManifest:
             network=network,
             atomic_regions=atomic_regions,
             native_video_overlay=native_video_overlay,
+            overlay_document=overlay_document,
             data_update_policy=data_update_policy,
             root=root,
         )

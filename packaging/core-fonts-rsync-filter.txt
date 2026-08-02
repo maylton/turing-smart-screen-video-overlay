@@ -1,0 +1,35 @@
+# Fonts referenced by bundled YAML themes, editor templates, and editor defaults.
+# Keep directory rules so rsync can descend to each explicitly listed file.
++ /res/fonts/
++ /res/fonts/digital/
++ /res/fonts/digital/DIGITAL-7.TTF
++ /res/fonts/fusion-pixel/
++ /res/fonts/fusion-pixel/fusion-pixel-10px-monospaced-zh_hans.otf
++ /res/fonts/fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
++ /res/fonts/geforce/
++ /res/fonts/geforce/GeForce-Bold.ttf
++ /res/fonts/generale-mono/
++ /res/fonts/generale-mono/GeneraleMonoA.ttf
++ /res/fonts/generale-mono/LICENSE.txt
++ /res/fonts/jetbrains-mono/
++ /res/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf
++ /res/fonts/jetbrains-mono/JetBrainsMono-ExtraBold.ttf
++ /res/fonts/jetbrains-mono/JetBrainsMono-Light.ttf
++ /res/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf
++ /res/fonts/jetbrains-mono/OFL.txt
++ /res/fonts/racespace/
++ /res/fonts/racespace/RACESPACEREGULAR-Extended.otf
++ /res/fonts/racespace/LICENSE.txt
++ /res/fonts/roboto-mono/
++ /res/fonts/roboto-mono/RobotoMono-Bold.ttf
++ /res/fonts/roboto-mono/RobotoMono-Light.ttf
++ /res/fonts/roboto-mono/RobotoMono-Medium.ttf
++ /res/fonts/roboto-mono/RobotoMono-Regular.ttf
++ /res/fonts/roboto-mono/LICENSE.txt
++ /res/fonts/roboto/
++ /res/fonts/roboto/Roboto-Black.ttf
++ /res/fonts/roboto/Roboto-Bold.ttf
++ /res/fonts/roboto/Roboto-Medium.ttf
++ /res/fonts/roboto/Roboto-Regular.ttf
++ /res/fonts/roboto/LICENSE.txt
+- /res/fonts/***

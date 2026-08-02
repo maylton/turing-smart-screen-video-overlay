@@ -52,9 +52,9 @@ Included:
 - renaming the current theme updates `config.yaml` automatically;
 - guarded delete action that requires typing the exact theme name;
 - delete moves the theme folder to Trash and refuses to delete the current theme;
-- import from a theme folder or `.zip` archive;
+- import from a `.theme` package, theme folder, or legacy `.zip` archive;
 - import validates `theme.yaml`/`theme.yml`, rejects unsafe archive paths, and never overwrites existing themes;
-- export selected theme to a `.zip` archive;
+- export selected theme to a versioned `.theme` package;
 - export includes the theme folder contents under the theme folder name;
 - export skips temporary/editor-backup/cache files and never overwrites an existing archive;
 - robust theme folder opening using GTK/GIO first, `gio open`/`xdg-open` with captured errors, then direct file-manager fallbacks;
@@ -116,9 +116,9 @@ The MVP is accepted when:
 - delete is not available for the current theme;
 - deleting a non-current theme requires typing the exact theme name;
 - confirmed delete moves the theme folder to Trash and refreshes the gallery;
-- import accepts a folder containing `theme.yaml`/`theme.yml` or a safe `.zip` archive;
+- import accepts a versioned `.theme`, a folder containing `theme.yaml`/`theme.yml`, or a safe legacy `.zip` archive;
 - import never overwrites an existing theme;
-- export creates a `.zip` archive for a selected valid theme;
+- export creates a `.theme` package for a selected valid theme;
 - export never overwrites an existing archive;
 - export contains the selected theme folder with `theme.yaml`/`theme.yml` and assets;
 - clicking `Edit` opens the selected theme in `theme-editor-gtk.py`;
@@ -163,8 +163,8 @@ Manual validation:
 20. Rename the current theme and confirm `config.yaml` updates to the new name.
 21. Click delete on the duplicated theme, type the exact name, and confirm it moves to Trash.
 22. Confirm the current theme does not show a delete button.
-23. Click Import, paste a valid theme folder or `.zip` path, and confirm it appears without overwriting existing themes.
-24. Click Export on a valid theme and confirm a `.zip` archive is created without overwriting existing files.
+23. Click Import, paste a valid `.theme`, theme folder, or legacy `.zip` path, and confirm it appears without overwriting existing themes.
+24. Click Export on a valid theme and confirm a `.theme` package is created without overwriting existing files.
 25. Inspect the archive and confirm it contains the selected theme folder, `theme.yaml`/`theme.yml`, and assets.
 26. Click `Edit` on a normal theme and confirm the GTK Theme Editor opens.
 27. Click the folder button and confirm the file manager opens the theme folder.
@@ -189,7 +189,7 @@ Completed in this branch so far:
 12. Fix gallery layout expansion in the main app.
 13. Filter gallery themes to the detected/configured display size.
 14. Fix open theme folder in niri with direct file-manager fallback and debug logs.
-15. Export theme to `.zip` archive.
+15. Export theme to a versioned `.theme` package.
 
 Follow-up stack:
 

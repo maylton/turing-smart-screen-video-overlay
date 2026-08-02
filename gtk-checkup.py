@@ -244,29 +244,24 @@ def main() -> int:
         "library/html_theme_visual_editor.py",
         "library/html_theme_video_builder.py",
         "library/runtime_python.py",
+        "library/theme_package.py",
         "html-theme-build-video.py",
         "media-preparation.py",
         "media-preparation-gtk.py",
         "media_preparation_gtk_app.py",
-        "tests/test_runtime_lock.py",
-        "tests/test_video_media.py",
-        "tests/test_packaging.py",
-        "tests/test_media_preparation.py",
-        "tests/test_html_theme_authoring.py",
-        "tests/test_html_theme_visual_editor.py",
-        "tests/test_theme_gallery_html.py",
-        "tests/test_gpu_dependency_detection.py",
-        "scripts/test-media-preparation.py",
-        "docs/MEDIA_PREPARATION.md",
-        "scripts/test-install.py",
-        "docs/INSTALLATION.md",
-        "docs/ROADMAP.md",
         "theme-editor.py",
         "main.py",
         "config.yaml",
         "requirements-gpu-amd.txt",
+        "library/theme_font_profile.py",
+        "packaging/core-fonts-rsync-filter.txt",
+        "packaging/runtime-rsync-filter.txt",
         "res/editor-templates/default.yaml",
         "res/editor-templates/theme_example.yaml",
+        "res/docs/no-preview.png",
+        "tools/render_theme_preview.py",
+        "tools/turzx_extract_assets.py",
+        "tools/turzx_theme_hints.py",
     )
     for relative in required_files:
         path = root / relative
@@ -326,30 +321,39 @@ def main() -> int:
         "; ".join(syntax_errors),
     ))
 
-    automated_tests = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "unittest",
-            "-q",
-            "tests.test_runtime_lock",
-            "tests.test_video_media",
-            "tests.test_packaging",
-            "tests.test_media_preparation",
-            "tests.test_html_theme_authoring",
-            "tests.test_theme_gallery_html",
-            "tests.test_gpu_dependency_detection",
-        ],
-        cwd=str(root),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    checks.append(result(
-        automated_tests.returncode == 0,
-        "Runtime, packaging, GPU and video safety tests",
-        (automated_tests.stdout or automated_tests.stderr).strip()[-1000:],
-    ))
+    if (root / "tests").is_dir():
+        automated_tests = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "-q",
+                "tests.test_runtime_lock",
+                "tests.test_video_media",
+                "tests.test_packaging",
+                "tests.test_media_preparation",
+                "tests.test_html_theme_authoring",
+                "tests.test_theme_gallery_html",
+                "tests.test_theme_font_profile",
+                "tests.test_theme_package",
+                "tests.test_gpu_dependency_detection",
+            ],
+            cwd=str(root),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        checks.append(result(
+            automated_tests.returncode == 0,
+            "Runtime, packaging, GPU and video safety tests",
+            (automated_tests.stdout or automated_tests.stderr).strip()[-1000:],
+        ))
+    else:
+        checks.append(result(
+            True,
+            "Runtime, packaging, GPU and video safety tests",
+            "not bundled in the runtime payload; run from the source checkout",
+        ))
 
     venv_python = root / "venv" / "bin" / "python3"
     if venv_python.is_file():

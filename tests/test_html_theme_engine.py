@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -110,6 +111,23 @@ class HtmlThemeEngineTests(unittest.TestCase):
             engine = HtmlThemeEngine(FakeBackend)
             with self.assertRaises(ThemeValidationError):
                 engine.load(manifest)
+
+    def test_manifest_validates_declared_overlay_document(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "theme"
+            manifest = self.create_theme(root)
+            manifest_path = root / "manifest.json"
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            payload["overlayDocument"] = "overlays.json"
+            manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(ThemeValidationError, "missing"):
+                ThemeManifest.load(root)
+
+            (root / "overlays.json").write_text("{}", encoding="utf-8")
+            loaded = ThemeManifest.load(root)
+            self.assertEqual(loaded.overlay_document, "overlays.json")
+            self.assertEqual(loaded.overlay_document_path, root / "overlays.json")
 
     def test_repository_demo_theme_is_valid_and_has_csp(self):
         root = Path(__file__).resolve().parents[1]

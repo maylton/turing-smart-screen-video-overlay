@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -108,6 +109,98 @@ HTML_WIDGET_COMPONENTS = (
 
 _COMPONENTS_BY_KEY = {component.key: component for component in HTML_WIDGET_COMPONENTS}
 
+_WIDGET_BINDING = re.compile(
+    r"^(?:\$timestamp|[A-Za-z][A-Za-z0-9]*(?:\.(?:[A-Za-z][A-Za-z0-9]*|[0-9]+))*)$"
+)
+SUPPORTED_WIDGET_FORMATTERS = frozenset(
+    {
+        "text",
+        "integer",
+        "decimal",
+        "percent",
+        "temperature",
+        "gigabytes",
+        "megabytes",
+        "gigahertz",
+        "gigahertz-from-megahertz",
+        "megabytes-per-second",
+        "bytes",
+        "duration",
+        "fps",
+        "load",
+        "time",
+        "date",
+        "bar-percent",
+    }
+)
+_WIDGET_KINDS = {"text", "bar"}
+
+
+@dataclass(frozen=True)
+class HtmlGeneratedWidget:
+    """Resolved widget data used by generated HTML and converted themes."""
+
+    element_id: str
+    component_type: str = ""
+    binding: str = ""
+    formatter: str = ""
+    sample: str = ""
+    kind: str = "text"
+
+    def validated(self) -> "HtmlGeneratedWidget":
+        element_id = validate_widget_id(self.element_id)
+        component_type = str(self.component_type or "").strip()
+        component = (
+            get_html_widget_component(component_type)
+            if component_type
+            else None
+        )
+        binding = validate_widget_binding(
+            self.binding or (component.binding if component is not None else "")
+        )
+        kind = str(self.kind or "text").strip().lower()
+        if component is not None:
+            kind = component.kind
+        if kind not in _WIDGET_KINDS:
+            raise ThemeValidationError(f"unsupported generated widget kind: {kind}")
+        formatter = validate_widget_formatter(
+            self.formatter
+            or (
+                component.formatter
+                if component is not None
+                else ("bar-percent" if kind == "bar" else "text")
+            )
+        )
+        if kind == "bar" and formatter != "bar-percent":
+            raise ThemeValidationError("generated bar widgets must use bar-percent")
+        sample = validate_widget_sample(
+            self.sample
+            or (
+                component.sample
+                if component is not None
+                else ("50" if kind == "bar" else "--")
+            )
+        )
+        if kind == "bar":
+            try:
+                sample_number = float(sample)
+            except ValueError as exc:
+                raise ThemeValidationError(
+                    "generated bar widget sample must be a number from 0 to 100"
+                ) from exc
+            if not math.isfinite(sample_number) or not 0 <= sample_number <= 100:
+                raise ThemeValidationError(
+                    "generated bar widget sample must be a number from 0 to 100"
+                )
+        return HtmlGeneratedWidget(
+            element_id=element_id,
+            component_type=component_type,
+            binding=binding,
+            formatter=formatter,
+            sample=sample,
+            kind=kind,
+        )
+
 
 def html_widget_components() -> tuple[HtmlWidgetComponent, ...]:
     return HTML_WIDGET_COMPONENTS
@@ -118,6 +211,33 @@ def get_html_widget_component(key: str) -> HtmlWidgetComponent:
         return _COMPONENTS_BY_KEY[str(key)]
     except KeyError as exc:
         raise ThemeValidationError(f"unsupported HTML widget component: {key}") from exc
+
+
+def validate_widget_binding(binding: str) -> str:
+    value = str(binding or "").strip()
+    if not _WIDGET_BINDING.fullmatch(value):
+        raise ThemeValidationError(f"invalid generated widget binding: {binding}")
+    return value
+
+
+def validate_widget_formatter(formatter: str) -> str:
+    value = str(formatter or "").strip().lower()
+    if value not in SUPPORTED_WIDGET_FORMATTERS:
+        raise ThemeValidationError(
+            f"unsupported generated widget formatter: {formatter}"
+        )
+    return value
+
+
+def validate_widget_sample(sample: str) -> str:
+    value = str(sample or "").strip()
+    if (
+        not value
+        or len(value) > 80
+        or any(character in value for character in "\r\n")
+    ):
+        raise ThemeValidationError("generated widget sample must contain 1-80 characters")
+    return value
 
 
 def validate_widget_id(widget_id: str) -> str:
@@ -138,26 +258,41 @@ def next_widget_id(component_key: str, existing_ids: Iterable[str]) -> str:
     raise ThemeValidationError(f"too many generated widgets for {component.label}")
 
 
-def generated_widget_markup(widget_id: str, component_key: str) -> str:
-    widget_id = validate_widget_id(widget_id)
-    component = get_html_widget_component(component_key)
+def generated_widget_markup(
+    widget_id: str,
+    component_key: str = "",
+    *,
+    binding: str = "",
+    formatter: str = "",
+    sample: str = "",
+    kind: str = "text",
+) -> str:
+    widget = HtmlGeneratedWidget(
+        element_id=widget_id,
+        component_type=component_key,
+        binding=binding,
+        formatter=formatter,
+        sample=sample,
+        kind=kind,
+    ).validated()
     attributes = {
-        "id": widget_id,
+        "id": widget.element_id,
         "class": "turing-editor-widget",
         "data-turing-overlay": "",
         "data-turing-generated-widget": "",
-        "data-turing-component": component.key,
-        "data-turing-binding": component.binding,
-        "data-turing-format": component.formatter,
-        "data-turing-kind": component.kind,
+        "data-turing-binding": widget.binding,
+        "data-turing-format": widget.formatter,
+        "data-turing-kind": widget.kind,
     }
-    if component.kind == "bar":
+    if widget.component_type:
+        attributes["data-turing-component"] = widget.component_type
+    if widget.kind == "bar":
         attributes.update(
             {
                 "role": "progressbar",
                 "aria-valuemin": "0",
                 "aria-valuemax": "100",
-                "aria-valuenow": component.sample,
+                "aria-valuenow": widget.sample,
             }
         )
     rendered = " ".join(
@@ -166,20 +301,35 @@ def generated_widget_markup(widget_id: str, component_key: str) -> str:
     )
     content = (
         '<div data-turing-bar-fill aria-hidden="true"></div>'
-        if component.kind == "bar"
-        else html.escape(component.sample)
+        if widget.kind == "bar"
+        else html.escape(widget.sample)
     )
     return f"    <div {rendered}>{content}</div>"
 
 
 def render_generated_widget_block(
-    widgets: Iterable[tuple[str, str]],
+    widgets: Iterable[tuple[str, str] | HtmlGeneratedWidget],
 ) -> str:
     values = tuple(widgets)
     if not values:
         return ""
     lines = [WIDGET_BLOCK_START, '  <div id="turing-editor-widgets">']
-    lines.extend(generated_widget_markup(widget_id, key) for widget_id, key in values)
+    for value in values:
+        if isinstance(value, HtmlGeneratedWidget):
+            widget = value.validated()
+            lines.append(
+                generated_widget_markup(
+                    widget.element_id,
+                    widget.component_type,
+                    binding=widget.binding,
+                    formatter=widget.formatter,
+                    sample=widget.sample,
+                    kind=widget.kind,
+                )
+            )
+        else:
+            widget_id, component_key = value
+            lines.append(generated_widget_markup(widget_id, component_key))
     lines.extend(
         [
             "  </div>",
@@ -198,7 +348,7 @@ _WIDGET_BLOCK_RE = re.compile(
 
 def update_generated_widget_block(
     source: str,
-    widgets: Iterable[tuple[str, str]],
+    widgets: Iterable[tuple[str, str] | HtmlGeneratedWidget],
 ) -> str:
     cleaned = _WIDGET_BLOCK_RE.sub("", str(source))
     block = render_generated_widget_block(widgets)
@@ -296,6 +446,32 @@ def render_widget_runtime_script() -> str:
     if (format === 'temperature') return number === null ? '--°C' : `${Math.round(number)}°C`;
     if (format === 'percent') return number === null ? '--%' : `${Math.round(Math.max(0, Math.min(100, number)))}%`;
     if (format === 'gigabytes') return number === null ? '-- GB' : `${number.toFixed(1)} GB`;
+    if (format === 'megabytes') return number === null ? '-- M' : `${Math.round(number)} M`;
+    if (format === 'gigahertz') return number === null ? '-- GHz' : `${number.toFixed(2)} GHz`;
+    if (format === 'gigahertz-from-megahertz') return number === null ? '-- GHz' : `${(number / 1000).toFixed(2)} GHz`;
+    if (format === 'megabytes-per-second') return number === null ? '-- MB/s' : `${number.toFixed(1)} MB/s`;
+    if (format === 'integer') return number === null ? '--' : String(Math.round(number));
+    if (format === 'decimal') return number === null ? '--' : number.toFixed(2);
+    if (format === 'fps') return number === null ? '-- FPS' : `${Math.round(number)} FPS`;
+    if (format === 'bytes') {
+      if (number === null) return '--';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let amount = Math.max(0, number);
+      let unit = 0;
+      while (amount >= 1024 && unit < units.length - 1) {
+        amount /= 1024;
+        unit += 1;
+      }
+      return `${amount.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+    }
+    if (format === 'duration') {
+      if (number === null) return '--:--:--';
+      const seconds = Math.max(0, Math.round(number));
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const remainder = seconds % 60;
+      return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+    }
     if (format === 'load') return number === null ? '--' : number.toFixed(2);
     if (format === 'time') {
       const supplied = String(value || '').trim();

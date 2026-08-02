@@ -47,6 +47,13 @@ from library.html_theme_visual_editor import (
 from library.runtime_python import resolve_project_python
 from library.sensor_snapshot import SensorSnapshot
 from library.theme_engine import ThemeManifest, ThemeValidationError
+from library.theme_gallery import (
+    ThemeRecord,
+    export_theme,
+    import_theme,
+    show_export_theme_dialog,
+    show_import_theme_dialog,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -159,6 +166,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self._loaded_once = False
         self._drag_active = False
         self._resize_active = False
+        self._dirty = False
         self._build_process: subprocess.Popen[str] | None = None
 
         self.set_title(f"Editor HTML — {manifest.name}")
@@ -197,6 +205,14 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         redo_button = Gtk.Button(icon_name="edit-redo-symbolic", tooltip_text="Refazer")
         redo_button.set_action_name("win.redo")
         header.pack_start(redo_button)
+        import_button = Gtk.Button(label="Importar tema")
+        import_button.set_tooltip_text("Importar pacote .theme ou .zip")
+        import_button.connect("clicked", self._on_import_theme)
+        header.pack_end(import_button)
+        export_button = Gtk.Button(label="Exportar tema")
+        export_button.set_tooltip_text("Salvar o tema atual como um pacote .theme")
+        export_button.connect("clicked", self._on_export_theme)
+        header.pack_end(export_button)
         toolbar.add_top_bar(header)
 
         body = Gtk.Box(
@@ -552,6 +568,92 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
 
     def _toast(self, message: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=message, timeout=4))
+
+    def _theme_record(self) -> ThemeRecord:
+        preview = self.manifest.root / "preview.png"
+        return ThemeRecord(
+            name=self.manifest.root.name,
+            directory=self.manifest.root,
+            yaml_file=None,
+            preview_file=preview,
+            engine="html",
+            resolution=(self.manifest.width, self.manifest.height),
+            permissions=self.manifest.permissions,
+        )
+
+    def _on_import_theme(self, *_args) -> None:
+        show_import_theme_dialog(self, self._import_theme_from_path)
+
+    def _import_theme_from_path(self, source_path: str) -> None:
+        try:
+            imported_name = import_theme(source_path)
+        except Exception as exc:
+            self.status_label.set_text(f"Não foi possível importar o tema: {exc}")
+            self._toast("Falha ao importar o tema")
+            return
+        imported_root = THEMES_DIR / imported_name
+        if not (imported_root / "manifest.json").is_file():
+            self.status_label.set_text(
+                f"Tema YAML importado como {imported_name}; abra-o no editor YAML"
+            )
+            self._toast("Tema YAML importado")
+            return
+        try:
+            imported_manifest = ThemeManifest.load(imported_root)
+        except Exception as exc:
+            self.status_label.set_text(
+                f"Tema importado, mas o manifesto HTML não pôde ser aberto: {exc}"
+            )
+            self._toast("Tema importado com erro de manifesto")
+            return
+        if imported_manifest.engine != "html":
+            self.status_label.set_text(
+                f"Tema importado como {imported_name}, mas não usa o motor HTML"
+            )
+            self._toast("Tema importado")
+            return
+        self.status_label.set_text(f"Tema importado como {imported_name}")
+        self._toast("Tema HTML importado; abrindo nova janela")
+        try:
+            subprocess.Popen(
+                [
+                    resolve_project_python(ROOT),
+                    str(ROOT / "html-theme-editor-gtk.py"),
+                    imported_name,
+                ],
+                cwd=str(ROOT),
+                start_new_session=True,
+            )
+        except Exception as exc:
+            self.status_label.set_text(
+                f"Tema importado, mas a nova janela não abriu: {exc}"
+            )
+
+    def _on_export_theme(self, *_args) -> None:
+        if not self._loaded_once:
+            self._toast("Aguarde o carregamento do tema")
+            return
+        show_export_theme_dialog(
+            self,
+            self._theme_record(),
+            self._export_theme_to_path,
+        )
+
+    def _export_theme_to_path(
+        self,
+        record: ThemeRecord,
+        destination: str,
+    ) -> None:
+        if self._dirty and not self._save(False):
+            return
+        try:
+            exported = export_theme(record, destination)
+        except Exception as exc:
+            self.status_label.set_text(f"Não foi possível exportar o tema: {exc}")
+            self._toast("Falha ao exportar o tema")
+            return
+        self.status_label.set_text(f"Tema exportado: {exported}")
+        self._toast("Pacote .theme exportado")
 
     def _preview_preset(self) -> str:
         selected = min(
@@ -974,6 +1076,12 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                 zIndex: style.zIndex,
                 visible: style.display !== 'none',
                 componentType: element.dataset.turingComponent || '',
+                generatedWidget: element.hasAttribute('data-turing-generated-widget'),
+                binding: element.dataset.turingBinding || '',
+                formatter: element.dataset.turingFormat || '',
+                sample: element.dataset.turingKind === 'bar'
+                  ? (element.getAttribute('aria-valuenow') || '50')
+                  : (element.textContent.trim() || '--'),
                 elementKind: element.dataset.turingKind || (
                   element.textContent.trim() === '' && rect.width >= rect.height * 2
                     ? 'bar'
@@ -1035,6 +1143,10 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                     z_index=max(1, min(9999, z_index)),
                     visible=bool(item.get("visible", True)),
                     component_type=str(item.get("componentType") or ""),
+                    generated_widget=bool(item.get("generatedWidget", False)),
+                    binding=str(item.get("binding") or ""),
+                    formatter=str(item.get("formatter") or ""),
+                    sample=str(item.get("sample") or ""),
                     element_kind=str(item.get("elementKind") or "text"),
                 ).validated(self.manifest)
                 styles[style.element_id] = style
@@ -1049,6 +1161,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self.status_label.set_text("A configuração não cobre todos os overlays")
             return
         self._loaded_once = True
+        self._dirty = False
         self._drag_active = False
         self._resize_active = False
         self.history.clear()
@@ -1088,12 +1201,12 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             candidate.element_id
             for candidate in self.candidates
             if candidate.element_id in self.styles
-            and not self.styles[candidate.element_id].component_type
+            and not self.styles[candidate.element_id].is_generated
         ]
         generated_ids = [
             element_id
             for element_id, style in self.styles.items()
-            if style.component_type
+            if style.is_generated
         ]
         self.element_ids = original_ids + generated_ids
         self._refresh_element_model(selected_id)
@@ -1117,17 +1230,17 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
     def _sync_preview_elements(self, callback=None) -> None:
         widgets = []
         for style in self.styles.values():
-            if not style.component_type:
+            if not style.is_generated:
                 continue
-            component = get_html_widget_component(style.component_type)
+            widget = style.widget_definition()
             widgets.append(
                 {
-                    "id": style.element_id,
-                    "component": component.key,
-                    "binding": component.binding,
-                    "format": component.formatter,
-                    "sample": component.sample,
-                    "kind": component.kind,
+                    "id": widget.element_id,
+                    "component": widget.component_type,
+                    "binding": widget.binding,
+                    "format": widget.formatter,
+                    "sample": widget.sample,
+                    "kind": widget.kind,
                 }
             )
         payload = json.dumps(widgets, ensure_ascii=False)
@@ -1244,7 +1357,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         element_id = self._selected_id()
         style = self.styles[element_id]
         self._checkpoint()
-        if style.component_type:
+        if style.is_generated:
             del self.styles[element_id]
             self._sync_element_ids_from_styles()
             self._sync_preview_elements()
@@ -1278,7 +1391,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self.element_kind_dropdown.set_selected(
                 self.element_kind_values.index(style.element_kind)
             )
-            self.element_kind_dropdown.set_sensitive(not style.component_type)
+            self.element_kind_dropdown.set_sensitive(not style.is_generated)
             self.gradient_check.set_active(style.gradient_enabled)
             self.gradient_start_entry.set_text(style.gradient_start_color)
             self.gradient_end_entry.set_text(style.gradient_end_color)
@@ -1297,7 +1410,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             )
             self.remove_element_button.set_label(
                 "Excluir elemento criado"
-                if style.component_type
+                if style.is_generated
                 else ("Remover elemento" if style.visible else "Restaurar elemento")
             )
         finally:
@@ -1342,6 +1455,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.redo_action.set_enabled(self.history.can_redo)
 
     def _mark_changed(self) -> None:
+        self._dirty = True
         self.save_button.set_sensitive(True)
         self.build_button.set_sensitive(self.manifest.native_video_overlay is not None)
         self.status_label.set_text("Alterações ainda não salvas")
@@ -1700,6 +1814,10 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             z_index=self.layer_spin.get_value_as_int(),
             visible=previous.visible,
             component_type=previous.component_type,
+            generated_widget=previous.generated_widget,
+            binding=previous.binding,
+            formatter=previous.formatter,
+            sample=previous.sample,
             element_kind=self.element_kind_values[
                 self.element_kind_dropdown.get_selected()
             ],
@@ -1748,7 +1866,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.status_label.set_text("Recarregando valores salvos…")
         self.backend.view.reload()
 
-    def _save(self, build: bool) -> None:
+    def _save(self, build: bool) -> bool:
         try:
             self.manifest = save_visual_styles(
                 self.manifest,
@@ -1757,11 +1875,13 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         except Exception as exc:
             self.status_label.set_text(f"Não foi possível salvar: {exc}")
             self._toast("Falha ao salvar o tema")
-            return
+            return False
+        self._dirty = False
         self.status_label.set_text("Layout salvo; o vídeo precisa ser reconstruído")
         self._toast("Layout HTML salvo com backup")
         if build:
             self._start_build()
+        return True
 
     def _start_build(self) -> None:
         if self._build_process is not None:

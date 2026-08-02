@@ -8,6 +8,7 @@
   },
   "refreshRate": 2,
   "entrypoint": "index.html",
+  "overlayDocument": "overlays.json",
   "permissions": [
     "sensors"
   ],
