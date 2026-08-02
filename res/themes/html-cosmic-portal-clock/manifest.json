@@ -8,6 +8,7 @@
   },
   "refreshRate": 2,
   "entrypoint": "index.html",
+  "overlayDocument": "overlays.json",
   "permissions": ["sensors"],
   "network": false,
   "nativeVideoOverlay": {
@@ -32,8 +33,26 @@
     "cpu.temperature": 1
   },
   "atomicRegions": [
-    {"name": "date", "x": 112, "y": 70, "width": 256, "height": 48},
-    {"name": "clock", "x": 68, "y": 154, "width": 344, "height": 124},
-    {"name": "cpu-temperature", "x": 112, "y": 326, "width": 256, "height": 66}
+    {
+      "name": "overlay:date-card",
+      "x": 112,
+      "y": 70,
+      "width": 256,
+      "height": 48
+    },
+    {
+      "name": "overlay:clock",
+      "x": 68,
+      "y": 154,
+      "width": 344,
+      "height": 124
+    },
+    {
+      "name": "overlay:cpu-card",
+      "x": 112,
+      "y": 326,
+      "width": 256,
+      "height": 66
+    }
   ]
 }
