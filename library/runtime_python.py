@@ -209,6 +209,9 @@ def _install_script_message_dom_bridge(window) -> bool:
 
 def _query_dom_styles_message_bridge(self) -> bool:
     """Request DOM styles without reading a JavaScript return value."""
+    if getattr(self, "_turing_dom_request_in_flight", False):
+        return False
+
     try:
         _install_script_message_dom_bridge(self)
     except Exception as exc:
@@ -218,6 +221,7 @@ def _query_dom_styles_message_bridge(self) -> bool:
     request_id = int(getattr(self, "_turing_dom_request_id", 0)) + 1
     self._turing_dom_request_id = request_id
     self._turing_dom_request_complete = False
+    self._turing_dom_request_in_flight = True
     self.backend.evaluate(_dom_inspection_script(self.element_ids))
 
     glib = getattr(self.backend, "GLib", None)
@@ -227,6 +231,7 @@ def _query_dom_styles_message_bridge(self) -> bool:
                 getattr(self, "_turing_dom_request_id", 0) == request_id
                 and not getattr(self, "_turing_dom_request_complete", False)
             ):
+                self._turing_dom_request_in_flight = False
                 self.status_label.set_text(
                     "A inspeção do tema não respondeu pelo canal nativo do WebKit. "
                     "Consulte o terminal para diagnóstico."
@@ -353,30 +358,6 @@ def _install_html_editor_extensions() -> None:
                 _attach_background_page(window, Gtk, Gio)
                 if not getattr(window, "_turing_background_page_attached", False):
                     raise RuntimeError("a página Fundo não foi anexada ao inspector_stack")
-
-                if not getattr(window, "_turing_native_dom_retry_scheduled", False):
-                    window._turing_native_dom_retry_scheduled = True
-
-                    def retry_dom_inspection() -> bool:
-                        try:
-                            status = getattr(window, "status_label", None)
-                            if status is not None:
-                                status.set_text("Reinspecionando elementos…")
-                            window._query_dom_styles()
-                            print(
-                                "Inspeção DOM via UserContentManager solicitada.",
-                                file=sys.stderr,
-                                flush=True,
-                            )
-                        except Exception as exc:
-                            print(
-                                f"Erro ao repetir inspeção do editor HTML: {exc}",
-                                file=sys.stderr,
-                                flush=True,
-                            )
-                        return False
-
-                    GLib.idle_add(retry_dom_inspection)
                 return False
         except Exception as exc:
             print(f"Erro ao carregar extensões do editor HTML: {exc}", file=sys.stderr)
