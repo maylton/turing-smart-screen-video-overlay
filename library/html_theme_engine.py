@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import unquote, urlparse
 
 from library.sensor_snapshot import SensorSnapshot
+from library.sensor_update_scheduler import SensorUpdateScheduler
 from library.theme_engine import (
     ThemeEngine,
     ThemeEngineError,
@@ -321,11 +323,18 @@ BackendFactory = Callable[[ThemeManifest], Any]
 class HtmlThemeEngine(ThemeEngine):
     """Experimental HTML engine restricted to the simulator in this milestone."""
 
-    def __init__(self, backend_factory: BackendFactory = WebKitGtkBackend) -> None:
+    def __init__(
+        self,
+        backend_factory: BackendFactory = WebKitGtkBackend,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._backend_factory = backend_factory
+        self._clock = clock
         self._backend: Optional[Any] = None
         self._manifest: Optional[ThemeManifest] = None
         self._last_snapshot: Optional[SensorSnapshot] = None
+        self._scheduler: Optional[SensorUpdateScheduler] = None
 
     @property
     def manifest(self) -> ThemeManifest:
@@ -346,14 +355,19 @@ class HtmlThemeEngine(ThemeEngine):
             )
         self.close()
         self._manifest = manifest
+        self._scheduler = SensorUpdateScheduler(
+            manifest.data_update_policy,
+            clock=self._clock,
+        )
         self._backend = self._backend_factory(manifest)
         self._backend.load()
 
     def update(self, snapshot: SensorSnapshot) -> None:
-        if self._backend is None:
+        if self._backend is None or self._scheduler is None:
             raise ThemeEngineError("HTML theme has not been loaded")
-        self._last_snapshot = snapshot
-        self._backend.evaluate(build_snapshot_script(snapshot))
+        scheduled = self._scheduler.apply(snapshot)
+        self._last_snapshot = scheduled
+        self._backend.evaluate(build_snapshot_script(scheduled))
 
     def render(self) -> Any:
         if self._backend is None:
@@ -381,4 +395,5 @@ class HtmlThemeEngine(ThemeEngine):
         if self._backend is not None:
             self._backend.close()
         self._backend = None
+        self._scheduler = None
         self._last_snapshot = None

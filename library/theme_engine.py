@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
 from library.atomic_regions import AtomicRegion, parse_atomic_regions
 from library.sensor_snapshot import SensorSnapshot
+from library.sensor_update_scheduler import (
+    SensorUpdatePolicy,
+    parse_sensor_update_policy,
+)
 
 
 SUPPORTED_ENGINES = ("yaml", "html")
@@ -24,38 +28,38 @@ class ThemeValidationError(ThemeEngineError):
     """Raised when a theme package is malformed or unsafe."""
 
 
-def _positive_int(value: Any, field: str) -> int:
+def _positive_int(value: Any, field_name: str) -> int:
     try:
         number = int(value)
     except (TypeError, ValueError) as exc:
-        raise ThemeValidationError(f"{field} must be an integer") from exc
+        raise ThemeValidationError(f"{field_name} must be an integer") from exc
     if number <= 0:
-        raise ThemeValidationError(f"{field} must be greater than zero")
+        raise ThemeValidationError(f"{field_name} must be greater than zero")
     return number
 
 
-def _positive_float(value: Any, field: str) -> float:
+def _positive_float(value: Any, field_name: str) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
-        raise ThemeValidationError(f"{field} must be a number") from exc
+        raise ThemeValidationError(f"{field_name} must be a number") from exc
     if number <= 0:
-        raise ThemeValidationError(f"{field} must be greater than zero")
+        raise ThemeValidationError(f"{field_name} must be greater than zero")
     return number
 
 
-def _safe_relative_path(root: Path, raw_path: Any, field: str) -> Path:
+def _safe_relative_path(root: Path, raw_path: Any, field_name: str) -> Path:
     text = str(raw_path or "").strip()
     if not text:
-        raise ThemeValidationError(f"{field} cannot be empty")
+        raise ThemeValidationError(f"{field_name} cannot be empty")
     candidate = Path(text)
     if candidate.is_absolute():
-        raise ThemeValidationError(f"{field} must be relative to the theme")
+        raise ThemeValidationError(f"{field_name} must be relative to the theme")
     resolved = (root / candidate).resolve()
     try:
         resolved.relative_to(root.resolve())
     except ValueError as exc:
-        raise ThemeValidationError(f"{field} escapes the theme directory") from exc
+        raise ThemeValidationError(f"{field_name} escapes the theme directory") from exc
     return resolved
 
 
@@ -72,6 +76,9 @@ class ThemeManifest:
     network: bool
     root: Path
     atomic_regions: Tuple[AtomicRegion, ...] = ()
+    data_update_policy: SensorUpdatePolicy = field(
+        default_factory=lambda: SensorUpdatePolicy(default_interval=1.0)
+    )
 
     @property
     def entrypoint_path(self) -> Path:
@@ -98,6 +105,7 @@ class ThemeManifest:
                     permissions=(),
                     network=False,
                     atomic_regions=(),
+                    data_update_policy=SensorUpdatePolicy(default_interval=1.0),
                     root=root,
                 )
             raise ThemeValidationError(
@@ -159,20 +167,30 @@ class ThemeManifest:
         except ValueError as exc:
             raise ThemeValidationError(str(exc)) from exc
 
+        refresh_rate = _positive_float(
+            payload.get("refreshRate", 1.0),
+            "refreshRate",
+        )
+        try:
+            data_update_policy = parse_sensor_update_policy(
+                payload.get("dataUpdateIntervals"),
+                fallback_interval=1.0 / refresh_rate,
+            )
+        except ValueError as exc:
+            raise ThemeValidationError(str(exc)) from exc
+
         return cls(
             engine=engine,
             name=str(payload.get("name", root.name)).strip() or root.name,
             version=_positive_int(payload.get("version", 1), "version"),
             width=width,
             height=height,
-            refresh_rate=_positive_float(
-                payload.get("refreshRate", 1.0),
-                "refreshRate",
-            ),
+            refresh_rate=refresh_rate,
             entrypoint=entrypoint,
             permissions=permissions,
             network=network,
             atomic_regions=atomic_regions,
+            data_update_policy=data_update_policy,
             root=root,
         )
 

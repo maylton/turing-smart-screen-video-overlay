@@ -1,7 +1,7 @@
 {
   "engine": "html",
   "name": "Material Sensor Orbit",
-  "version": 1,
+  "version": 2,
   "display": {
     "width": 480,
     "height": 480
@@ -10,6 +10,24 @@
   "entrypoint": "index.html",
   "permissions": ["sensors"],
   "network": false,
+  "dataUpdateIntervals": {
+    "default": 5,
+    "$sequence": 5,
+    "$timestamp": 1,
+    "system.time": 1,
+    "cpu.usage": 2,
+    "cpu.temperature": 5,
+    "cpu.frequency": 5,
+    "gpu.usage": 2,
+    "gpu.temperature": 5,
+    "gpu.vramUsed": 5,
+    "gpu.vramTotal": 30,
+    "memory.usage": 2,
+    "memory.used": 5,
+    "memory.total": 30,
+    "network.download": 2,
+    "network.upload": 2
+  },
   "atomicRegions": [
     {"name": "clock", "x": 26, "y": 42, "width": 160, "height": 42},
     {"name": "cpu-reading", "x": 66, "y": 144, "width": 112, "height": 96},
