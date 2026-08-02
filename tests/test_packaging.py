@@ -38,6 +38,7 @@ class PackagingContractTests(unittest.TestCase):
 
             included = (
                 "main.py",
+                "theme-migrate.py",
                 "library/runtime.py",
                 "res/themes/core/theme.yaml",
                 "res/docs/no-preview.png",

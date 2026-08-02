@@ -974,6 +974,12 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                 zIndex: style.zIndex,
                 visible: style.display !== 'none',
                 componentType: element.dataset.turingComponent || '',
+                generatedWidget: element.hasAttribute('data-turing-generated-widget'),
+                binding: element.dataset.turingBinding || '',
+                formatter: element.dataset.turingFormat || '',
+                sample: element.dataset.turingKind === 'bar'
+                  ? (element.getAttribute('aria-valuenow') || '50')
+                  : (element.textContent.trim() || '--'),
                 elementKind: element.dataset.turingKind || (
                   element.textContent.trim() === '' && rect.width >= rect.height * 2
                     ? 'bar'
@@ -1035,6 +1041,10 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                     z_index=max(1, min(9999, z_index)),
                     visible=bool(item.get("visible", True)),
                     component_type=str(item.get("componentType") or ""),
+                    generated_widget=bool(item.get("generatedWidget", False)),
+                    binding=str(item.get("binding") or ""),
+                    formatter=str(item.get("formatter") or ""),
+                    sample=str(item.get("sample") or ""),
                     element_kind=str(item.get("elementKind") or "text"),
                 ).validated(self.manifest)
                 styles[style.element_id] = style
@@ -1088,12 +1098,12 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             candidate.element_id
             for candidate in self.candidates
             if candidate.element_id in self.styles
-            and not self.styles[candidate.element_id].component_type
+            and not self.styles[candidate.element_id].is_generated
         ]
         generated_ids = [
             element_id
             for element_id, style in self.styles.items()
-            if style.component_type
+            if style.is_generated
         ]
         self.element_ids = original_ids + generated_ids
         self._refresh_element_model(selected_id)
@@ -1117,17 +1127,17 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
     def _sync_preview_elements(self, callback=None) -> None:
         widgets = []
         for style in self.styles.values():
-            if not style.component_type:
+            if not style.is_generated:
                 continue
-            component = get_html_widget_component(style.component_type)
+            widget = style.widget_definition()
             widgets.append(
                 {
-                    "id": style.element_id,
-                    "component": component.key,
-                    "binding": component.binding,
-                    "format": component.formatter,
-                    "sample": component.sample,
-                    "kind": component.kind,
+                    "id": widget.element_id,
+                    "component": widget.component_type,
+                    "binding": widget.binding,
+                    "format": widget.formatter,
+                    "sample": widget.sample,
+                    "kind": widget.kind,
                 }
             )
         payload = json.dumps(widgets, ensure_ascii=False)
@@ -1244,7 +1254,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         element_id = self._selected_id()
         style = self.styles[element_id]
         self._checkpoint()
-        if style.component_type:
+        if style.is_generated:
             del self.styles[element_id]
             self._sync_element_ids_from_styles()
             self._sync_preview_elements()
@@ -1278,7 +1288,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self.element_kind_dropdown.set_selected(
                 self.element_kind_values.index(style.element_kind)
             )
-            self.element_kind_dropdown.set_sensitive(not style.component_type)
+            self.element_kind_dropdown.set_sensitive(not style.is_generated)
             self.gradient_check.set_active(style.gradient_enabled)
             self.gradient_start_entry.set_text(style.gradient_start_color)
             self.gradient_end_entry.set_text(style.gradient_end_color)
@@ -1297,7 +1307,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             )
             self.remove_element_button.set_label(
                 "Excluir elemento criado"
-                if style.component_type
+                if style.is_generated
                 else ("Remover elemento" if style.visible else "Restaurar elemento")
             )
         finally:
@@ -1700,6 +1710,10 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             z_index=self.layer_spin.get_value_as_int(),
             visible=previous.visible,
             component_type=previous.component_type,
+            generated_widget=previous.generated_widget,
+            binding=previous.binding,
+            formatter=previous.formatter,
+            sample=previous.sample,
             element_kind=self.element_kind_values[
                 self.element_kind_dropdown.get_selected()
             ],

@@ -18,7 +18,11 @@ Audit date: 2026-08-02
   export, safe extraction limits, and legacy `.zip` compatibility.
 - Completed: canonical `overlays.json` representation for editor-managed HTML
   elements, including automatic migration from legacy hidden metadata.
-- Next: explicit custom sensor bindings and the YAML conversion analyzer.
+- Completed: explicit validated sensor bindings/formatters in overlay schema 5.
+- Completed: read-only YAML conversion analyzer with human and JSON reports.
+- Current analyzer result: 53 automatic, 21 assisted, and 2 manual migrations
+  across the 76 directly tracked YAML themes.
+- Next: generate non-destructive HTML drafts for the text-and-bar cohort.
 
 ## Executive summary
 

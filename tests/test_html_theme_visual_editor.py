@@ -497,6 +497,33 @@ class HtmlThemeVisualEditorTests(unittest.TestCase):
             with self.assertRaisesRegex(ThemeValidationError, "display"):
                 load_visual_styles(manifest)
 
+    def test_saves_explicit_custom_sensor_binding_as_a_generated_widget(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = self.make_theme(Path(temporary) / "theme")
+            custom = HtmlVisualElementStyle(
+                element_id="turing-network-download-1",
+                x=20,
+                y=100,
+                width=160,
+                height=32,
+                font_size=18,
+                color="#ffffff",
+                generated_widget=True,
+                binding="network.download",
+                formatter="megabytes-per-second",
+                sample="12.5 MB/s",
+            )
+
+            saved = save_visual_styles(manifest, (*self.styles(), custom))
+            loaded = load_visual_styles(saved)[-1]
+            self.assertTrue(loaded.is_generated)
+            self.assertEqual(loaded.binding, "network.download")
+            self.assertEqual(loaded.formatter, "megabytes-per-second")
+            html = saved.entrypoint_path.read_text(encoding="utf-8")
+            self.assertIn('data-turing-binding="network.download"', html)
+            self.assertIn('data-turing-format="megabytes-per-second"', html)
+            self.assertNotIn('data-turing-component=""', html)
+
     def test_history_supports_bounded_undo_and_redo(self):
         first = {style.element_id: style for style in self.styles()}
         second = dict(first)

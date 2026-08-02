@@ -100,6 +100,7 @@
 + /theme-backups.py
 + /theme-editor-gtk.py
 + /theme-editor.py
++ /theme-migrate.py
 + /theme_gallery_card_polish.py
 + /turing-smart-screen-main.py
 + /usercustomize.py

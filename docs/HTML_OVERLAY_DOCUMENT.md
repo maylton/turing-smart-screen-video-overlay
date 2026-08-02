@@ -40,7 +40,7 @@ dimensions must match the HTML theme manifest.
 {
   "format": "turing-html-overlays",
   "formatVersion": 1,
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "display": {
     "width": 480,
     "height": 480
@@ -60,6 +60,10 @@ dimensions must match the HTML theme manifest.
       "zIndex": 1000,
       "visible": true,
       "componentType": "cpu-temperature",
+      "generatedWidget": true,
+      "binding": "cpu.temperature",
+      "formatter": "temperature",
+      "sample": "49°C",
       "elementKind": "text",
       "effectsManaged": true,
       "gradientEnabled": false,
@@ -76,9 +80,21 @@ dimensions must match the HTML theme manifest.
 ```
 
 `formatVersion` versions the public document envelope. `schemaVersion` versions
-the element/style fields understood by the editor. Component types currently
-resolve sensor binding and formatting through the built-in component catalog.
-A later schema may make custom bindings explicit for converted YAML themes.
+the element/style fields understood by the editor. Schema 5 stores `binding`,
+`formatter`, and `sample` explicitly. Catalog components still provide safe
+defaults, while converted themes may use validated snapshot paths without
+adding a new hard-coded component for every legacy YAML metric.
+
+`generatedWidget` controls ownership of the HTML node. When true, the editor
+derives the local widget markup from this document. Existing authored HTML
+elements may keep it false while still declaring their binding for future
+native-overlay compilation.
+
+Bindings use a safe dotted snapshot path such as `cpu.frequency`,
+`network.download`, or `memory.available`; `$timestamp` is the only special
+root. Formatters are selected from the local runtime allowlist, including text,
+integer/decimal, percent, temperature, memory/data sizes, network rate, clock,
+date, duration, FPS, load, and 0-100 bar output.
 
 ## Compatibility migration
 

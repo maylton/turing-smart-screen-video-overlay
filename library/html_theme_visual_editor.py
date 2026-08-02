@@ -12,6 +12,7 @@ from typing import Iterable, Mapping
 
 from library.html_theme_authoring import discover_overlay_candidates
 from library.html_theme_components import (
+    HtmlGeneratedWidget,
     WIDGET_RUNTIME_FILENAME,
     generated_widget_ids,
     get_html_widget_component,
@@ -29,7 +30,7 @@ LEGACY_EDITOR_METADATA_FILENAME = ".html-theme-editor.json"
 # points at the public, canonical overlay document rather than hidden metadata.
 EDITOR_METADATA_FILENAME = OVERLAY_DOCUMENT_FILENAME
 EDITOR_STYLESHEET_FILENAME = "theme-editor-overrides.css"
-EDITOR_SCHEMA_VERSION = 4
+EDITOR_SCHEMA_VERSION = 5
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _ELEMENT_KINDS = {"text", "bar"}
 _GRADIENT_DIRECTIONS = {
@@ -54,6 +55,10 @@ class HtmlVisualElementStyle:
     z_index: int = 1000
     visible: bool = True
     component_type: str = ""
+    generated_widget: bool = False
+    binding: str = ""
+    formatter: str = ""
+    sample: str = ""
     element_kind: str = "text"
     effects_managed: bool = False
     gradient_enabled: bool = False
@@ -64,6 +69,24 @@ class HtmlVisualElementStyle:
     outline_color: str = "#000000"
     glow_radius: int = 0
     glow_color: str = "#ffffff"
+
+    @property
+    def is_generated(self) -> bool:
+        return bool(self.generated_widget or self.component_type)
+
+    def widget_definition(self) -> HtmlGeneratedWidget:
+        if not self.is_generated:
+            raise ThemeValidationError(
+                f"#{self.element_id} is not an editor-generated widget"
+            )
+        return HtmlGeneratedWidget(
+            element_id=self.element_id,
+            component_type=self.component_type,
+            binding=self.binding,
+            formatter=self.formatter,
+            sample=self.sample,
+            kind=self.element_kind,
+        ).validated()
 
     def validated(self, manifest: ThemeManifest) -> "HtmlVisualElementStyle":
         element_id = str(self.element_id).strip()
@@ -127,6 +150,39 @@ class HtmlVisualElementStyle:
         element_kind = str(self.element_kind or "text").strip().lower()
         if component is not None:
             element_kind = component.kind
+        generated_widget = bool(self.generated_widget or component_type)
+        binding = str(self.binding or "").strip()
+        formatter = str(self.formatter or "").strip().lower()
+        sample = str(self.sample or "").strip()
+        if generated_widget:
+            widget = HtmlGeneratedWidget(
+                element_id=element_id,
+                component_type=component_type,
+                binding=binding,
+                formatter=formatter,
+                sample=sample,
+                kind=element_kind,
+            ).validated()
+            binding = widget.binding
+            formatter = widget.formatter
+            sample = widget.sample
+            element_kind = widget.kind
+        elif binding:
+            widget = HtmlGeneratedWidget(
+                element_id=element_id,
+                binding=binding,
+                formatter=formatter,
+                sample=sample,
+                kind=element_kind,
+            ).validated()
+            binding = widget.binding
+            formatter = widget.formatter
+            sample = widget.sample
+            element_kind = widget.kind
+        elif formatter or sample:
+            raise ThemeValidationError(
+                f"#{element_id} formatter/sample metadata requires a binding"
+            )
         if element_kind not in _ELEMENT_KINDS:
             raise ThemeValidationError(
                 f"#{element_id} element kind is not supported"
@@ -158,6 +214,10 @@ class HtmlVisualElementStyle:
             z_index=values["z index"],
             visible=bool(self.visible),
             component_type=component_type,
+            generated_widget=generated_widget,
+            binding=binding,
+            formatter=formatter,
+            sample=sample,
             element_kind=element_kind,
             effects_managed=bool(self.effects_managed),
             gradient_enabled=bool(self.gradient_enabled),
@@ -185,6 +245,10 @@ class HtmlVisualElementStyle:
             "zIndex": self.z_index,
             "visible": self.visible,
             "componentType": self.component_type,
+            "generatedWidget": self.is_generated,
+            "binding": self.binding,
+            "formatter": self.formatter,
+            "sample": self.sample,
             "elementKind": self.element_kind,
             "effectsManaged": self.effects_managed,
             "gradientEnabled": self.gradient_enabled,
@@ -400,6 +464,10 @@ def _style_from_mapping(value: Mapping[str, object]) -> HtmlVisualElementStyle:
             z_index=int(value.get("zIndex", 1000)),
             visible=bool(value.get("visible", True)),
             component_type=str(value.get("componentType", "")),
+            generated_widget=bool(value.get("generatedWidget", False)),
+            binding=str(value.get("binding", "")),
+            formatter=str(value.get("formatter", "")),
+            sample=str(value.get("sample", "")),
             element_kind=str(value.get("elementKind", "text")),
             effects_managed=bool(value.get("effectsManaged", False)),
             gradient_enabled=bool(value.get("gradientEnabled", False)),
@@ -482,7 +550,7 @@ def load_visual_styles(
             raise ThemeValidationError(
                 f"{OVERLAY_DOCUMENT_FILENAME} display does not match the theme manifest"
             )
-    if payload.get("schemaVersion") not in {1, 2, 3, EDITOR_SCHEMA_VERSION}:
+    if payload.get("schemaVersion") not in set(range(1, EDITOR_SCHEMA_VERSION + 1)):
         raise ThemeValidationError("unsupported HTML visual editor schema")
     raw_elements = payload.get("elements")
     if not isinstance(raw_elements, list):
@@ -549,8 +617,9 @@ def render_visual_stylesheet(styles: Iterable[HtmlVisualElementStyle]) -> str:
             if style.component_type
             else None
         )
-        is_generated_bar = component is not None and component.kind == "bar"
-        is_bar = style.element_kind == "bar" or is_generated_bar
+        resolved_kind = component.kind if component is not None else style.element_kind
+        is_generated_bar = style.is_generated and resolved_kind == "bar"
+        is_bar = resolved_kind == "bar"
         properties = [
             f"{selector} {{",
             "  position: fixed !important;",
@@ -584,7 +653,7 @@ def render_visual_stylesheet(styles: Iterable[HtmlVisualElementStyle]) -> str:
                     "  pointer-events: none !important;",
                 ]
             )
-        elif style.component_type:
+        elif style.is_generated:
             properties.extend(
                 [
                     "  display: flex !important;",
@@ -752,7 +821,7 @@ def save_visual_styles(
     previous_generated_ids = {
         style.element_id
         for style in load_visual_styles(manifest)
-        if style.component_type
+        if style.is_generated
     }
     previous_generated_ids.update(generated_widget_ids(entrypoint_original))
     marked_ids = [
@@ -776,7 +845,7 @@ def save_visual_styles(
     generated_ids = [
         element_id
         for element_id in style_order
-        if by_id[element_id].component_type
+        if by_id[element_id].is_generated
     ]
     expected_ids = set(original_ids) | set(generated_ids)
     if set(by_id) != expected_ids:
@@ -828,9 +897,9 @@ def save_visual_styles(
     html_text = update_generated_widget_block(
         html_text,
         (
-            (style.element_id, style.component_type)
+            style.widget_definition()
             for style in ordered
-            if style.component_type
+            if style.is_generated
         ),
     )
     html_text = ensure_widget_runtime_script(html_text)

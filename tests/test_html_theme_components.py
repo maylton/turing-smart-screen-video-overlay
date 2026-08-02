@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from library.html_theme_components import (
+    HtmlGeneratedWidget,
     WIDGET_RUNTIME_FILENAME,
     generated_widget_markup,
     generated_widget_ids,
@@ -98,6 +99,45 @@ class HtmlThemeComponentTests(unittest.TestCase):
         self.assertIn('data-turing-kind="bar"', markup)
         self.assertIn('role="progressbar"', markup)
         self.assertIn("data-turing-bar-fill", markup)
+
+    def test_custom_binding_markup_does_not_require_a_catalog_component(self):
+        markup = generated_widget_markup(
+            "turing-network-download-1",
+            binding="network.download",
+            formatter="megabytes-per-second",
+            sample="12.5 MB/s",
+            kind="text",
+        )
+        self.assertIn('data-turing-binding="network.download"', markup)
+        self.assertIn('data-turing-format="megabytes-per-second"', markup)
+        self.assertNotIn("data-turing-component", markup)
+        self.assertIn("12.5 MB/s", markup)
+
+        block = update_generated_widget_block(
+            "<html><body></body></html>",
+            (
+                HtmlGeneratedWidget(
+                    element_id="turing-network-download-1",
+                    binding="network.download",
+                    formatter="megabytes-per-second",
+                    sample="12.5 MB/s",
+                ),
+            ),
+        )
+        self.assertIn('data-turing-binding="network.download"', block)
+
+    def test_custom_bindings_and_formatters_are_strictly_validated(self):
+        with self.assertRaisesRegex(ThemeValidationError, "binding"):
+            generated_widget_markup(
+                "turing-invalid-1",
+                binding="cpu.usage;alert(1)",
+            )
+        with self.assertRaisesRegex(ThemeValidationError, "formatter"):
+            generated_widget_markup(
+                "turing-invalid-1",
+                binding="cpu.usage",
+                formatter="javascript",
+            )
 
 
 if __name__ == "__main__":
