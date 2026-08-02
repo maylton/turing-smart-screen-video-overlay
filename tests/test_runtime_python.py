@@ -6,7 +6,9 @@ import unittest
 from pathlib import Path
 
 from library.runtime_python import (
+    DOM_INSPECT_TITLE_PREFIX,
     _decode_javascript_json,
+    _dom_inspection_script,
     _evaluate_json_bridge,
     _install_html_editor_build_class_hook,
     _javascript_json_script,
@@ -37,6 +39,15 @@ class RuntimePythonTests(unittest.TestCase):
         self.assertTrue(script.startswith("JSON.stringify(("))
         self.assertIn("[{id: 'clock'}]", script)
         self.assertFalse(script.rstrip().endswith(";"))
+
+    def test_dom_inspection_uses_title_transport(self):
+        script = _dom_inspection_script(["clock", "cpu-card"])
+        self.assertIn(DOM_INSPECT_TITLE_PREFIX, script)
+        self.assertIn("document.title", script)
+        self.assertIn("encodeURIComponent(JSON.stringify(message))", script)
+        self.assertIn('"clock"', script)
+        self.assertIn('"cpu-card"', script)
+        self.assertNotIn("evaluate_javascript_finish", script)
 
     def test_decodes_json_string_from_javascript_value(self):
         value = FakeJavascriptValue('[{"id":"clock","visible":true}]')
