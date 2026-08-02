@@ -8,7 +8,6 @@ import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from types import MethodType
 
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
@@ -34,33 +33,47 @@ def _decode_javascript_json(value):
     return json.loads(str(text))
 
 
-def _install_html_editor_json_bridge(window) -> None:
-    """Avoid unsupported structured return values in older WebKitGTK builds."""
-    if getattr(window, "_turing_json_bridge_installed", False):
-        return
+def _evaluate_json_bridge(self, script: str, callback) -> None:
+    """Evaluate JavaScript while returning only a JSON string through WebKitGTK."""
+    wrapped_script = _javascript_json_script(script)
 
-    def evaluate_json(self, script: str, callback) -> None:
-        wrapped_script = _javascript_json_script(script)
+    def finished(view, result, _user_data=None):
+        try:
+            value = view.evaluate_javascript_finish(result)
+            callback(_decode_javascript_json(value), None)
+        except Exception as exc:
+            callback(None, exc)
 
-        def finished(view, result, _user_data=None):
-            try:
-                value = view.evaluate_javascript_finish(result)
-                callback(_decode_javascript_json(value), None)
-            except Exception as exc:
-                callback(None, exc)
+    self.backend.view.evaluate_javascript(
+        wrapped_script,
+        -1,
+        None,
+        None,
+        None,
+        finished,
+        None,
+    )
 
-        self.backend.view.evaluate_javascript(
-            wrapped_script,
-            -1,
-            None,
-            None,
-            None,
-            finished,
-            None,
-        )
 
-    window._evaluate_json = MethodType(evaluate_json, window)
-    window._turing_json_bridge_installed = True
+def _patch_html_editor_class(editor_class) -> bool:
+    """Install the JSON bridge on an HTML editor class exactly once."""
+    if editor_class is None:
+        return False
+    if getattr(editor_class, "_turing_json_bridge_installed", False):
+        return True
+    editor_class._evaluate_json = _evaluate_json_bridge
+    editor_class._turing_json_bridge_installed = True
+    return True
+
+
+def _install_html_editor_class_patch() -> bool:
+    """Patch the editor class before any WebKit load callback can inspect the DOM."""
+    main_module = sys.modules.get("__main__")
+    editor_class = getattr(main_module, "HtmlThemeEditorWindow", None)
+    if editor_class is None:
+        return True
+    _patch_html_editor_class(editor_class)
+    return False
 
 
 def _install_html_editor_extensions() -> None:
@@ -74,8 +87,13 @@ def _install_html_editor_extensions() -> None:
         from gi.repository import Gio, GLib, Gtk
         from library.html_theme_background_editor import _attach_background_page
     except Exception as exc:
-        print(f"Erro ao preparar a aba Fundo: {exc}", file=sys.stderr)
+        print(f"Erro ao preparar extensões do editor HTML: {exc}", file=sys.stderr)
         return
+
+    # This source is registered while html-theme-editor-gtk.py is still being
+    # imported. It runs as soon as the GTK main loop starts, after the class has
+    # been defined but before WebKit can complete the first page load.
+    GLib.idle_add(_install_html_editor_class_patch)
 
     attempts = 0
 
@@ -83,6 +101,7 @@ def _install_html_editor_extensions() -> None:
         nonlocal attempts
         attempts += 1
         try:
+            _install_html_editor_class_patch()
             application = Gtk.Application.get_default()
             if application is None:
                 return attempts < 150
@@ -91,7 +110,7 @@ def _install_html_editor_extensions() -> None:
                     continue
                 if getattr(window, "inspector_stack", None) is None:
                     return attempts < 150
-                _install_html_editor_json_bridge(window)
+                _patch_html_editor_class(window.__class__)
                 _attach_background_page(window, Gtk, Gio)
                 if not getattr(window, "_turing_background_page_attached", False):
                     raise RuntimeError("a página Fundo não foi anexada ao inspector_stack")
@@ -101,7 +120,7 @@ def _install_html_editor_extensions() -> None:
             return False
         return attempts < 150
 
-    GLib.timeout_add(100, attach_when_ready)
+    GLib.timeout_add(25, attach_when_ready)
 
 
 def _executable(path: Path) -> bool:
