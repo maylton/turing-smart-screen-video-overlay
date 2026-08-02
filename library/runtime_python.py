@@ -14,6 +14,7 @@ from types import MethodType
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
 DOM_INSPECT_HANDLER = "turingDomInspector"
+DOM_INSPECT_DISPATCH_DELAY_MS = 150
 _BUILD_CLASS_HOOK_INSTALLED = False
 _BUILD_CLASS_HOOK_ORIGINAL = None
 
@@ -210,7 +211,7 @@ def _install_script_message_dom_bridge(window) -> bool:
 
 
 def _query_dom_styles_message_bridge(self) -> bool:
-    """Request DOM styles without reading a JavaScript return value."""
+    """Request DOM styles after the native handler reaches WebKitWebProcess."""
     if getattr(self, "_turing_dom_request_in_flight", False):
         return False
 
@@ -224,28 +225,46 @@ def _query_dom_styles_message_bridge(self) -> bool:
     self._turing_dom_request_id = request_id
     self._turing_dom_request_complete = False
     self._turing_dom_request_in_flight = True
-    self.backend.evaluate(_dom_inspection_script(self.element_ids))
-
+    script = _dom_inspection_script(self.element_ids)
     glib = getattr(self.backend, "GLib", None)
-    if glib is not None:
-        def inspection_timeout() -> bool:
-            if (
-                getattr(self, "_turing_dom_request_id", 0) == request_id
-                and not getattr(self, "_turing_dom_request_complete", False)
-            ):
-                self._turing_dom_request_in_flight = False
-                self.status_label.set_text(
-                    "A inspeção do tema não respondeu pelo canal nativo do WebKit. "
-                    "Consulte o terminal para diagnóstico."
-                )
-                print(
-                    "Timeout aguardando inspeção DOM pelo UserContentManager.",
-                    file=sys.stderr,
-                    flush=True,
-                )
-            return False
 
-        glib.timeout_add(5000, inspection_timeout)
+    def inspection_timeout() -> bool:
+        if (
+            getattr(self, "_turing_dom_request_id", 0) == request_id
+            and not getattr(self, "_turing_dom_request_complete", False)
+        ):
+            self._turing_dom_request_in_flight = False
+            self.status_label.set_text(
+                "A inspeção do tema não respondeu pelo canal nativo do WebKit. "
+                "Consulte o terminal para diagnóstico."
+            )
+            print(
+                "Timeout aguardando inspeção DOM pelo UserContentManager.",
+                file=sys.stderr,
+                flush=True,
+            )
+        return False
+
+    def dispatch_inspection() -> bool:
+        if (
+            getattr(self, "_turing_dom_request_id", 0) != request_id
+            or getattr(self, "_turing_dom_request_complete", False)
+        ):
+            return False
+        self.backend.evaluate(script)
+        print(
+            "Inspeção DOM enviada após propagação do handler nativo.",
+            file=sys.stderr,
+            flush=True,
+        )
+        if glib is not None:
+            glib.timeout_add(5000, inspection_timeout)
+        return False
+
+    if glib is not None:
+        glib.timeout_add(DOM_INSPECT_DISPATCH_DELAY_MS, dispatch_inspection)
+    else:
+        dispatch_inspection()
     return False
 
 
