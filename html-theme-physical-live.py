@@ -13,8 +13,11 @@ from typing import Optional, Tuple
 
 from PIL import Image
 
-from library.atomic_regions import AtomicRegion
-from library.dirty_region_optimizer import optimize_frame_analysis
+from library.budgeted_frame_planner import (
+    BudgetedFramePlan,
+    BudgetedFramePlanner,
+    FrameBudgetError,
+)
 from library.frame_pipeline import FramePipeline
 from library.rev_c_live_sink import (
     LIVE_CONFIRMATION_TEXT,
@@ -33,7 +36,7 @@ from library.theme_engine import ThemeManifest, ThemeValidationError
 ROOT = Path(__file__).resolve().parent
 DEFAULT_THEME = ROOT / "res" / "themes" / "html-demo"
 DEFAULT_STATUS_LOG = Path("/tmp/turing-html-physical-status.jsonl")
-PLANNING_MAX_REGIONS = 64
+PLANNING_MAX_REGIONS = 512
 
 
 def parse_args(argv):
@@ -76,10 +79,7 @@ def parse_args(argv):
         "--max-total-regions",
         type=int,
         default=32,
-        help=(
-            "Maximum tight regions in one logical update before refusing it; "
-            "regions are never merged merely to fit --max-regions."
-        ),
+        help="Maximum tight regions selected for one logical update.",
     )
     parser.add_argument("--max-wire-bytes", type=int, default=300_000)
     parser.add_argument(
@@ -145,45 +145,46 @@ def load_coherent_frame(
 
 
 def build_engines(frame: Image.Image):
-    # Keep component discovery generous. Planning remains independent from the
-    # much smaller number of physical exchanges permitted in each batch.
-    pipeline = FramePipeline(
-        tile_size=16,
-        pixel_threshold=0,
-        full_refresh_ratio=0.45,
-        max_regions=PLANNING_MAX_REGIONS,
-    )
     transport = SimulatedDisplayTransport(
         get_transport_profile("rev-c-2inch")
     )
     protocol = RevCProtocolSimulator(display_stride=frame.height)
-    return pipeline, transport, protocol
+    return transport, protocol
 
 
-def validate_frame(
+def validate_initial_frame(
     frame: Image.Image,
-    pipeline: FramePipeline,
     transport_engine: SimulatedDisplayTransport,
     protocol_engine: RevCProtocolSimulator,
-    *,
-    atomic_regions: Tuple[AtomicRegion, ...] = (),
 ):
-    previous = pipeline.previous
-    analysis = pipeline.process(frame)
-    analysis = optimize_frame_analysis(
-        previous,
-        frame,
-        analysis,
-        tile_size=pipeline.tile_size,
-        pixel_threshold=pipeline.pixel_threshold,
-        max_regions=PLANNING_MAX_REGIONS,
-        full_refresh_ratio=pipeline.full_refresh_ratio,
-        atomic_regions=atomic_regions,
+    pipeline = FramePipeline(
+        tile_size=16,
+        pixel_threshold=0,
+        full_refresh_ratio=0.45,
+        max_regions=64,
     )
+    analysis = pipeline.process(frame)
     transport = transport_engine.submit(frame, analysis)
     protocol = protocol_engine.submit(transport)
     parity = compare_with_production_driver(frame, transport, protocol)
     return analysis, transport, protocol, parity
+
+
+def validate_budgeted_plan(
+    frame: Image.Image,
+    plan: BudgetedFramePlan,
+    transport_engine: SimulatedDisplayTransport,
+    protocol_engine: RevCProtocolSimulator,
+):
+    transport = transport_engine.submit(frame, plan.analysis)
+    protocol = protocol_engine.submit(transport)
+    if protocol.wire_bytes != plan.estimated_wire_bytes:
+        raise FrameBudgetError(
+            "budget estimator differs from validated protocol: "
+            f"{plan.estimated_wire_bytes} != {protocol.wire_bytes}"
+        )
+    parity = compare_with_production_driver(frame, transport, protocol)
+    return transport, protocol, parity
 
 
 def status_summary(batch) -> str:
@@ -197,6 +198,16 @@ def status_summary(batch) -> str:
     )
 
 
+def planning_record(plan: BudgetedFramePlan) -> dict:
+    return {
+        "candidateRegionCount": plan.candidate_region_count,
+        "selectedRegionCount": len(plan.selected_regions),
+        "deferredRegionCount": plan.deferred_region_count,
+        "selectedAtomicRegions": plan.selected_atomic_regions,
+        "estimatedWireBytes": plan.estimated_wire_bytes,
+    }
+
+
 def write_status_record(
     path: Path,
     *,
@@ -205,6 +216,7 @@ def write_status_record(
     validated_sequence: int,
     batch,
     reset: bool = False,
+    plan: Optional[BudgetedFramePlan] = None,
 ) -> Path:
     destination = Path(path).expanduser().resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -215,6 +227,8 @@ def write_status_record(
         "validatedSequence": int(validated_sequence),
         "status": batch.as_dict(),
     }
+    if plan is not None:
+        record["planning"] = planning_record(plan)
     mode = "w" if reset else "a"
     with destination.open(mode, encoding="utf-8") as output:
         output.write(json.dumps(record, sort_keys=True) + "\n")
@@ -235,12 +249,22 @@ def load_theme_manifest(theme: Path) -> ThemeManifest:
     return manifest
 
 
-def run(args) -> int:
+def validate_cli_args(args) -> Optional[str]:
     if args.poll_interval <= 0:
-        print("--poll-interval must be greater than zero", file=sys.stderr)
-        return 2
+        return "--poll-interval must be greater than zero"
     if args.stale_after <= 0:
-        print("--stale-after must be greater than zero", file=sys.stderr)
+        return "--stale-after must be greater than zero"
+    if args.max_total_regions <= 0:
+        return "--max-total-regions must be greater than zero"
+    if args.max_wire_bytes <= 0:
+        return "--max-wire-bytes must be greater than zero"
+    return None
+
+
+def run(args) -> int:
+    argument_error = validate_cli_args(args)
+    if argument_error:
+        print(argument_error, file=sys.stderr)
         return 2
 
     try:
@@ -261,15 +285,13 @@ def run(args) -> int:
         )
         return 2
 
-    pipeline, transport_engine, protocol_engine = build_engines(initial_frame)
+    transport_engine, protocol_engine = build_engines(initial_frame)
     try:
         _analysis, initial_transport, initial_protocol, initial_parity = (
-            validate_frame(
+            validate_initial_frame(
                 initial_frame,
-                pipeline,
                 transport_engine,
                 protocol_engine,
-                atomic_regions=manifest.atomic_regions,
             )
         )
     except Exception as exc:
@@ -294,7 +316,8 @@ def run(args) -> int:
         "Diagnostic limits: "
         f"frames={args.max_frames} "
         f"regions-per-batch={args.max_regions} "
-        f"total-regions={args.max_total_regions} "
+        f"selected-regions={args.max_total_regions} "
+        f"wire-budget={args.max_wire_bytes} "
         f"interval={args.interval:.2f}s "
         f"region-pacing={args.region_pacing:.2f}s "
         f"batch-pacing={args.batch_pacing:.2f}s"
@@ -336,6 +359,15 @@ def run(args) -> int:
         print(f"Live session failed to start: {exc}", file=sys.stderr)
         return 5
 
+    planner = BudgetedFramePlanner(
+        initial_frame,
+        atomic_regions=manifest.atomic_regions,
+        initial_sequence=initial_transport.sequence,
+        tile_size=16,
+        pixel_threshold=0,
+        planning_max_regions=PLANNING_MAX_REGIONS,
+    )
+
     initial_status = session.initial_status_batch
     status_log = write_status_record(
         args.status_log,
@@ -357,10 +389,7 @@ def run(args) -> int:
             while session.can_continue:
                 loaded = load_coherent_frame(args.input)
                 if loaded is None:
-                    if (
-                        time.monotonic() - last_new_frame_at
-                        >= args.stale_after
-                    ):
+                    if time.monotonic() - last_new_frame_at >= args.stale_after:
                         print(
                             "Producer artifacts became stale; stopping safely."
                         )
@@ -376,10 +405,7 @@ def run(args) -> int:
                     )
                     return 6
                 if current_source_sequence == last_source_sequence:
-                    if (
-                        time.monotonic() - last_new_frame_at
-                        >= args.stale_after
-                    ):
+                    if time.monotonic() - last_new_frame_at >= args.stale_after:
                         print("Producer became stale; stopping safely.")
                         break
                     time.sleep(args.poll_interval)
@@ -391,24 +417,35 @@ def run(args) -> int:
                     continue
 
                 try:
-                    analysis, transport, protocol, parity = validate_frame(
+                    plan = planner.plan(
                         frame,
-                        pipeline,
+                        max_regions=args.max_total_regions,
+                        max_wire_bytes=args.max_wire_bytes,
+                    )
+                except FrameBudgetError as exc:
+                    print(f"Live frame planning failed: {exc}", file=sys.stderr)
+                    return 6
+
+                if not plan.has_updates:
+                    print(
+                        f"SKIP source={current_source_sequence:04d} "
+                        "no physical pixel changes",
+                        flush=True,
+                    )
+                    last_source_sequence = current_source_sequence
+                    last_new_frame_at = time.monotonic()
+                    continue
+
+                try:
+                    transport, protocol, parity = validate_budgeted_plan(
+                        frame,
+                        plan,
                         transport_engine,
                         protocol_engine,
-                        atomic_regions=manifest.atomic_regions,
                     )
                 except Exception as exc:
                     print(
                         f"Live frame validation failed: {exc}",
-                        file=sys.stderr,
-                    )
-                    return 6
-
-                if analysis.full_refresh:
-                    print(
-                        "A later frame requires a full refresh; "
-                        "stopping instead of writing it.",
                         file=sys.stderr,
                     )
                     return 6
@@ -427,17 +464,21 @@ def run(args) -> int:
                     print(f"Live update failed: {exc}", file=sys.stderr)
                     return 7
 
+                planner.commit(frame, plan)
                 write_status_record(
                     args.status_log,
                     kind="partial",
                     source_sequence=current_source_sequence,
                     validated_sequence=update.sequence,
                     batch=update.status_batch,
+                    plan=plan,
                 )
                 print(
                     f"LIVE source={current_source_sequence:04d} "
                     f"validated={update.sequence:04d} "
                     f"regions={update.region_count:02d} "
+                    f"deferred={plan.deferred_region_count:02d} "
+                    f"atomic={plan.selected_atomic_regions:02d} "
                     f"batches={update.batch_count:02d} "
                     f"wire={update.wire_bytes:7d} "
                     f"frame={update.partial_frame_number:02d}/"
