@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Cosmic Portal Clock</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="screen" aria-label="Relógio cósmico com temperatura da CPU">
+    <section class="date-card" data-turing-overlay aria-label="Data atual">
+      <span class="weekday" id="weekday">---</span>
+      <span class="calendar-date" id="calendar-date">-- ---</span>
+    </section>
+
+    <section class="clock" data-turing-overlay aria-label="Hora atual">
+      <time class="clock-hours" id="clock-hours">--:--</time>
+      <span class="clock-seconds" id="clock-seconds">--</span>
+    </section>
+
+    <section class="cpu-card" id="cpu-card" data-turing-overlay aria-label="Temperatura da CPU">
+      <span class="cpu-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+          <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"></path>
+          <rect x="9" y="9" width="6" height="6" rx="1"></rect>
+        </svg>
+      </span>
+      <span class="cpu-copy">
+        <small>CPU TEMP</small>
+        <strong><span id="cpu-temperature">--</span><em>°C</em></strong>
+      </span>
+      <span class="status-dot" aria-hidden="true"></span>
+    </section>
+  </main>
+  <script src="theme.js"></script>
+</body>
+</html>
