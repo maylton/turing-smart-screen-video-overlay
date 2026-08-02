@@ -10,13 +10,10 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 from types import MethodType
-from urllib.parse import unquote
 
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
-DOM_INSPECT_TITLE_PREFIX = "turing-editor-inspect:"
-DOM_INSPECT_CHUNK_SIZE = 160
-DOM_INSPECT_CHUNK_DELAY_MS = 20
+DOM_INSPECT_HANDLER = "turingDomInspector"
 _BUILD_CLASS_HOOK_INSTALLED = False
 _BUILD_CLASS_HOOK_ORIGINAL = None
 
@@ -42,12 +39,7 @@ def _decode_javascript_json(value):
 
 
 def _evaluate_json_bridge(self, script: str, callback) -> None:
-    """Legacy JSON bridge retained for compatibility tests.
-
-    DOM inspection no longer uses this path because some WebKitGTK/PyGObject
-    combinations fail while marshalling the JSC.Value returned by
-    evaluate_javascript_finish(), before Python can call to_string().
-    """
+    """Legacy JSON bridge retained for compatibility outside DOM inspection."""
     wrapped_script = _javascript_json_script(script)
     self._turing_json_bridge_calls = (
         int(getattr(self, "_turing_json_bridge_calls", 0)) + 1
@@ -71,46 +63,40 @@ def _evaluate_json_bridge(self, script: str, callback) -> None:
     )
 
 
-def _patch_html_editor_class(editor_class) -> bool:
-    """Install the legacy JSON bridge on an HTML editor class exactly once."""
-    if editor_class is None:
-        return False
-    if getattr(editor_class, "_turing_json_bridge_installed", False):
-        return True
-    editor_class._evaluate_json = _evaluate_json_bridge
-    editor_class._turing_json_bridge_installed = True
-    return True
+def _script_message_text(value) -> str:
+    """Read a string posted through WebKitUserContentManager across API versions."""
+    if value is None:
+        raise RuntimeError("WebKit delivered an empty script message")
 
+    candidate = value
+    getter = getattr(candidate, "get_js_value", None)
+    if callable(getter):
+        candidate = getter()
+    if candidate is None:
+        raise RuntimeError("WebKit script message contains no JavaScript value")
 
-def _patch_html_editor_instance(window) -> bool:
-    """Bind the legacy bridge directly to a live window."""
-    if window is None:
-        return False
-    window._evaluate_json = MethodType(_evaluate_json_bridge, window)
-    window._turing_json_bridge_instance_installed = True
-    return True
+    converter = getattr(candidate, "to_string", None)
+    if not callable(converter):
+        raise RuntimeError("WebKit script message cannot be converted to text")
+    text = converter()
+    if text is None:
+        raise RuntimeError("WebKit script message converted to an empty value")
+    return str(text)
 
 
 def _dom_inspection_script(element_ids) -> str:
-    """Build chunked one-way DOM inspection over the proven title channel."""
+    """Build DOM inspection that posts one JSON string to UserContentManager."""
     ids = json.dumps(list(element_ids), ensure_ascii=False)
-    prefix = json.dumps(DOM_INSPECT_TITLE_PREFIX)
+    handler = DOM_INSPECT_HANDLER
     return f"""
     (() => {{
-      const prefix = {prefix};
-      const chunkSize = {DOM_INSPECT_CHUNK_SIZE};
-      const chunkDelay = {DOM_INSPECT_CHUNK_DELAY_MS};
-
-      const send = message => {{
-        const encoded = encodeURIComponent(JSON.stringify(message));
-        const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2);
-        const total = Math.max(1, Math.ceil(encoded.length / chunkSize));
-        for (let index = 0; index < total; index += 1) {{
-          const chunk = encoded.slice(index * chunkSize, (index + 1) * chunkSize);
-          window.setTimeout(() => {{
-            document.title = prefix + nonce + ':' + index + ':' + total + ':' + chunk;
-          }}, index * chunkDelay);
+      const post = message => {{
+        const handlers = window.webkit && window.webkit.messageHandlers;
+        const channel = handlers && handlers.{handler};
+        if (!channel || typeof channel.postMessage !== 'function') {{
+          throw new Error('WebKit DOM inspection message handler is unavailable');
         }}
+        channel.postMessage(JSON.stringify(message));
       }};
 
       try {{
@@ -147,49 +133,32 @@ def _dom_inspection_script(element_ids) -> str:
             )
           }};
         }});
-        send({{payload}});
+        post({{payload}});
       }} catch (error) {{
-        send({{error: String(error && error.stack ? error.stack : error)}});
+        post({{error: String(error && error.stack ? error.stack : error)}});
       }}
     }})();
     """
 
 
-def _install_title_dom_bridge(window) -> bool:
-    """Route DOM inspection through short title chunks, never a JS result."""
+def _install_script_message_dom_bridge(window) -> bool:
+    """Register the native WebKit script-message channel for DOM inspection."""
     if window is None:
         return False
-    if getattr(window, "_turing_title_dom_bridge_installed", False):
+    if getattr(window, "_turing_script_message_dom_bridge_installed", False):
         return True
 
     view = window.backend.view
-    window._turing_dom_title_chunks = {}
+    manager_getter = getattr(view, "get_user_content_manager", None)
+    if not callable(manager_getter):
+        raise RuntimeError("WebKit view exposes no user content manager")
+    manager = manager_getter()
+    if manager is None:
+        raise RuntimeError("WebKit returned no user content manager")
 
-    def receive_title(_view, _param) -> None:
-        title = str(_view.get_title() or "")
-        if not title.startswith(DOM_INSPECT_TITLE_PREFIX):
-            return
-
-        body = title[len(DOM_INSPECT_TITLE_PREFIX) :]
+    def receive_message(_manager, value) -> None:
         try:
-            nonce, index_text, total_text, chunk = body.split(":", 3)
-            index = int(index_text)
-            total = int(total_text)
-            if not nonce or total < 1 or index < 0 or index >= total:
-                raise RuntimeError("DOM inspection returned invalid chunk metadata")
-
-            chunks = window._turing_dom_title_chunks
-            bucket = chunks.setdefault(nonce, {"total": total, "parts": {}})
-            if int(bucket["total"]) != total:
-                raise RuntimeError("DOM inspection chunk count changed mid-message")
-            bucket["parts"][index] = chunk
-
-            if len(bucket["parts"]) < total:
-                return
-
-            encoded = "".join(bucket["parts"][part] for part in range(total))
-            del chunks[nonce]
-            message = json.loads(unquote(encoded))
+            message = json.loads(_script_message_text(value))
             if not isinstance(message, dict):
                 raise RuntimeError("DOM inspection returned an invalid message")
             if message.get("error"):
@@ -201,7 +170,7 @@ def _install_title_dom_bridge(window) -> bool:
             window._turing_dom_request_complete = True
             window._receive_dom_styles(payload, None)
             print(
-                f"Inspeção DOM recebida em {total} fragmentos; "
+                "Inspeção DOM recebida pelo UserContentManager; "
                 f"overlays={len(payload)}.",
                 file=sys.stderr,
                 flush=True,
@@ -209,38 +178,91 @@ def _install_title_dom_bridge(window) -> bool:
         except Exception as exc:
             window._turing_dom_request_complete = True
             window._receive_dom_styles(None, exc)
+            print(
+                f"Erro ao receber inspeção DOM pelo UserContentManager: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
 
-    def query_dom_styles(self) -> bool:
-        request_id = int(getattr(self, "_turing_dom_request_id", 0)) + 1
-        self._turing_dom_request_id = request_id
-        self._turing_dom_request_complete = False
-        self._turing_dom_title_chunks = {}
-        self.backend.evaluate(_dom_inspection_script(self.element_ids))
+    signal_name = f"script-message-received::{DOM_INSPECT_HANDLER}"
+    signal_id = manager.connect(signal_name, receive_message)
+    register = getattr(manager, "register_script_message_handler", None)
+    if not callable(register):
+        manager.disconnect(signal_id)
+        raise RuntimeError("WebKit user content manager cannot register handlers")
+    if not bool(register(DOM_INSPECT_HANDLER)):
+        manager.disconnect(signal_id)
+        raise RuntimeError(
+            f"WebKit could not register script message handler {DOM_INSPECT_HANDLER}"
+        )
 
-        glib = getattr(self.backend, "GLib", None)
-        if glib is not None:
-            def inspection_timeout() -> bool:
-                if (
-                    getattr(self, "_turing_dom_request_id", 0) == request_id
-                    and not getattr(self, "_turing_dom_request_complete", False)
-                ):
-                    self.status_label.set_text(
-                        "A inspeção do tema não respondeu pelo WebKit. "
-                        "Consulte o terminal para diagnóstico."
-                    )
-                    print(
-                        "Timeout aguardando fragmentos da inspeção DOM via título.",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                return False
+    window._turing_dom_message_manager = manager
+    window._turing_dom_message_signal_id = signal_id
+    window._turing_script_message_dom_bridge_installed = True
+    print(
+        "Canal nativo WebKit script-message-received registrado.",
+        file=sys.stderr,
+        flush=True,
+    )
+    return True
 
-            glib.timeout_add(5000, inspection_timeout)
+
+def _query_dom_styles_message_bridge(self) -> bool:
+    """Request DOM styles without reading a JavaScript return value."""
+    try:
+        _install_script_message_dom_bridge(self)
+    except Exception as exc:
+        self._receive_dom_styles(None, exc)
         return False
 
-    view.connect("notify::title", receive_title)
-    window._query_dom_styles = MethodType(query_dom_styles, window)
-    window._turing_title_dom_bridge_installed = True
+    request_id = int(getattr(self, "_turing_dom_request_id", 0)) + 1
+    self._turing_dom_request_id = request_id
+    self._turing_dom_request_complete = False
+    self.backend.evaluate(_dom_inspection_script(self.element_ids))
+
+    glib = getattr(self.backend, "GLib", None)
+    if glib is not None:
+        def inspection_timeout() -> bool:
+            if (
+                getattr(self, "_turing_dom_request_id", 0) == request_id
+                and not getattr(self, "_turing_dom_request_complete", False)
+            ):
+                self.status_label.set_text(
+                    "A inspeção do tema não respondeu pelo canal nativo do WebKit. "
+                    "Consulte o terminal para diagnóstico."
+                )
+                print(
+                    "Timeout aguardando inspeção DOM pelo UserContentManager.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            return False
+
+        glib.timeout_add(5000, inspection_timeout)
+    return False
+
+
+def _patch_html_editor_class(editor_class) -> bool:
+    """Install WebKit-safe bridges on an HTML editor class exactly once."""
+    if editor_class is None:
+        return False
+    if getattr(editor_class, "_turing_editor_bridges_installed", False):
+        return True
+    editor_class._evaluate_json = _evaluate_json_bridge
+    editor_class._query_dom_styles = _query_dom_styles_message_bridge
+    editor_class._turing_json_bridge_installed = True
+    editor_class._turing_editor_bridges_installed = True
+    return True
+
+
+def _patch_html_editor_instance(window) -> bool:
+    """Bind WebKit-safe bridges directly to a live editor window."""
+    if window is None:
+        return False
+    window._evaluate_json = MethodType(_evaluate_json_bridge, window)
+    window._query_dom_styles = MethodType(_query_dom_styles_message_bridge, window)
+    window._turing_json_bridge_instance_installed = True
+    window._turing_editor_bridges_instance_installed = True
     return True
 
 
@@ -327,24 +349,22 @@ def _install_html_editor_extensions() -> None:
 
                 _patch_html_editor_class(window.__class__)
                 _patch_html_editor_instance(window)
-                _install_title_dom_bridge(window)
+                _install_script_message_dom_bridge(window)
                 _attach_background_page(window, Gtk, Gio)
                 if not getattr(window, "_turing_background_page_attached", False):
                     raise RuntimeError("a página Fundo não foi anexada ao inspector_stack")
 
-                if not getattr(window, "_turing_title_dom_retry_scheduled", False):
-                    window._turing_title_dom_retry_scheduled = True
+                if not getattr(window, "_turing_native_dom_retry_scheduled", False):
+                    window._turing_native_dom_retry_scheduled = True
 
                     def retry_dom_inspection() -> bool:
                         try:
-                            _install_title_dom_bridge(window)
                             status = getattr(window, "status_label", None)
                             if status is not None:
                                 status.set_text("Reinspecionando elementos…")
                             window._query_dom_styles()
                             print(
-                                "Inspeção DOM fragmentada via document.title instalada; "
-                                "nova inspeção solicitada.",
+                                "Inspeção DOM via UserContentManager solicitada.",
                                 file=sys.stderr,
                                 flush=True,
                             )
