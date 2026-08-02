@@ -2,6 +2,8 @@
 set -euo pipefail
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_FILTER="$SOURCE_DIR/packaging/runtime-rsync-filter.txt"
+CORE_FONT_FILTER="$SOURCE_DIR/packaging/core-fonts-rsync-filter.txt"
 
 APP_ID="io.github.turing.SmartScreen"
 APP_NAME="Turing Smart Screen"
@@ -11,6 +13,7 @@ MODE="user"
 INSTALL_DEPS=1
 ENABLE_AUTOSTART=0
 PRESERVE_USER_DATA=1
+INCLUDE_FULL_FONTS=0
 
 usage() {
   cat <<'EOF'
@@ -23,6 +26,7 @@ Options:
   --no-deps         Do not install system packages
   --autostart       Start the application automatically after login
   --fresh           Replace installed themes/configuration instead of preserving them
+  --full-fonts      Install the complete optional font catalog
   -h, --help        Show this help
 
 Default installation:
@@ -38,6 +42,7 @@ for arg in "$@"; do
     --no-deps) INSTALL_DEPS=0 ;;
     --autostart) ENABLE_AUTOSTART=1 ;;
     --fresh) PRESERVE_USER_DATA=0 ;;
+    --full-fonts) INCLUDE_FULL_FONTS=1 ;;
     -h|--help)
       usage
       exit 0
@@ -134,6 +139,18 @@ if [[ ! -f "$SOURCE_DIR/main.py" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$RUNTIME_FILTER" ]]; then
+  echo "Runtime payload filter was not found: $RUNTIME_FILTER" >&2
+  echo "Run install.sh from the complete project directory." >&2
+  exit 1
+fi
+
+if [[ ! -f "$CORE_FONT_FILTER" ]]; then
+  echo "Core font payload filter was not found: $CORE_FONT_FILTER" >&2
+  echo "Run install.sh from the complete project directory." >&2
+  exit 1
+fi
+
 echo "Installing $APP_NAME in: $PREFIX"
 
 if [[ "$SELF_INSTALL" -eq 1 ]]; then
@@ -154,34 +171,50 @@ if [[ "$SELF_INSTALL" -eq 0 ]] && [[ -d "$PREFIX" ]] && [[ "$PRESERVE_USER_DATA"
   [[ -f "$PREFIX/config.yaml" ]] && \
     cp "$PREFIX/config.yaml" "$BACKUP_DIR/config.yaml"
 
-  [[ -d "$PREFIX/res/themes" ]] && \
-    cp -a "$PREFIX/res/themes" "$BACKUP_DIR/themes"
+  if [[ -d "$PREFIX/res/themes" ]]; then
+    mkdir -p "$BACKUP_DIR/themes"
+    # The legacy example collection is an optional distribution pack, not user
+    # data. Preserve installed and custom themes without carrying this large
+    # source-only directory back into the reduced runtime payload.
+    rsync -a \
+      --exclude='--Theme examples/' \
+      --exclude='*.tmp' \
+      --exclude='*.editor-backup' \
+      --exclude='*.video-working' \
+      --exclude='*.before-*-repair' \
+      "$PREFIX/res/themes/" "$BACKUP_DIR/themes/"
+  fi
+
+  if [[ -d "$PREFIX/res/themes" ]] && [[ -d "$PREFIX/res/fonts" ]]; then
+    /usr/bin/python3 "$SOURCE_DIR/library/theme_font_profile.py" \
+      --themes "$PREFIX/res/themes" \
+      --fonts "$PREFIX/res/fonts" \
+      --destination "$BACKUP_DIR/fonts"
+  fi
 
   [[ -d "$PREFIX/res/video" ]] && \
     cp -a "$PREFIX/res/video" "$BACKUP_DIR/video"
 
   [[ -d "$PREFIX/res/videos" ]] && \
     cp -a "$PREFIX/res/videos" "$BACKUP_DIR/videos"
+
+  for user_data_dir in .gtk-ui-backups .theme-editor-backups; do
+    if [[ -d "$PREFIX/$user_data_dir" ]]; then
+      cp -a "$PREFIX/$user_data_dir" "$BACKUP_DIR/$user_data_dir"
+    fi
+  done
 fi
 
 RSYNC_ARGS=(
   -a
   --delete
-  --exclude '.git/'
-  --exclude 'venv/'
-  --exclude '.venv/'
-  --exclude '__pycache__/'
-  --exclude '*.pyc'
-  --exclude '*.pcapng'
-  --exclude '.gtk-ui-backups/'
-  --exclude '.theme-editor-backups/'
-  --exclude '.test-environment/'
-  --exclude '.test-media/'
-  --exclude '.packaging-test/'
-  --exclude 'res/themes/*/theme.yaml.tmp'
-  --exclude 'res/themes/*/theme.yaml.editor-backup'
-  --exclude 'res/themes/*/theme.yaml.before-sequence-repair'
+  --delete-excluded
 )
+
+if [[ "$INCLUDE_FULL_FONTS" -eq 0 ]]; then
+  RSYNC_ARGS+=(--filter "merge $CORE_FONT_FILTER")
+fi
+RSYNC_ARGS+=(--filter "merge $RUNTIME_FILTER")
 
 if [[ "$SELF_INSTALL" -eq 0 ]]; then
   if [[ "$MODE" == "system" ]]; then
@@ -236,6 +269,17 @@ if [[ -n "$BACKUP_DIR" ]]; then
     $SUDO mkdir -p "$PREFIX/res/videos"
     $SUDO cp -a "$BACKUP_DIR/videos/." "$PREFIX/res/videos/"
   fi
+
+  if [[ -d "$BACKUP_DIR/fonts" ]]; then
+    $SUDO mkdir -p "$PREFIX/res/fonts"
+    $SUDO cp -a "$BACKUP_DIR/fonts/." "$PREFIX/res/fonts/"
+  fi
+
+  for user_data_dir in .gtk-ui-backups .theme-editor-backups; do
+    if [[ -d "$BACKUP_DIR/$user_data_dir" ]]; then
+      $SUDO cp -a "$BACKUP_DIR/$user_data_dir" "$PREFIX/$user_data_dir"
+    fi
+  done
 
   rm -rf "$BACKUP_DIR"
 fi

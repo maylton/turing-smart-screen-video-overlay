@@ -12,6 +12,7 @@ from typing import Iterable, Mapping
 
 from library.html_theme_authoring import discover_overlay_candidates
 from library.html_theme_components import (
+    HtmlGeneratedWidget,
     WIDGET_RUNTIME_FILENAME,
     generated_widget_ids,
     get_html_widget_component,
@@ -21,9 +22,15 @@ from library.html_theme_components import (
 from library.theme_engine import ThemeManifest, ThemeValidationError
 
 
-EDITOR_METADATA_FILENAME = ".html-theme-editor.json"
+OVERLAY_DOCUMENT_FILENAME = "overlays.json"
+OVERLAY_DOCUMENT_FORMAT = "turing-html-overlays"
+OVERLAY_DOCUMENT_FORMAT_VERSION = 1
+LEGACY_EDITOR_METADATA_FILENAME = ".html-theme-editor.json"
+# Compatibility name imported by the editor and older integrations. It now
+# points at the public, canonical overlay document rather than hidden metadata.
+EDITOR_METADATA_FILENAME = OVERLAY_DOCUMENT_FILENAME
 EDITOR_STYLESHEET_FILENAME = "theme-editor-overrides.css"
-EDITOR_SCHEMA_VERSION = 4
+EDITOR_SCHEMA_VERSION = 5
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _ELEMENT_KINDS = {"text", "bar"}
 _GRADIENT_DIRECTIONS = {
@@ -48,6 +55,10 @@ class HtmlVisualElementStyle:
     z_index: int = 1000
     visible: bool = True
     component_type: str = ""
+    generated_widget: bool = False
+    binding: str = ""
+    formatter: str = ""
+    sample: str = ""
     element_kind: str = "text"
     effects_managed: bool = False
     gradient_enabled: bool = False
@@ -58,6 +69,24 @@ class HtmlVisualElementStyle:
     outline_color: str = "#000000"
     glow_radius: int = 0
     glow_color: str = "#ffffff"
+
+    @property
+    def is_generated(self) -> bool:
+        return bool(self.generated_widget or self.component_type)
+
+    def widget_definition(self) -> HtmlGeneratedWidget:
+        if not self.is_generated:
+            raise ThemeValidationError(
+                f"#{self.element_id} is not an editor-generated widget"
+            )
+        return HtmlGeneratedWidget(
+            element_id=self.element_id,
+            component_type=self.component_type,
+            binding=self.binding,
+            formatter=self.formatter,
+            sample=self.sample,
+            kind=self.element_kind,
+        ).validated()
 
     def validated(self, manifest: ThemeManifest) -> "HtmlVisualElementStyle":
         element_id = str(self.element_id).strip()
@@ -121,6 +150,39 @@ class HtmlVisualElementStyle:
         element_kind = str(self.element_kind or "text").strip().lower()
         if component is not None:
             element_kind = component.kind
+        generated_widget = bool(self.generated_widget or component_type)
+        binding = str(self.binding or "").strip()
+        formatter = str(self.formatter or "").strip().lower()
+        sample = str(self.sample or "").strip()
+        if generated_widget:
+            widget = HtmlGeneratedWidget(
+                element_id=element_id,
+                component_type=component_type,
+                binding=binding,
+                formatter=formatter,
+                sample=sample,
+                kind=element_kind,
+            ).validated()
+            binding = widget.binding
+            formatter = widget.formatter
+            sample = widget.sample
+            element_kind = widget.kind
+        elif binding:
+            widget = HtmlGeneratedWidget(
+                element_id=element_id,
+                binding=binding,
+                formatter=formatter,
+                sample=sample,
+                kind=element_kind,
+            ).validated()
+            binding = widget.binding
+            formatter = widget.formatter
+            sample = widget.sample
+            element_kind = widget.kind
+        elif formatter or sample:
+            raise ThemeValidationError(
+                f"#{element_id} formatter/sample metadata requires a binding"
+            )
         if element_kind not in _ELEMENT_KINDS:
             raise ThemeValidationError(
                 f"#{element_id} element kind is not supported"
@@ -152,6 +214,10 @@ class HtmlVisualElementStyle:
             z_index=values["z index"],
             visible=bool(self.visible),
             component_type=component_type,
+            generated_widget=generated_widget,
+            binding=binding,
+            formatter=formatter,
+            sample=sample,
             element_kind=element_kind,
             effects_managed=bool(self.effects_managed),
             gradient_enabled=bool(self.gradient_enabled),
@@ -179,6 +245,10 @@ class HtmlVisualElementStyle:
             "zIndex": self.z_index,
             "visible": self.visible,
             "componentType": self.component_type,
+            "generatedWidget": self.is_generated,
+            "binding": self.binding,
+            "formatter": self.formatter,
+            "sample": self.sample,
             "elementKind": self.element_kind,
             "effectsManaged": self.effects_managed,
             "gradientEnabled": self.gradient_enabled,
@@ -394,6 +464,10 @@ def _style_from_mapping(value: Mapping[str, object]) -> HtmlVisualElementStyle:
             z_index=int(value.get("zIndex", 1000)),
             visible=bool(value.get("visible", True)),
             component_type=str(value.get("componentType", "")),
+            generated_widget=bool(value.get("generatedWidget", False)),
+            binding=str(value.get("binding", "")),
+            formatter=str(value.get("formatter", "")),
+            sample=str(value.get("sample", "")),
             element_kind=str(value.get("elementKind", "text")),
             effects_managed=bool(value.get("effectsManaged", False)),
             gradient_enabled=bool(value.get("gradientEnabled", False)),
@@ -413,23 +487,70 @@ def metadata_path(manifest: ThemeManifest) -> Path:
     return manifest.root / EDITOR_METADATA_FILENAME
 
 
+def legacy_metadata_path(manifest: ThemeManifest) -> Path:
+    return manifest.root / LEGACY_EDITOR_METADATA_FILENAME
+
+
 def stylesheet_path(manifest: ThemeManifest) -> Path:
     return manifest.root / EDITOR_STYLESHEET_FILENAME
+
+
+def render_overlay_document(
+    manifest: ThemeManifest,
+    styles: Iterable[HtmlVisualElementStyle],
+) -> str:
+    return json.dumps(
+        {
+            "format": OVERLAY_DOCUMENT_FORMAT,
+            "formatVersion": OVERLAY_DOCUMENT_FORMAT_VERSION,
+            "schemaVersion": EDITOR_SCHEMA_VERSION,
+            "display": {
+                "width": manifest.width,
+                "height": manifest.height,
+            },
+            "elements": [style.as_dict() for style in styles],
+        },
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+
+def _visual_metadata_source(manifest: ThemeManifest) -> tuple[Path, bool]:
+    canonical = metadata_path(manifest)
+    if canonical.is_file():
+        return canonical, True
+    return legacy_metadata_path(manifest), False
 
 
 def load_visual_styles(
     manifest: ThemeManifest,
 ) -> tuple[HtmlVisualElementStyle, ...]:
-    path = metadata_path(manifest)
+    path, canonical = _visual_metadata_source(manifest)
     if not path.is_file():
         return ()
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ThemeValidationError(f"invalid {EDITOR_METADATA_FILENAME}: {exc}") from exc
+        raise ThemeValidationError(f"invalid {path.name}: {exc}") from exc
     if not isinstance(payload, Mapping):
-        raise ThemeValidationError(f"{EDITOR_METADATA_FILENAME} must contain an object")
-    if payload.get("schemaVersion") not in {1, 2, 3, EDITOR_SCHEMA_VERSION}:
+        raise ThemeValidationError(f"{path.name} must contain an object")
+    if canonical:
+        if payload.get("format") != OVERLAY_DOCUMENT_FORMAT:
+            raise ThemeValidationError(
+                f"{OVERLAY_DOCUMENT_FILENAME} has an unsupported format"
+            )
+        if payload.get("formatVersion") != OVERLAY_DOCUMENT_FORMAT_VERSION:
+            raise ThemeValidationError(
+                f"unsupported {OVERLAY_DOCUMENT_FILENAME} format version"
+            )
+        display = payload.get("display")
+        if not isinstance(display, Mapping) or (
+            display.get("width"), display.get("height")
+        ) != (manifest.width, manifest.height):
+            raise ThemeValidationError(
+                f"{OVERLAY_DOCUMENT_FILENAME} display does not match the theme manifest"
+            )
+    if payload.get("schemaVersion") not in set(range(1, EDITOR_SCHEMA_VERSION + 1)):
         raise ThemeValidationError("unsupported HTML visual editor schema")
     raw_elements = payload.get("elements")
     if not isinstance(raw_elements, list):
@@ -496,8 +617,9 @@ def render_visual_stylesheet(styles: Iterable[HtmlVisualElementStyle]) -> str:
             if style.component_type
             else None
         )
-        is_generated_bar = component is not None and component.kind == "bar"
-        is_bar = style.element_kind == "bar" or is_generated_bar
+        resolved_kind = component.kind if component is not None else style.element_kind
+        is_generated_bar = style.is_generated and resolved_kind == "bar"
+        is_bar = resolved_kind == "bar"
         properties = [
             f"{selector} {{",
             "  position: fixed !important;",
@@ -531,7 +653,7 @@ def render_visual_stylesheet(styles: Iterable[HtmlVisualElementStyle]) -> str:
                     "  pointer-events: none !important;",
                 ]
             )
-        elif style.component_type:
+        elif style.is_generated:
             properties.extend(
                 [
                     "  display: flex !important;",
@@ -699,7 +821,7 @@ def save_visual_styles(
     previous_generated_ids = {
         style.element_id
         for style in load_visual_styles(manifest)
-        if style.component_type
+        if style.is_generated
     }
     previous_generated_ids.update(generated_widget_ids(entrypoint_original))
     marked_ids = [
@@ -723,7 +845,7 @@ def save_visual_styles(
     generated_ids = [
         element_id
         for element_id in style_order
-        if by_id[element_id].component_type
+        if by_id[element_id].is_generated
     ]
     expected_ids = set(original_ids) | set(generated_ids)
     if set(by_id) != expected_ids:
@@ -742,14 +864,23 @@ def save_visual_styles(
     entrypoint_path = manifest.entrypoint_path
     css_path = stylesheet_path(manifest)
     editor_path = metadata_path(manifest)
+    legacy_editor_path = legacy_metadata_path(manifest)
     runtime_path = manifest.root / WIDGET_RUNTIME_FILENAME
-    paths = (manifest_path, entrypoint_path, css_path, editor_path, runtime_path)
+    paths = (
+        manifest_path,
+        entrypoint_path,
+        css_path,
+        editor_path,
+        legacy_editor_path,
+        runtime_path,
+    )
     originals = {
         path: path.read_text(encoding="utf-8") if path.is_file() else None
         for path in paths
     }
 
     payload = json.loads(originals[manifest_path] or "{}")
+    payload["overlayDocument"] = OVERLAY_DOCUMENT_FILENAME
     payload["atomicRegions"] = [
         {
             "name": f"overlay:{style.element_id}",
@@ -766,28 +897,25 @@ def save_visual_styles(
     html_text = update_generated_widget_block(
         html_text,
         (
-            (style.element_id, style.component_type)
+            style.widget_definition()
             for style in ordered
-            if style.component_type
+            if style.is_generated
         ),
     )
     html_text = ensure_widget_runtime_script(html_text)
     css_text = render_visual_stylesheet(ordered)
-    metadata_text = json.dumps(
-        {
-            "schemaVersion": EDITOR_SCHEMA_VERSION,
-            "elements": [style.as_dict() for style in ordered],
-        },
-        ensure_ascii=False,
-        indent=2,
-    ) + "\n"
+    metadata_text = render_overlay_document(manifest, ordered)
     runtime_text = render_widget_runtime_script()
+    # Publish the manifest last. If the process is interrupted mid-save, the
+    # previous manifest never points at a canonical overlay document that has
+    # not been written yet.
     outputs = {
-        manifest_path: manifest_text,
-        entrypoint_path: html_text,
-        css_path: css_text,
         editor_path: metadata_text,
+        css_path: css_text,
+        entrypoint_path: html_text,
+        legacy_editor_path: None,
         runtime_path: runtime_text,
+        manifest_path: manifest_text,
     }
 
     for path in paths:

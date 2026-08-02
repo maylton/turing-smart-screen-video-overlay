@@ -104,6 +104,24 @@ Launch the app with:
 turing-smart-screen
 ```
 
+### Font profiles
+
+The default installation includes the 18 font files referenced by bundled
+themes and editor templates. This keeps every bundled YAML theme functional
+while avoiding installation of the complete optional font catalog.
+
+Install all available fonts when you want the complete typeface list in the
+theme editor:
+
+```bash
+./install.sh --full-fonts
+```
+
+During an update, fonts referenced by installed custom themes are detected and
+preserved automatically even when they are outside the core profile. Running a
+later default installation returns the global catalog to the core profile plus
+those fonts that are actively referenced by installed themes.
+
 ## Updating safely
 
 ```bash
@@ -116,6 +134,8 @@ By default, updates preserve:
 - `config.yaml`;
 - all theme folders under `res/themes`;
 - local media under `res/video` and `res/videos`.
+- global fonts referenced by installed themes;
+- GTK and theme-editor backup directories.
 
 Use `./install.sh --fresh` only when replacing those user-managed files is
 intentional.

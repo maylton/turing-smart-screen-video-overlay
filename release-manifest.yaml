@@ -66,6 +66,7 @@ entrypoints:
 - media-preparation.py
 - media_preparation_gtk_app.py
 - display-detection.py
+- theme-migrate.py
 - install.sh
 documentation:
 - README.md
@@ -74,6 +75,10 @@ documentation:
 - docs/MEDIA_PREPARATION.md
 - docs/DISPLAY_DETECTION.md
 - docs/ROADMAP.md
+- docs/THEME_PACKAGE_FORMAT.md
+- docs/HTML_OVERLAY_DOCUMENT.md
+- docs/HTML_THEME_AUTHORING_GUIDE.md
+- docs/YAML_THEME_MIGRATION.md
 - docs/releases/0.1.0-rc1.md
 known_limitations:
 - Native media commands are validated only on Rev. C 2.1-inch ROM 88.

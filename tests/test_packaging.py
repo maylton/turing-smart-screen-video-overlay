@@ -1,13 +1,128 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_FILTER = ROOT / "packaging" / "runtime-rsync-filter.txt"
+CORE_FONT_FILTER = ROOT / "packaging" / "core-fonts-rsync-filter.txt"
 
 
 class PackagingContractTests(unittest.TestCase):
+    def test_installer_uses_an_explicit_runtime_payload(self):
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn('RUNTIME_FILTER="$SOURCE_DIR/packaging/runtime-rsync-filter.txt"', text)
+        self.assertIn(
+            'CORE_FONT_FILTER="$SOURCE_DIR/packaging/core-fonts-rsync-filter.txt"',
+            text,
+        )
+        self.assertIn('--filter "merge $RUNTIME_FILTER"', text)
+        self.assertIn('--filter "merge $CORE_FONT_FILTER"', text)
+        self.assertIn("--delete-excluded", text)
+        self.assertIn("--exclude='--Theme examples/'", text)
+        self.assertIn(".gtk-ui-backups .theme-editor-backups", text)
+        self.assertIn("--full-fonts", text)
+        self.assertTrue(RUNTIME_FILTER.is_file())
+        self.assertTrue(CORE_FONT_FILTER.is_file())
+
+    @unittest.skipUnless(shutil.which("rsync"), "rsync is required for payload filtering")
+    def test_runtime_payload_excludes_development_and_optional_content(self):
+        with tempfile.TemporaryDirectory(prefix="turing-payload-test-") as directory:
+            root = Path(directory)
+            source = root / "source"
+            destination = root / "destination"
+
+            included = (
+                "main.py",
+                "theme-migrate.py",
+                "library/runtime.py",
+                "res/themes/core/theme.yaml",
+                "res/theme-templates/html-ide-starter.theme",
+                "res/theme-templates/html-ide-starter/manifest.json",
+                "res/docs/no-preview.png",
+                "res/fonts/roboto/Roboto-Regular.ttf",
+                "tools/render_theme_preview.py",
+                "packaging/core-fonts-rsync-filter.txt",
+                "packaging/runtime-rsync-filter.txt",
+            )
+            excluded = (
+                "main.py.video-working",
+                "simple-program.py",
+                "docs/ROADMAP.md",
+                "tests/test_runtime.py",
+                "external/windows-only.dll",
+                "tools/compare-images.py",
+                "res/docs/device-photo.png",
+                "res/fonts/BoutiqueBitmap9x9/Optional.ttf",
+                "res/themes/--Theme examples/large.png",
+                "res/themes/core/theme.yaml.editor-backup",
+            )
+
+            for relative in (*included, *excluded):
+                path = source / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(relative, encoding="utf-8")
+
+            completed = subprocess.run(
+                [
+                    "rsync",
+                    "-a",
+                    "--delete",
+                    "--delete-excluded",
+                    "--filter",
+                    f"merge {CORE_FONT_FILTER}",
+                    "--filter",
+                    f"merge {RUNTIME_FILTER}",
+                    f"{source}/",
+                    f"{destination}/",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+            for relative in included:
+                with self.subTest(included=relative):
+                    self.assertTrue((destination / relative).is_file())
+            for relative in excluded:
+                with self.subTest(excluded=relative):
+                    self.assertFalse((destination / relative).exists())
+
+    @unittest.skipUnless(shutil.which("rsync"), "rsync is required for payload filtering")
+    def test_full_font_profile_keeps_optional_fonts(self):
+        with tempfile.TemporaryDirectory(prefix="turing-full-font-test-") as directory:
+            root = Path(directory)
+            source = root / "source"
+            destination = root / "destination"
+            optional_font = source / "res" / "fonts" / "optional" / "Custom.ttf"
+            optional_font.parent.mkdir(parents=True)
+            optional_font.write_bytes(b"optional")
+
+            completed = subprocess.run(
+                [
+                    "rsync",
+                    "-a",
+                    "--filter",
+                    f"merge {RUNTIME_FILTER}",
+                    f"{source}/",
+                    f"{destination}/",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                (destination / "res" / "fonts" / "optional" / "Custom.ttf").read_bytes(),
+                b"optional",
+            )
+
     def test_installer_exposes_system_gtk_to_the_venv(self):
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertGreaterEqual(text.count("-m venv --system-site-packages"), 2)
