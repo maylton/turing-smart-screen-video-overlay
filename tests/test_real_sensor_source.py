@@ -185,6 +185,29 @@ class RealSensorSourceTests(unittest.TestCase):
         self.assertEqual(payload["data"]["gpu"]["selectedIndex"], 1)
         self.assertFalse(payload["errors"])
 
+    def test_optional_weather_reader_uses_application_provider(self):
+        weather = types.SimpleNamespace(
+            temperature="24.0°C",
+            feels_like="(23.5°C)",
+            description="Parcialmente nublado",
+            humidity="55%",
+            update_time="@10:30",
+            provider="stub",
+            error=None,
+        )
+        source = RealSensorSource(
+            psutil_module=self.psutil,
+            weather_settings={"WEATHER_PROVIDER": "open-meteo"},
+            weather_fetcher=lambda _settings, _hardware: weather,
+        )
+
+        self.assertEqual(source.read_weather()["temperature"], "24.0°C")
+        self.assertEqual(
+            source.read_weather()["description"],
+            "Parcialmente nublado",
+        )
+        self.assertIn("weather", source.readers())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -198,14 +198,38 @@ def main() -> int:
             gi.require_version("WebKit", "6.0")
             from gi.repository import WebKit  # noqa: F401
             from PIL import Image  # noqa: F401
-            checks.append(result(True, "Experimental HTML renderer dependencies"))
+            checks.append(result(True, "HTML editor WebKit dependencies"))
         except Exception as exc:
-            checks.append(result(False, "Experimental HTML renderer dependencies", str(exc)))
+            checks.append(result(False, "HTML editor WebKit dependencies", str(exc)))
+
+        offscreen = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import gi; "
+                    "gi.require_version('Gtk', '3.0'); "
+                    "gi.require_version('WebKit2', '4.1'); "
+                    "from gi.repository import Gtk, WebKit2; "
+                    "assert hasattr(Gtk, 'OffscreenWindow')"
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        offscreen_details = (offscreen.stderr or offscreen.stdout).strip()
+        checks.append(result(
+            offscreen.returncode == 0,
+            "Background HTML renderer dependencies",
+            offscreen_details,
+        ))
 
     required_files = (
         "configure-gtk.py",
         "configure_gtk_app.py",
         "theme-editor-gtk.py",
+        "html-theme-editor-gtk.py",
         "video-manager-gtk.py",
         "video_manager_gtk_app.py",
         "video_manager.py",
@@ -217,7 +241,9 @@ def main() -> int:
         "library/html_hybrid.py",
         "library/html_native_video_sink.py",
         "library/html_theme_authoring.py",
+        "library/html_theme_visual_editor.py",
         "library/html_theme_video_builder.py",
+        "library/runtime_python.py",
         "html-theme-build-video.py",
         "media-preparation.py",
         "media-preparation-gtk.py",
@@ -227,6 +253,7 @@ def main() -> int:
         "tests/test_packaging.py",
         "tests/test_media_preparation.py",
         "tests/test_html_theme_authoring.py",
+        "tests/test_html_theme_visual_editor.py",
         "tests/test_theme_gallery_html.py",
         "tests/test_gpu_dependency_detection.py",
         "scripts/test-media-preparation.py",
@@ -264,6 +291,7 @@ def main() -> int:
         root / "configure-gtk.py",
         root / "configure_gtk_app.py",
         root / "theme-editor-gtk.py",
+        root / "html-theme-editor-gtk.py",
         root / "video-manager-gtk.py",
         root / "video_manager_gtk_app.py",
         root / "video_manager.py",
@@ -273,7 +301,9 @@ def main() -> int:
         root / "library" / "video_media.py",
         root / "library" / "media_preparation.py",
         root / "library" / "html_theme_authoring.py",
+        root / "library" / "html_theme_visual_editor.py",
         root / "library" / "html_theme_video_builder.py",
+        root / "library" / "runtime_python.py",
         root / "library" / "theme_gallery.py",
         root / "media-preparation.py",
         root / "media-preparation-gtk.py",

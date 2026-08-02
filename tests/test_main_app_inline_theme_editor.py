@@ -1,5 +1,10 @@
+import json
+import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
+
+from library.main_app_diagnostics_integration import _open_theme_editor_factory
 
 
 class MainAppInlineThemeEditorContractTests(unittest.TestCase):
@@ -84,9 +89,57 @@ class MainAppInlineThemeEditorContractTests(unittest.TestCase):
         )
         self.assertIn("def _open_theme_editor_factory", source)
         self.assertIn("build_inline_theme_editor_page", source)
+        self.assertIn("show_html_theme_authoring_dialog", source)
         self.assertIn('page_name = "theme-editor"', source)
         self.assertIn("window_class.open_theme_editor = open_theme_editor", source)
         self.assertIn("window_class.open_theme_editor_record = open_theme_editor_record", source)
+
+    def test_main_app_html_route_prefers_visual_editor(self):
+        source = Path("configure-gtk.py").read_text(encoding="utf-8")
+        self.assertIn('visual_editor = app.ROOT / "html-theme-editor-gtk.py"', source)
+        self.assertIn("Opening visual HTML editor", source)
+
+    def test_active_html_theme_opens_authoring_dialog_instead_of_yaml_editor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            themes = Path(temporary)
+            theme = themes / "html-test"
+            theme.mkdir()
+            (theme / "index.html").write_text(
+                '<div id="value" data-turing-overlay>--</div>',
+                encoding="utf-8",
+            )
+            (theme / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "engine": "html",
+                        "name": "HTML Test",
+                        "version": 1,
+                        "display": {"width": 480, "height": 480},
+                        "entrypoint": "index.html",
+                        "permissions": ["sensors"],
+                        "network": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            app = SimpleNamespace(
+                THEME_EDITOR=themes / "theme-editor-gtk.py",
+                THEMES_DIR=themes,
+                read_current_theme=lambda: "html-test",
+            )
+            opened = []
+            window = SimpleNamespace(
+                show_html_theme_authoring_dialog=opened.append,
+                toast=lambda message: self.fail(message),
+            )
+
+            open_current, open_record = _open_theme_editor_factory(app)
+            open_current(window)
+            open_record(window, SimpleNamespace(name="html-test"))
+
+            self.assertEqual([record.engine for record in opened], ["html", "html"])
+            self.assertEqual([record.name for record in opened], ["html-test", "html-test"])
 
     def test_theme_gallery_edit_actions_are_routed_to_inline_editor(self):
         source = Path("library/main_app_diagnostics_integration.py").read_text(

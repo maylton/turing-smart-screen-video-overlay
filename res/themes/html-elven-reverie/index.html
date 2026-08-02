@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Elven Reverie</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="theme-editor-overrides.css">
+</head>
+<body>
+  <main class="screen" aria-label="Elven Reverie system monitor">
+    <img class="bg" src="elven-reverie-background.png" alt="">
+
+    <div class="panel time-panel" id="time-display" data-turing-overlay>--:--</div>
+
+    <div class="panel orb-panel cpu-panel">
+      <div class="orb-value" id="cpu-value" data-turing-overlay>--°C</div>
+    </div>
+
+    <div class="panel orb-panel gpu-panel">
+      <div class="orb-value" id="gpu-value" data-turing-overlay>--%</div>
+    </div>
+
+    <div class="panel ram-panel">
+      <div class="ram-value" id="ram-value" data-turing-overlay>-- GB</div>
+    </div>
+
+    <div class="firefly small f1"></div>
+    <div class="firefly f2"></div>
+    <div class="firefly small f3"></div>
+    <div class="firefly f4"></div>
+    <div class="firefly large f5"></div>
+    <div class="firefly small f6"></div>
+    <div class="firefly f7"></div>
+    <div class="firefly small f8"></div>
+  </main>
+  <script src="theme.js"></script>
+  <script src="theme-editor-widgets.js"></script>
+</body>
+</html>

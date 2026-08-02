@@ -6,6 +6,7 @@ from pathlib import Path
 
 from library.html_theme_engine import (
     HtmlThemeEngine,
+    WebKitGtk3OffscreenBackend,
     build_snapshot_script,
     is_allowed_theme_uri,
 )
@@ -119,6 +120,16 @@ class HtmlThemeEngineTests(unittest.TestCase):
         self.assertFalse(manifest.network)
         self.assertIn("Content-Security-Policy", html)
         self.assertIn("connect-src 'none'", html)
+
+    def test_production_offscreen_backend_contract_is_available(self):
+        self.assertTrue(issubclass(WebKitGtk3OffscreenBackend, object))
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "library"
+            / "html_theme_engine.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Gtk.OffscreenWindow", source)
+        self.assertIn('gi.require_version("WebKit2", "4.1")', source)
 
 
 if __name__ == "__main__":

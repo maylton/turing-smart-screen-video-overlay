@@ -18,6 +18,14 @@ class PackagingContractTests(unittest.TestCase):
             text,
         )
 
+    def test_installer_includes_visible_and_offscreen_webkit_backends(self):
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("webkitgtk-6.0", text)
+        self.assertIn("webkit2gtk-4.1", text)
+        checkup = (ROOT / "gtk-checkup.py").read_text(encoding="utf-8")
+        self.assertIn("Background HTML renderer dependencies", checkup)
+        self.assertIn("gi.require_version('WebKit2', '4.1')", checkup)
+
     def test_installer_runs_the_installed_checkup(self):
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn('"$PREFIX/venv/bin/python3" "$PREFIX/gtk-checkup.py" "$PREFIX"', text)

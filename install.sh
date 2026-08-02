@@ -115,7 +115,7 @@ if [[ "$INSTALL_DEPS" -eq 1 ]]; then
     HTML_SYSTEM_DEPS=()
     if grep -A 3 -E '^renderer:' "$SOURCE_DIR/config.yaml" | grep -q -E '^[[:space:]]+engine:[[:space:]]*html[[:space:]]*$'; then
       # WebKitGTK stays optional for legacy YAML-only installations.
-      HTML_SYSTEM_DEPS+=(webkitgtk-6.0)
+      HTML_SYSTEM_DEPS+=(webkitgtk-6.0 webkit2gtk-4.1)
     fi
     sudo pacman -S --needed \
       python python-pip python-virtualenv python-gobject \
@@ -124,7 +124,7 @@ if [[ "$INSTALL_DEPS" -eq 1 ]]; then
       "${HTML_SYSTEM_DEPS[@]}"
   else
     echo "Automatic dependency installation currently supports Arch/CachyOS." >&2
-    echo "Required: Python 3, PyGObject, GTK4, Libadwaita, ffmpeg, rsync, Git, Tk, Pillow, pyserial and Babel." >&2
+    echo "Required: Python 3, PyGObject, GTK3/GTK4, WebKitGTK 4.1/6.0, Libadwaita, ffmpeg, rsync, Git, Tk, Pillow, pyserial and Babel." >&2
   fi
 fi
 

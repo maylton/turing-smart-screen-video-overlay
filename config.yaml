@@ -92,4 +92,5 @@ display:
 # HTML is experimental and starts only when engine is explicitly set to html;
 # in that case also set theme to an HTML theme folder under res/themes.
 renderer:
-  engine: yaml
+  engine: html
+  theme: "html-elven-reverie"

@@ -180,6 +180,16 @@ class HtmlHybridTests(unittest.TestCase):
                     runner.start()
         popen.assert_not_called()
 
+    def test_production_worker_uses_no_desktop_window(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "library"
+            / "html_renderer_worker.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("WebKitGtk3OffscreenBackend", source)
+        self.assertNotIn("Gtk.ApplicationWindow", source)
+        self.assertNotIn("self.window.present()", source)
+
     def test_physical_size_hint_accepts_only_480_square_rev_c(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

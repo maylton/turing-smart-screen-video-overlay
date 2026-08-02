@@ -48,6 +48,9 @@ class RealSensorSource:
         psutil_module: Any = None,
         gpu_backend_factory: Optional[Callable[[], Any]] = None,
         gpu_diagnostics_factory: Optional[Callable[[], Mapping[str, Any]]] = None,
+        weather_settings: Optional[Mapping[str, Any]] = None,
+        hardware_sensors: str = "AUTO",
+        weather_fetcher: Optional[Callable[[Dict[str, Any], str], Any]] = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
     ) -> None:
@@ -55,6 +58,11 @@ class RealSensorSource:
         self._psutil_module = psutil_module
         self._gpu_backend_factory = gpu_backend_factory
         self._gpu_diagnostics_factory = gpu_diagnostics_factory
+        self._weather_settings = (
+            dict(weather_settings) if weather_settings is not None else None
+        )
+        self._hardware_sensors = str(hardware_sensors or "AUTO").strip().upper()
+        self._weather_fetcher = weather_fetcher
         self._monotonic_clock = monotonic_clock
         self._wall_clock = wall_clock
         self._gpu_backend: Any = None
@@ -310,8 +318,30 @@ class RealSensorSource:
             "uptime": max(0, int(now - float(boot_time))),
         }
 
-    def readers(self) -> Dict[str, Reader]:
+    def read_weather(self) -> Dict[str, Any]:
+        if self._weather_settings is None:
+            return {}
+        fetcher = self._weather_fetcher
+        if fetcher is None:
+            from library.weather_provider import WeatherProvider
+
+            fetcher = WeatherProvider.fetch
+        snapshot = fetcher(
+            dict(self._weather_settings),
+            self._hardware_sensors,
+        )
         return {
+            "temperature": getattr(snapshot, "temperature", None),
+            "feelsLike": getattr(snapshot, "feels_like", None),
+            "description": getattr(snapshot, "description", None)
+            or getattr(snapshot, "error", None),
+            "humidity": getattr(snapshot, "humidity", None),
+            "updatedAt": getattr(snapshot, "update_time", None),
+            "provider": getattr(snapshot, "provider", ""),
+        }
+
+    def readers(self) -> Dict[str, Reader]:
+        readers = {
             "cpu": self.read_cpu,
             "gpu": self.read_gpu,
             "memory": self.read_memory,
@@ -319,3 +349,6 @@ class RealSensorSource:
             "network": self.read_network,
             "system": self.read_system,
         }
+        if self._weather_settings is not None:
+            readers["weather"] = self.read_weather
+        return readers

@@ -17,6 +17,8 @@ import sys
 import threading
 from pathlib import Path
 
+from library.runtime_python import resolve_project_python
+
 try:
     import gi
     gi.require_version("Gtk", "4.0")
@@ -104,15 +106,8 @@ def apply_color_scheme(value: str) -> None:
 
 
 def project_python() -> str:
-    """Prefer the project venv for existing tools; fall back to current Python."""
-    candidates = (
-        ROOT / "venv" / "bin" / "python3",
-        ROOT / ".venv" / "bin" / "python3",
-    )
-    for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate)
-    return sys.executable
+    """Return the dependency-complete interpreter for project subprocesses."""
+    return resolve_project_python(ROOT)
 
 
 def read_current_theme() -> str:
@@ -1290,13 +1285,14 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         )
 
         try:
-            subprocess.Popen(
+            return subprocess.Popen(
                 [python_executable, str(path), *arguments],
                 cwd=str(ROOT),
                 start_new_session=True,
             )
         except Exception as exc:
             self.toast(f"Could not open {path.name}: {exc}")
+            return None
 
     def open_classic(self, *_args):
         self.launch_script(ROOT / "configure.py")

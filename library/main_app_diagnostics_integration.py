@@ -205,11 +205,54 @@ def _remove_stack_page(stack: Any, page_name: str) -> None:
 def _open_theme_editor_factory(app: Any):
     standalone_editor = app.THEME_EDITOR
 
+    def html_theme_record(theme_name: str):
+        """Return an HTML gallery record without routing it through YAML tools."""
+        try:
+            from library.theme_engine import ThemeManifest
+            from library.theme_gallery import ThemeRecord
+
+            directory = app.THEMES_DIR / theme_name
+            manifest = ThemeManifest.load(directory)
+            if manifest.engine != "html":
+                return None
+            native_video = manifest.native_video_overlay
+            return ThemeRecord(
+                name=theme_name,
+                directory=directory,
+                yaml_file=None,
+                preview_file=directory / "preview.png",
+                engine="html",
+                resolution=(manifest.width, manifest.height),
+                permissions=manifest.permissions,
+                native_video_local=(
+                    native_video.local_path if native_video is not None else ""
+                ),
+                native_video_device=(
+                    native_video.device_path if native_video is not None else ""
+                ),
+            )
+        except Exception:
+            return None
+
     def open_theme_editor_theme(self, theme_name: str) -> None:
         theme_name = str(theme_name or "").strip()
         if not theme_name:
             self.toast("No active theme configured")
             return
+
+        html_record = html_theme_record(theme_name)
+        if html_record is not None:
+            authoring_dialog = getattr(
+                self,
+                "show_html_theme_authoring_dialog",
+                None,
+            )
+            if callable(authoring_dialog):
+                authoring_dialog(html_record)
+            else:
+                self.toast("HTML theme editor is not available")
+            return
+
         try:
             from library.main_app_inline_theme_editor import (
                 build_inline_theme_editor_page,

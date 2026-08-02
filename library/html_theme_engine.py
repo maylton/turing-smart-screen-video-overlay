@@ -366,6 +366,59 @@ class WebKitGtkBackend:
             stop()
 
 
+class WebKitGtk3OffscreenBackend(WebKitGtkBackend):
+    """WebKitGTK backend mapped only to a GTK3 in-memory offscreen surface."""
+
+    def _load_gi(self) -> None:
+        # Gtk.OffscreenWindow has no GTK4 equivalent. Disabling compositing is
+        # required because the offscreen GDK backend cannot create a GL context.
+        os.environ["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
+        os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+        try:
+            import gi
+
+            gi.require_version("Gtk", "3.0")
+            gi.require_version("Gdk", "3.0")
+            gi.require_version("WebKit2", "4.1")
+            from gi.repository import Gdk, GLib, Gtk, WebKit2
+        except Exception as exc:
+            raise WebKitUnavailableError(
+                "GTK3 and WebKitGTK 4.1 GI bindings are required for the "
+                "background HTML renderer"
+            ) from exc
+        self.GLib = GLib
+        self.Gdk = Gdk
+        self.Gtk = Gtk
+        self.WebKit = WebKit2
+
+    def __init__(self, manifest: ThemeManifest) -> None:
+        self.offscreen_window = None
+        super().__init__(manifest)
+        settings = self.view.get_settings()
+        if settings is not None:
+            policy = getattr(self.WebKit, "HardwareAccelerationPolicy", None)
+            never = getattr(policy, "NEVER", None)
+            setter = getattr(settings, "set_hardware_acceleration_policy", None)
+            if callable(setter) and never is not None:
+                setter(never)
+            for name in ("set_enable_webgl", "set_enable_accelerated_2d_canvas"):
+                disable = getattr(settings, name, None)
+                if callable(disable):
+                    disable(False)
+
+        self.view.set_size_request(manifest.width, manifest.height)
+        self.offscreen_window = self.Gtk.OffscreenWindow()
+        self.offscreen_window.set_default_size(manifest.width, manifest.height)
+        self.offscreen_window.add(self.view)
+        self.offscreen_window.show_all()
+
+    def close(self) -> None:
+        super().close()
+        window, self.offscreen_window = self.offscreen_window, None
+        if window is not None:
+            window.destroy()
+
+
 BackendFactory = Callable[[ThemeManifest], Any]
 
 

@@ -28,6 +28,10 @@ from library.theme_gallery import (
     show_set_current_theme_dialog,
     show_theme_gallery_diagnostics_dialog,
 )
+from library.window_presentation import (
+    active_hyprland_workspace,
+    present_child_window,
+)
 
 ROOT = Path(__file__).resolve().parent
 APP_MODULE = ROOT / "configure_gtk_app.py"
@@ -276,6 +280,18 @@ def install_runtime_patches(app):
         )
 
     def show_html_theme_authoring_dialog(self, record: ThemeRecord):
+        visual_editor = app.ROOT / "html-theme-editor-gtk.py"
+        if visual_editor.is_file():
+            workspace_id = active_hyprland_workspace()
+            process = self.launch_script(
+                visual_editor,
+                record.name,
+                use_system_python=True,
+            )
+            present_child_window(process, workspace_id=workspace_id)
+            self.toast(f"Opening visual HTML editor for {record.name}")
+            return
+
         from library.html_theme_authoring import discover_overlay_candidates
         from library.theme_engine import ThemeManifest
 

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Neon Orbit</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="screen" aria-label="Neon Orbit system monitor">
+    <div class="edge-ring"></div>
+    <div class="noise"></div>
+    <div class="radar"></div>
+    <div class="orbit"></div>
+
+    <i class="tick"></i><i class="tick"></i><i class="tick"></i><i class="tick"></i>
+    <i class="tick"></i><i class="tick"></i><i class="tick"></i><i class="tick"></i>
+
+    <header class="topline">
+      <div class="brand"><b>NEON</b> ORBIT</div>
+      <div class="live"><span class="live-dot"></span><span id="clock" data-turing-overlay>--:--</span></div>
+    </header>
+
+    <section class="metric-card cpu">
+      <div class="metric-label"><span>CPU CORE</span><i class="chip"></i></div>
+      <div class="temperature" id="cpu-temperature" data-turing-overlay><strong id="cpu-temp">--</strong><span>°C</span></div>
+      <div class="loadline"><b id="cpu-load" data-turing-overlay>--%</b><div class="track"><div class="fill" id="cpu-bar" data-turing-overlay></div></div></div>
+    </section>
+
+    <section class="metric-card gpu">
+      <div class="metric-label"><span>GPU CORE</span><i class="chip"></i></div>
+      <div class="temperature" id="gpu-temperature" data-turing-overlay><strong id="gpu-temp">--</strong><span>°C</span></div>
+      <div class="loadline"><b id="gpu-load" data-turing-overlay>--%</b><div class="track"><div class="fill" id="gpu-bar" data-turing-overlay></div></div></div>
+    </section>
+
+    <section class="core-wrap">
+      <div class="core-ring"></div>
+      <div class="core-progress" id="ram-ring" data-turing-overlay></div>
+      <div class="core-content">
+        <small>MEMORY</small>
+        <div class="core-value" id="ram-value" data-turing-overlay><strong id="ram-used">--</strong><span>GB</span></div>
+        <div class="core-sub" id="ram-summary" data-turing-overlay><b id="ram-load">--%</b> OF <span id="ram-total">--</span> GB</div>
+      </div>
+    </section>
+
+    <section class="bottom-panel">
+      <div class="mini">
+        <div class="mini-label">Storage</div>
+        <div class="mini-value" id="disk-value" data-turing-overlay><span id="disk-load">--</span><em>%</em></div>
+        <div class="disk-meter"><i id="disk-bar" data-turing-overlay></i></div>
+      </div>
+      <div class="mini">
+        <div class="mini-label">Network</div>
+        <div class="mini-value" id="network-value" data-turing-overlay><span id="net-down">--</span><em>MB/s</em></div>
+      </div>
+      <div class="mini">
+        <div class="mini-label" id="cooling-label" data-turing-overlay>Cooling</div>
+        <div class="mini-value" id="cooling-value" data-turing-overlay><span id="fan-value">--</span><em id="fan-unit"></em></div>
+      </div>
+    </section>
+  </main>
+  <script src="theme.js"></script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from library.runtime_python import resolve_project_python
+
+
+class RuntimePythonTests(unittest.TestCase):
+    def executable(self, path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def test_prefers_explicit_override(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            override = self.executable(root / "custom-python")
+            selected = resolve_project_python(
+                root,
+                current="/usr/bin/python3",
+                environment={"TURING_SMART_SCREEN_PYTHON": str(override)},
+                user_data_home=root / "data",
+            )
+            self.assertEqual(selected, str(override))
+
+    def test_prefers_local_venv_over_installed_venv(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "source"
+            local = self.executable(root / "venv" / "bin" / "python3")
+            self.executable(
+                Path(temporary)
+                / "data"
+                / "turing-smart-screen"
+                / "venv"
+                / "bin"
+                / "python3"
+            )
+            selected = resolve_project_python(
+                root,
+                current="/usr/bin/python3",
+                environment={},
+                user_data_home=Path(temporary) / "data",
+            )
+            self.assertEqual(selected, str(local))
+
+    def test_source_tree_can_reuse_per_user_installation_venv(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "source"
+            installed = self.executable(
+                Path(temporary)
+                / "data"
+                / "turing-smart-screen"
+                / "venv"
+                / "bin"
+                / "python3"
+            )
+            selected = resolve_project_python(
+                root,
+                current="/usr/bin/python3",
+                environment={},
+                user_data_home=Path(temporary) / "data",
+            )
+            self.assertEqual(selected, str(installed))
+
+    def test_falls_back_to_current_python(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            selected = resolve_project_python(
+                Path(temporary) / "source",
+                current="/usr/bin/python3",
+                environment={},
+                user_data_home=Path(temporary) / "data",
+            )
+            self.assertEqual(selected, "/usr/bin/python3")
+
+
+if __name__ == "__main__":
+    unittest.main()

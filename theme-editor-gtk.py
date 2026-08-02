@@ -17,6 +17,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from library.runtime_python import resolve_project_python
+
 ROOT = Path(__file__).resolve().parent
 
 # GTK comes from the system Python on Arch/CachyOS, while the project
@@ -307,13 +309,7 @@ def save_yaml_atomic(path: Path, data):
 
 
 def project_python() -> str:
-    for candidate in (
-        ROOT / "venv" / "bin" / "python3",
-        ROOT / ".venv" / "bin" / "python3",
-    ):
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate)
-    return sys.executable
+    return resolve_project_python(ROOT)
 
 
 def find_theme_file(theme_dir: Path) -> Path | None:

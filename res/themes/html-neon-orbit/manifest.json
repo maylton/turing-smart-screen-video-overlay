@@ -1,0 +1,45 @@
+{
+  "engine": "html",
+  "name": "Neon Orbit",
+  "version": 1,
+  "display": {
+    "width": 480,
+    "height": 480
+  },
+  "refreshRate": 2,
+  "entrypoint": "index.html",
+  "permissions": ["sensors"],
+  "network": false,
+  "nativeVideoOverlay": {
+    "enabled": true,
+    "localPath": "html-neon-orbit.mp4",
+    "devicePath": "/mnt/SDCARD/video/html-neon-orbit.mp4",
+    "fps": 24,
+    "duration": 8,
+    "backgroundFrame": 0
+  },
+  "dataUpdateIntervals": {
+    "default": 5,
+    "$sequence": 5,
+    "$timestamp": 1,
+    "cpu.usage": 2,
+    "cpu.temperature": 5,
+    "gpu.usage": 2,
+    "gpu.temperature": 5,
+    "gpu.fan": 5,
+    "memory.usage": 5,
+    "memory.used": 5,
+    "memory.total": 30,
+    "disk.usage": 15,
+    "network.download": 2,
+    "cooling.*": 5,
+    "system.time": 1
+  },
+  "atomicRegions": [
+    {"name": "clock", "x": 160, "y": 50, "width": 160, "height": 42},
+    {"name": "cpu-card", "x": 38, "y": 122, "width": 132, "height": 94},
+    {"name": "gpu-card", "x": 310, "y": 122, "width": 132, "height": 94},
+    {"name": "memory-core", "x": 148, "y": 172, "width": 184, "height": 184},
+    {"name": "bottom-panel", "x": 85, "y": 362, "width": 310, "height": 82}
+  ]
+}

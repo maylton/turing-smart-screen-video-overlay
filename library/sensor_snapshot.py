@@ -25,6 +25,7 @@ DEFAULT_SECTIONS = (
     "disk",
     "network",
     "system",
+    "weather",
 )
 
 

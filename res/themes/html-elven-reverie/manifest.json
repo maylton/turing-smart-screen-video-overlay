@@ -1,0 +1,62 @@
+{
+  "engine": "html",
+  "name": "Elven Reverie",
+  "version": 1,
+  "display": {
+    "width": 480,
+    "height": 480
+  },
+  "refreshRate": 2,
+  "entrypoint": "index.html",
+  "permissions": [
+    "sensors"
+  ],
+  "network": false,
+  "nativeVideoOverlay": {
+    "enabled": true,
+    "localPath": "html-elven-reverie.mp4",
+    "devicePath": "/mnt/SDCARD/video/html-elven-reverie.mp4",
+    "fps": 24,
+    "duration": 8.0,
+    "backgroundFrame": 0.0
+  },
+  "dataUpdateIntervals": {
+    "default": 5,
+    "$sequence": 5,
+    "$timestamp": 1,
+    "system.time": 1,
+    "cpu.temperature": 5,
+    "gpu.usage": 2,
+    "memory.used": 5
+  },
+  "atomicRegions": [
+    {
+      "name": "overlay:time-display",
+      "x": 122,
+      "y": 31,
+      "width": 236,
+      "height": 76
+    },
+    {
+      "name": "overlay:cpu-value",
+      "x": 56,
+      "y": 323,
+      "width": 67,
+      "height": 31
+    },
+    {
+      "name": "overlay:gpu-value",
+      "x": 365,
+      "y": 323,
+      "width": 53,
+      "height": 31
+    },
+    {
+      "name": "overlay:ram-value",
+      "x": 192,
+      "y": 388,
+      "width": 96,
+      "height": 28
+    }
+  ]
+}

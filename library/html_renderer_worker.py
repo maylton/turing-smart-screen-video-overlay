@@ -13,7 +13,7 @@ import yaml
 
 from library.budgeted_frame_planner import BudgetedFramePlanner
 from library.frame_pipeline import FramePipeline, decode_png_frame, write_frame_artifacts
-from library.html_theme_engine import HtmlThemeEngine, WebKitGtkBackend
+from library.html_theme_engine import HtmlThemeEngine, WebKitGtk3OffscreenBackend
 from library.html_hybrid import (
     OVERLAY_SELECTOR,
     overlay_frames_equal,
@@ -83,17 +83,7 @@ def _args(argv):
 
 def _safe_engine(webkit):
     def factory(manifest):
-        backend = WebKitGtkBackend(manifest)
-        settings = backend.view.get_settings()
-        policy = getattr(getattr(webkit, "HardwareAccelerationPolicy", None), "NEVER", None)
-        setter = getattr(settings, "set_hardware_acceleration_policy", None)
-        if callable(setter) and policy is not None:
-            setter(policy)
-        for name in ("set_enable_webgl", "set_enable_accelerated_2d_canvas"):
-            disable = getattr(settings, name, None)
-            if callable(disable):
-                disable(False)
-        return backend
+        return WebKitGtk3OffscreenBackend(manifest)
     return HtmlThemeEngine(factory)
 
 
@@ -124,12 +114,20 @@ def run(theme: Path) -> int:
         validate_native_video(manifest)
 
     import gi
-    gi.require_version("Gtk", "4.0")
-    gi.require_version("WebKit", "6.0")
-    from gi.repository import GLib, Gtk, WebKit
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("WebKit2", "4.1")
+    from gi.repository import GLib, Gtk, WebKit2
 
-    collector = SensorSnapshotCollector(RealSensorSource(network_interface=network_interface).readers())
-    engine = _safe_engine(WebKit)
+    legacy_config = config.get("config", {})
+    legacy_config = legacy_config if isinstance(legacy_config, dict) else {}
+    collector = SensorSnapshotCollector(
+        RealSensorSource(
+            network_interface=network_interface,
+            weather_settings=legacy_config,
+            hardware_sensors=str(legacy_config.get("HW_SENSORS") or "AUTO"),
+        ).readers()
+    )
+    engine = _safe_engine(WebKit2)
     transport_engine = (
         None
         if hybrid_spec is not None
@@ -151,6 +149,8 @@ def run(theme: Path) -> int:
             self.source_ids = set()
             self.last_overlay = None
             self.diagnostic_pipeline = FramePipeline(pixel_threshold=4)
+            self._application_held = True
+            self.hold()
 
         def stop(self, *_args):
             if self.closing:
@@ -165,6 +165,9 @@ def run(theme: Path) -> int:
             finally:
                 self.sink = None
                 engine.close()
+                if self._application_held:
+                    self._application_held = False
+                    self.release()
                 self.quit()
             return False
 
@@ -268,12 +271,6 @@ def run(theme: Path) -> int:
 
         def do_activate(self):
             engine.load(manifest)
-            self.window = Gtk.ApplicationWindow(application=self)
-            self.window.set_default_size(480, 480)
-            self.window.set_resizable(False)
-            self.window.set_child(engine.render())
-            self.window.connect("close-request", self.stop)
-            self.window.present()
             if hybrid_spec is not None:
                 engine.set_transparent_background()
                 engine.evaluate(
