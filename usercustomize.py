@@ -21,6 +21,7 @@ _MONITOR_ENTRY_POINTS = {
 }
 _GTK_SHELL_ENTRY_POINTS = {
     "configure-gtk.py",
+    "theme-gallery-gtk.py",
     "turing-smart-screen",
     "turing-smart-screen-gtk.py",
     "turing-smart-screen-main.py",
@@ -83,6 +84,22 @@ def _install_monitor_hardware_patches() -> None:
     except Exception as exc:  # pragma: no cover - defensive startup guard
         print(
             f"[gpu-selection] could not apply hardware preference: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _install_theme_import_dialog() -> None:
+    if not _should_patch_tray_i18n():
+        return
+
+    try:
+        from library.theme_import_file_dialog import install
+
+        install()
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[theme-import] could not install native file dialog: {exc}",
             file=sys.stderr,
             flush=True,
         )
@@ -211,6 +228,7 @@ def _install_tray_i18n_import_hook() -> None:
 
 _install_theme_editor_patches()
 _install_monitor_hardware_patches()
+_install_theme_import_dialog()
 try:
     _install_tray_i18n_import_hook()
 except Exception as exc:  # pragma: no cover - defensive startup guard
