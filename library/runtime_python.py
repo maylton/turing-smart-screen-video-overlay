@@ -168,6 +168,7 @@ def _install_script_message_dom_bridge(window) -> bool:
                 raise RuntimeError("DOM inspection returned an invalid payload")
 
             window._turing_dom_request_complete = True
+            window._turing_dom_request_in_flight = False
             window._receive_dom_styles(payload, None)
             print(
                 "Inspeção DOM recebida pelo UserContentManager; "
@@ -177,6 +178,7 @@ def _install_script_message_dom_bridge(window) -> bool:
             )
         except Exception as exc:
             window._turing_dom_request_complete = True
+            window._turing_dom_request_in_flight = False
             window._receive_dom_styles(None, exc)
             print(
                 f"Erro ao receber inspeção DOM pelo UserContentManager: {exc}",
