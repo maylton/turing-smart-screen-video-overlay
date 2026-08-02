@@ -12,6 +12,19 @@ from pathlib import Path
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
 
 
+def _install_html_editor_extensions() -> None:
+    """Load optional editor extensions only inside the HTML visual editor."""
+    if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
+        return
+    try:
+        from library.html_theme_background_editor import install_background_editor_hook
+
+        install_background_editor_hook()
+    except Exception:
+        # Editor extensions must never prevent the core editor from starting.
+        return
+
+
 def _executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
@@ -61,3 +74,6 @@ def resolve_project_python(
         if _executable(candidate):
             return str(candidate)
     return current
+
+
+_install_html_editor_extensions()
