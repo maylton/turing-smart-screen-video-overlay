@@ -8,10 +8,14 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from library.html_background_video import (
+    extract_preview_frame,
+    image_pipe_ffmpeg_command,
+    load_background_video,
+)
 from library.html_hybrid import (
     OVERLAY_SELECTOR,
     base_layer_script,
-    image_pipe_ffmpeg_command,
     seek_animations_script,
     validate_native_video_file,
 )
@@ -48,6 +52,7 @@ def build_native_video(
     spec = manifest.native_video_overlay
     if manifest.engine != "html" or spec is None:
         raise ThemeValidationError("an opt-in HTML native-video theme is required")
+    background = load_background_video(manifest)
     destination = (
         Path(destination).expanduser().resolve()
         if destination is not None
@@ -61,7 +66,9 @@ def build_native_video(
     destination.parent.mkdir(parents=True, exist_ok=True)
     preview.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp.mp4")
-    preview_temporary = preview.with_name(f".{preview.name}.{os.getpid()}.tmp")
+    preview_temporary = preview.with_name(
+        f".{preview.name}.{os.getpid()}.tmp.png"
+    )
     temporary.unlink(missing_ok=True)
     preview_temporary.unlink(missing_ok=True)
 
@@ -88,7 +95,13 @@ def build_native_video(
         return backend
 
     engine = HtmlThemeEngine(backend_factory)
-    command = image_pipe_ffmpeg_command(temporary, fps=spec.fps)
+    count = frame_count(manifest)
+    command = image_pipe_ffmpeg_command(
+        temporary,
+        manifest=manifest,
+        frame_count=count,
+        background=background,
+    )
     process = subprocess.Popen(
         command,
         stdin=subprocess.PIPE,
@@ -102,7 +115,6 @@ def build_native_video(
             self.window = None
             self.index = 0
             self.error: Optional[Exception] = None
-            self.preview_written = False
             self.closed = False
 
         def fail(self, error: Exception) -> None:
@@ -129,14 +141,8 @@ def build_native_video(
                     if process.stdin is None:
                         raise HtmlVideoBuildError("FFmpeg input pipe is closed")
                     process.stdin.write(payload)
-                    if (
-                        not self.preview_written
-                        and self.index / spec.fps >= spec.background_frame
-                    ):
-                        preview_temporary.write_bytes(payload)
-                        self.preview_written = True
                     self.index += 1
-                    if self.index >= frame_count(manifest):
+                    if self.index >= count:
                         self.finish()
                     else:
                         self.seek_next()
@@ -200,9 +206,17 @@ def build_native_video(
             raise HtmlVideoBuildError(detail or f"FFmpeg exited {process.returncode}")
         if not temporary.is_file() or temporary.stat().st_size <= 0:
             raise HtmlVideoBuildError("FFmpeg did not produce a native video")
-        if not preview_temporary.is_file():
-            raise HtmlVideoBuildError("WebKit did not produce a preview frame")
         _validate_built_video(temporary, manifest)
+        try:
+            extract_preview_frame(
+                temporary,
+                preview_temporary,
+                timestamp=spec.background_frame,
+            )
+        except Exception as exc:
+            raise HtmlVideoBuildError(f"could not build preview frame: {exc}") from exc
+        if not preview_temporary.is_file() or preview_temporary.stat().st_size <= 0:
+            raise HtmlVideoBuildError("FFmpeg did not produce a preview frame")
         os.replace(temporary, destination)
         os.replace(preview_temporary, preview)
         write_native_video_build_state(manifest, destination)
