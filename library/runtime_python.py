@@ -10,6 +10,12 @@ from pathlib import Path
 
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
+_THEME_IMPORT_ENTRY_POINTS = {
+    "configure-gtk.py",
+    "theme-gallery-gtk.py",
+    "turing-smart-screen-gtk.py",
+    "turing-smart-screen-main.py",
+}
 
 
 def _install_html_editor_background_extension() -> None:
@@ -23,6 +29,21 @@ def _install_html_editor_background_extension() -> None:
     except Exception as exc:
         print(
             f"Não foi possível preparar a aba Fundo do editor HTML: {exc}",
+            file=sys.stderr,
+        )
+
+
+def _install_native_theme_import_dialog() -> None:
+    """Install the native chooser in GTK entry points that already loaded the gallery."""
+    if Path(sys.argv[0]).name not in _THEME_IMPORT_ENTRY_POINTS:
+        return
+    try:
+        from library.theme_import_file_dialog import install
+
+        install()
+    except Exception as exc:
+        print(
+            f"Não foi possível preparar o seletor de arquivos de temas: {exc}",
             file=sys.stderr,
         )
 
@@ -79,3 +100,4 @@ def resolve_project_python(
 
 
 _install_html_editor_background_extension()
+_install_native_theme_import_dialog()
