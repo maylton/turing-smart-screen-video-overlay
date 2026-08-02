@@ -17,6 +17,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageChops, ImageDraw
 
+from library.atomic_regions import AtomicRegion
+
 
 @dataclass(frozen=True)
 class FrameRegion:
@@ -345,17 +347,23 @@ def write_frame_artifacts(
     directory: Path,
     frame: Image.Image,
     analysis: FrameAnalysis,
+    *,
+    atomic_regions: Sequence[AtomicRegion] = (),
 ) -> Path:
     """Atomically publish the latest frame, overlay, and metrics."""
     root = Path(directory).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
 
+    metrics = analysis.as_dict()
+    metrics["atomicRegions"] = [region.as_dict() for region in atomic_regions]
     files = {
         "latest.png": encode_png_frame(frame),
         "latest-diff.png": encode_png_frame(
             annotate_regions(frame, analysis)
         ),
-        "metrics.json": analysis.to_json().encode("utf-8"),
+        "metrics.json": (
+            json.dumps(metrics, indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8"),
     }
     for name, payload in files.items():
         destination = root / name

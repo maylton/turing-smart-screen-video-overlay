@@ -9,5 +9,19 @@
   "refreshRate": 2,
   "entrypoint": "index.html",
   "permissions": ["sensors"],
-  "network": false
+  "network": false,
+  "atomicRegions": [
+    {"name": "clock", "x": 26, "y": 42, "width": 160, "height": 42},
+    {"name": "cpu-reading", "x": 66, "y": 144, "width": 112, "height": 96},
+    {"name": "cpu-frequency", "x": 238, "y": 150, "width": 200, "height": 42},
+    {"name": "gpu-value", "x": 162, "y": 316, "width": 68, "height": 36},
+    {"name": "gpu-bar", "x": 42, "y": 354, "width": 184, "height": 18},
+    {"name": "gpu-meta", "x": 42, "y": 374, "width": 188, "height": 22},
+    {"name": "memory-value", "x": 380, "y": 316, "width": 68, "height": 36},
+    {"name": "memory-bar", "x": 260, "y": 354, "width": 184, "height": 18},
+    {"name": "memory-meta", "x": 260, "y": 374, "width": 188, "height": 22},
+    {"name": "download", "x": 24, "y": 436, "width": 105, "height": 24},
+    {"name": "upload", "x": 178, "y": 436, "width": 105, "height": 24},
+    {"name": "sequence", "x": 358, "y": 436, "width": 98, "height": 24}
+  ]
 }

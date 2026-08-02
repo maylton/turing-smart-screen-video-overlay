@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
+from library.atomic_regions import AtomicRegion, parse_atomic_regions
 from library.sensor_snapshot import SensorSnapshot
 
 
@@ -70,6 +71,7 @@ class ThemeManifest:
     permissions: Tuple[str, ...]
     network: bool
     root: Path
+    atomic_regions: Tuple[AtomicRegion, ...] = ()
 
     @property
     def entrypoint_path(self) -> Path:
@@ -95,6 +97,7 @@ class ThemeManifest:
                     entrypoint="theme.yaml",
                     permissions=(),
                     network=False,
+                    atomic_regions=(),
                     root=root,
                 )
             raise ThemeValidationError(
@@ -117,6 +120,8 @@ class ThemeManifest:
         display = payload.get("display", {})
         if not isinstance(display, Mapping):
             raise ThemeValidationError("display must be an object")
+        width = _positive_int(display.get("width", 480), "display.width")
+        height = _positive_int(display.get("height", 480), "display.height")
 
         default_entrypoint = "index.html" if engine == "html" else "theme.yaml"
         entrypoint = str(payload.get("entrypoint", default_entrypoint)).strip()
@@ -145,12 +150,21 @@ class ThemeManifest:
                 "network=true requires the explicit 'network' permission"
             )
 
+        try:
+            atomic_regions = parse_atomic_regions(
+                payload.get("atomicRegions", []),
+                display_width=width,
+                display_height=height,
+            )
+        except ValueError as exc:
+            raise ThemeValidationError(str(exc)) from exc
+
         return cls(
             engine=engine,
             name=str(payload.get("name", root.name)).strip() or root.name,
             version=_positive_int(payload.get("version", 1), "version"),
-            width=_positive_int(display.get("width", 480), "display.width"),
-            height=_positive_int(display.get("height", 480), "display.height"),
+            width=width,
+            height=height,
             refresh_rate=_positive_float(
                 payload.get("refreshRate", 1.0),
                 "refreshRate",
@@ -158,13 +172,12 @@ class ThemeManifest:
             entrypoint=entrypoint,
             permissions=permissions,
             network=network,
+            atomic_regions=atomic_regions,
             root=root,
         )
 
 
 class ThemeEngine(ABC):
-    """Minimal lifecycle contract for all renderers."""
-
     @abstractmethod
     def load(self, manifest: ThemeManifest) -> None:
         raise NotImplementedError
@@ -183,8 +196,6 @@ class ThemeEngine(ABC):
 
 
 class LegacyYamlThemeEngine(ThemeEngine):
-    """Callback adapter that lets the current YAML runtime remain unchanged."""
-
     def __init__(
         self,
         *,

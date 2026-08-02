@@ -14,6 +14,7 @@ from typing import Optional, Tuple
 from PIL import Image
 
 from library.dirty_region_optimizer import optimize_frame_analysis
+from library.atomic_regions import AtomicRegion
 from library.frame_pipeline import FramePipeline
 from library.rev_c_live_sink import (
     LIVE_CONFIRMATION_TEXT,
@@ -26,8 +27,11 @@ from library.simulated_display_transport import (
     SimulatedDisplayTransport,
     get_transport_profile,
 )
+from library.theme_engine import ThemeManifest, ThemeValidationError
 
 
+ROOT = Path(__file__).resolve().parent
+DEFAULT_THEME = ROOT / "res" / "themes" / "html-demo"
 DEFAULT_STATUS_LOG = Path("/tmp/turing-html-physical-status.jsonl")
 
 
@@ -37,6 +41,12 @@ def parse_args(argv):
         "--input",
         type=Path,
         default=Path("/tmp/turing-html-frames"),
+    )
+    parser.add_argument(
+        "--theme",
+        type=Path,
+        default=DEFAULT_THEME,
+        help="HTML theme whose manifest defines atomic widget regions.",
     )
     parser.add_argument("--port", default="")
     parser.add_argument(
@@ -141,6 +151,7 @@ def validate_frame(
     protocol_engine: RevCProtocolSimulator,
     *,
     max_regions: int,
+    atomic_regions: Tuple[AtomicRegion, ...] = (),
 ):
     previous = pipeline.previous
     analysis = pipeline.process(frame)
@@ -152,6 +163,7 @@ def validate_frame(
         pixel_threshold=pipeline.pixel_threshold,
         max_regions=max_regions,
         full_refresh_ratio=pipeline.full_refresh_ratio,
+        atomic_regions=atomic_regions,
     )
     transport = transport_engine.submit(frame, analysis)
     protocol = protocol_engine.submit(transport)
@@ -195,12 +207,29 @@ def write_status_record(
     return destination
 
 
+def load_theme_manifest(theme: Path) -> ThemeManifest:
+    manifest = ThemeManifest.load(theme)
+    if manifest.engine != "html":
+        raise ThemeValidationError("the physical HTML diagnostic requires an HTML theme")
+    if (manifest.width, manifest.height) != (480, 480):
+        raise ThemeValidationError(
+            "the Rev. C physical diagnostic requires a 480x480 theme"
+        )
+    return manifest
+
+
 def run(args) -> int:
     if args.poll_interval <= 0:
         print("--poll-interval must be greater than zero", file=sys.stderr)
         return 2
     if args.stale_after <= 0:
         print("--stale-after must be greater than zero", file=sys.stderr)
+        return 2
+
+    try:
+        manifest = load_theme_manifest(args.theme)
+    except ThemeValidationError as exc:
+        print(f"HTML theme validation failed: {exc}", file=sys.stderr)
         return 2
 
     loaded = load_coherent_frame(args.input)
@@ -224,12 +253,15 @@ def run(args) -> int:
                 transport_engine,
                 protocol_engine,
                 max_regions=args.max_regions,
+                atomic_regions=manifest.atomic_regions,
             )
         )
     except Exception as exc:
         print(f"Initial preflight failed: {exc}", file=sys.stderr)
         return 3
 
+    print(f"HTML theme: {manifest.name}")
+    print(f"Atomic widget regions: {len(manifest.atomic_regions)}")
     print(f"Initial frame: 480x480 source-sequence={source_sequence}")
     print(
         "Transport roundtrip: "
@@ -344,6 +376,7 @@ def run(args) -> int:
                         transport_engine,
                         protocol_engine,
                         max_regions=args.max_regions,
+                        atomic_regions=manifest.atomic_regions,
                     )
                 except Exception as exc:
                     print(

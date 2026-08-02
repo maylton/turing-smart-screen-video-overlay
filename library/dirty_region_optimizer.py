@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageChops, ImageDraw
 
+from library.atomic_regions import AtomicRegion
 from library.frame_pipeline import FrameAnalysis, FrameRegion
 
 TileRect = Tuple[int, int, int, int]
@@ -170,6 +171,38 @@ def _coverage_mask(size, regions):
     return coverage
 
 
+def _contains(container: FrameRegion, region: FrameRegion) -> bool:
+    return (
+        container.x <= region.x
+        and container.y <= region.y
+        and container.right >= region.right
+        and container.bottom >= region.bottom
+    )
+
+
+def _selected_atomic_regions(
+    mask: Image.Image,
+    atomic_regions: Sequence[AtomicRegion],
+) -> List[FrameRegion]:
+    selected = []
+    for atomic in atomic_regions:
+        region = FrameRegion(atomic.x, atomic.y, atomic.width, atomic.height)
+        if mask.crop((region.x, region.y, region.right, region.bottom)).getbbox():
+            selected.append(region)
+
+    # A containing atomic widget already guarantees every nested widget is sent
+    # in one transaction, so avoid duplicate payloads for nested declarations.
+    compact = []
+    for region in sorted(selected, key=lambda item: item.area, reverse=True):
+        if any(_contains(existing, region) for existing in compact):
+            continue
+        compact.append(region)
+    return sorted(
+        compact,
+        key=lambda region: (region.y, region.x, region.height, region.width),
+    )
+
+
 def optimize_frame_analysis(
     previous: Optional[Image.Image],
     current: Image.Image,
@@ -179,8 +212,9 @@ def optimize_frame_analysis(
     pixel_threshold: int,
     max_regions: int,
     full_refresh_ratio: float,
+    atomic_regions: Sequence[AtomicRegion] = (),
 ) -> FrameAnalysis:
-    """Return tighter regions while preserving every changed pixel."""
+    """Return tighter regions while preserving changed pixels and atomic widgets."""
     if analysis.full_refresh or not analysis.regions or previous is None:
         return analysis
     if tile_size <= 0 or max_regions <= 0:
@@ -198,8 +232,18 @@ def optimize_frame_analysis(
         raise ValueError("frame size does not match the frame analysis")
 
     mask = _difference_mask(previous_rgba, current_rgba, pixel_threshold)
-    regions = _run_regions(
-        _changed_tiles(mask, int(tile_size)),
+    selected_atomic = _selected_atomic_regions(mask, atomic_regions)
+
+    remaining_mask = mask.copy()
+    remaining_draw = ImageDraw.Draw(remaining_mask)
+    for region in selected_atomic:
+        remaining_draw.rectangle(
+            (region.x, region.y, region.right - 1, region.bottom - 1),
+            fill=0,
+        )
+
+    regions = selected_atomic + _run_regions(
+        _changed_tiles(remaining_mask, int(tile_size)),
         analysis.width,
         analysis.height,
         int(tile_size),
