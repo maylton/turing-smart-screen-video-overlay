@@ -3,13 +3,64 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from types import MethodType
 
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
+
+
+def _javascript_json_script(script: str) -> str:
+    """Wrap a JavaScript expression so WebKit only returns a string value."""
+    expression = str(script or "").strip()
+    if expression.endswith(";"):
+        expression = expression[:-1].rstrip()
+    if not expression:
+        raise ValueError("JavaScript expression cannot be empty")
+    return f"JSON.stringify(({expression}))"
+
+
+def _decode_javascript_json(value):
+    """Decode a JSON string returned as a JSC.Value-like object."""
+    if value is None:
+        raise RuntimeError("WebKit returned no JavaScript result")
+    text = value.to_string()
+    if text is None:
+        raise RuntimeError("WebKit returned an empty JavaScript string")
+    return json.loads(str(text))
+
+
+def _install_html_editor_json_bridge(window) -> None:
+    """Avoid unsupported structured return values in older WebKitGTK builds."""
+    if getattr(window, "_turing_json_bridge_installed", False):
+        return
+
+    def evaluate_json(self, script: str, callback) -> None:
+        wrapped_script = _javascript_json_script(script)
+
+        def finished(view, result, _user_data=None):
+            try:
+                value = view.evaluate_javascript_finish(result)
+                callback(_decode_javascript_json(value), None)
+            except Exception as exc:
+                callback(None, exc)
+
+        self.backend.view.evaluate_javascript(
+            wrapped_script,
+            -1,
+            None,
+            None,
+            None,
+            finished,
+            None,
+        )
+
+    window._evaluate_json = MethodType(evaluate_json, window)
+    window._turing_json_bridge_installed = True
 
 
 def _install_html_editor_extensions() -> None:
@@ -40,12 +91,13 @@ def _install_html_editor_extensions() -> None:
                     continue
                 if getattr(window, "inspector_stack", None) is None:
                     return attempts < 150
+                _install_html_editor_json_bridge(window)
                 _attach_background_page(window, Gtk, Gio)
                 if not getattr(window, "_turing_background_page_attached", False):
                     raise RuntimeError("a página Fundo não foi anexada ao inspector_stack")
                 return False
         except Exception as exc:
-            print(f"Erro ao carregar a aba Fundo: {exc}", file=sys.stderr)
+            print(f"Erro ao carregar extensões do editor HTML: {exc}", file=sys.stderr)
             return False
         return attempts < 150
 
