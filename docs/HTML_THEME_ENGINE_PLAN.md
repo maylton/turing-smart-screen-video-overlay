@@ -63,6 +63,24 @@ transparent text/bar canvas and submits it through the existing native Rev. C
 video-overlay transaction. No network assets or implicit display upload are
 allowed.
 
+### 7. Gallery selection, build state, and visual overlay authoring
+
+The main GTK theme gallery discovers both engines and writes the explicit
+`renderer.engine`/`renderer.theme` selection while preserving the legacy YAML
+theme. HTML cards show whether the generated MP4 is missing, stale, or ready by
+comparing a source fingerprint with the compiled artifact.
+
+The gallery can build/rebuild the MP4 in an isolated helper process and then
+sync only a validated, current artifact. Selecting an HTML theme automatically
+builds a missing/stale artifact before the existing safe video-sync lifecycle.
+The HTML editor exposes native-video timing/storage fields and the explicit
+`data-turing-overlay` element markers. Saves are atomic and keep one local
+editor backup.
+
+HTML import/use remains local-only: packages require a CSP meta tag,
+`network=false`, and only the `sensors` permission. YAML import/export behavior
+is unchanged.
+
 ## Testable prototype
 
 The simulator theme is `res/themes/html-demo`. It cannot access the display,
@@ -162,6 +180,4 @@ non-visual validation.
 - a simulated display sink that consumes RGB565 region payloads;
 - full-frame and dirty-region conversion for tested hardware profiles;
 - watchdog and frame-rate budgets;
-- gallery/editor integration;
-- import/export permission review;
-- visual authoring for HTML overlay markers and native-video settings.
+- richer visual layout authoring beyond overlay-marker selection.

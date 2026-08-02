@@ -15,6 +15,7 @@ from library.html_hybrid import (
     seek_animations_script,
     validate_native_video_file,
 )
+from library.html_theme_authoring import write_native_video_build_state
 from library.html_theme_engine import HtmlThemeEngine, WebKitGtkBackend
 from library.theme_engine import ThemeManifest, ThemeValidationError
 
@@ -204,6 +205,7 @@ def build_native_video(
         _validate_built_video(temporary, manifest)
         os.replace(temporary, destination)
         os.replace(preview_temporary, preview)
+        write_native_video_build_state(manifest, destination)
         return destination, preview
     finally:
         if process.poll() is None:

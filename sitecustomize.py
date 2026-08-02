@@ -145,11 +145,33 @@ def _install_theme_gallery_card_polish() -> None:
         )
         box.set_size_request(220, -1)
 
+        if self.on_build_theme_video is not None and record.can_build_native_video:
+            box.append(
+                self._menu_action_button(
+                    (
+                        "Rebuild video"
+                        if record.native_video_status == "ready"
+                        else "Build video"
+                    ),
+                    lambda: self.on_build_theme_video(record),
+                    popover=popover,
+                )
+            )
+        if self.on_sync_theme_video is not None:
+            box.append(
+                self._menu_action_button(
+                    "Sync video",
+                    lambda: self.on_sync_theme_video(record),
+                    sensitive=record.video_syncable,
+                    popover=popover,
+                )
+            )
+
         box.append(
             self._menu_action_button(
                 "Duplicate",
                 lambda: self.confirm_duplicate_theme(record),
-                sensitive=record.editable,
+                sensitive=record.manageable,
                 popover=popover,
             )
         )
@@ -164,7 +186,7 @@ def _install_theme_gallery_card_polish() -> None:
             self._menu_action_button(
                 "Export",
                 lambda: self.confirm_export_theme(record),
-                sensitive=record.editable,
+                sensitive=record.manageable,
                 popover=popover,
             )
         )
@@ -277,7 +299,7 @@ def _install_theme_gallery_card_polish() -> None:
         meta_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         meta_box.set_hexpand(True)
 
-        status = Gtk.Label(label=record.status_label, xalign=0, wrap=False)
+        status = Gtk.Label(label=self.record_status_label(record), xalign=0, wrap=False)
         status.set_ellipsize(Pango.EllipsizeMode.END)
         status.add_css_class("dim-label")
         meta_box.append(status)
@@ -304,7 +326,7 @@ def _install_theme_gallery_card_polish() -> None:
 
         if self.on_set_current_theme is not None and not record.current:
             use_button = Gtk.Button(label="Use")
-            use_button.set_sensitive(record.editable)
+            use_button.set_sensitive(record.selectable)
             use_button.set_tooltip_text("Set this theme as current")
             use_button.connect(
                 "clicked",
@@ -315,7 +337,7 @@ def _install_theme_gallery_card_polish() -> None:
         edit_button = Gtk.Button(label="Edit")
         edit_button.add_css_class("suggested-action")
         edit_button.set_hexpand(True)
-        edit_button.set_sensitive(record.editable)
+        edit_button.set_sensitive(record.authorable)
         edit_button.connect("clicked", lambda *_args: self.on_open_theme(record))
         actions.append(edit_button)
 
@@ -387,6 +409,9 @@ def _install_theme_gallery_card_polish() -> None:
         record: ThemeRecord,
         destination_text: str,
     ) -> None:
+        if record.engine == "html":
+            original_apply_export_theme(self, record, destination_text)
+            return
         try:
             report = inspect_theme_export(record.directory)
         except Exception as exc:
@@ -480,6 +505,8 @@ def _install_adaptive_theme_gallery_cards() -> None:
         return ""
 
     def has_video(record: ThemeRecord) -> bool:
+        if record.engine == "html":
+            return record.can_build_native_video
         text = yaml_text(record)
         match = re.search(r"(?ms)^video:\s*(.*?)(?:\n\S|\Z)", text)
         if match is None:
@@ -543,8 +570,16 @@ def _install_adaptive_theme_gallery_cards() -> None:
             row.append(badge("Current"))
         if display:
             row.append(badge(display))
+        if record.engine == "html":
+            row.append(badge("HTML"))
         if has_video(record):
-            row.append(badge("Video"))
+            video_badge = {
+                "ready": "Video ready",
+                "missing": "Build video",
+                "stale": "Rebuild video",
+                "error": "Video error",
+            }.get(record.native_video_status, "Video")
+            row.append(badge(video_badge))
         if has_turzx(record):
             row.append(badge("TURZX"))
 
@@ -622,11 +657,24 @@ def _install_adaptive_theme_gallery_cards() -> None:
                 )
             )
 
+        if (
+            getattr(self, "on_build_theme_video", None) is not None
+            and record.can_build_native_video
+        ):
+            add(
+                (
+                    "Rebuild video"
+                    if record.native_video_status == "ready"
+                    else "Build video"
+                ),
+                lambda: self.on_build_theme_video(record),
+            )
+
         if getattr(self, "on_sync_theme_video", None) is not None and has_video(record):
             add(
                 "Sync video",
                 lambda: self.on_sync_theme_video(record),
-                sensitive=record.editable,
+                sensitive=record.video_syncable,
             )
 
         add("Open folder", lambda: self.on_open_folder(record))
@@ -637,13 +685,13 @@ def _install_adaptive_theme_gallery_cards() -> None:
         add(
             "Duplicate",
             lambda: self.confirm_duplicate_theme(record),
-            sensitive=record.editable,
+            sensitive=record.manageable,
         )
         add("Rename", lambda: self.confirm_rename_theme(record))
         add(
             "Export",
             lambda: self.confirm_export_theme(record),
-            sensitive=record.editable,
+            sensitive=record.manageable,
         )
 
         if not record.current:
@@ -692,7 +740,7 @@ def _install_adaptive_theme_gallery_cards() -> None:
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         meta.set_hexpand(True)
 
-        status = Gtk.Label(label=record.status_label, xalign=0)
+        status = Gtk.Label(label=self.record_status_label(record), xalign=0)
         status.set_ellipsize(Pango.EllipsizeMode.END)
         status.add_css_class("dim-label")
         meta.append(status)
@@ -715,7 +763,7 @@ def _install_adaptive_theme_gallery_cards() -> None:
 
         if self.on_set_current_theme is not None and not record.current:
             use_button = Gtk.Button(label="Use")
-            use_button.set_sensitive(record.editable)
+            use_button.set_sensitive(record.selectable)
             use_button.set_tooltip_text("Set this theme as current")
             use_button.connect("clicked", lambda *_: self.on_set_current_theme(record))
             actions.append(use_button)
@@ -723,7 +771,7 @@ def _install_adaptive_theme_gallery_cards() -> None:
         edit_button = Gtk.Button(label="Edit")
         edit_button.add_css_class("suggested-action")
         edit_button.set_hexpand(True)
-        edit_button.set_sensitive(record.editable)
+        edit_button.set_sensitive(record.authorable)
         edit_button.connect("clicked", lambda *_: self.on_open_theme(record))
         actions.append(edit_button)
 

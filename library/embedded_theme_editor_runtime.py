@@ -48,6 +48,41 @@ def install_embedded_theme_editor_patches(app, *, root: Path) -> None:
             self.toast("No active theme configured")
             return
 
+        theme_directory = app.THEMES_DIR / theme_name
+        try:
+            from library.theme_engine import ThemeManifest
+
+            manifest = ThemeManifest.load(theme_directory)
+        except Exception:
+            manifest = None
+        if manifest is not None and manifest.engine == "html":
+            if original_open_theme_record_editor is None:
+                self.toast("HTML theme editor is not available")
+                return
+            original_open_theme_record_editor(
+                self,
+                ThemeRecord(
+                    name=theme_name,
+                    directory=theme_directory,
+                    yaml_file=None,
+                    preview_file=theme_directory / "preview.png",
+                    engine="html",
+                    resolution=(manifest.width, manifest.height),
+                    permissions=manifest.permissions,
+                    native_video_local=(
+                        manifest.native_video_overlay.local_path
+                        if manifest.native_video_overlay is not None
+                        else ""
+                    ),
+                    native_video_device=(
+                        manifest.native_video_overlay.device_path
+                        if manifest.native_video_overlay is not None
+                        else ""
+                    ),
+                ),
+            )
+            return
+
         page = getattr(self, "embedded_theme_editor_page", None)
         if page is None:
             if original_open_theme_record_editor is None:
@@ -70,6 +105,9 @@ def install_embedded_theme_editor_patches(app, *, root: Path) -> None:
         self.toast(f"Editing {theme_name} inside the main app")
 
     def open_theme_record_editor(self, record: ThemeRecord) -> None:
+        if record.engine == "html" and original_open_theme_record_editor is not None:
+            original_open_theme_record_editor(self, record)
+            return
         open_embedded_theme_editor(self, record.name)
 
     def open_theme_editor(self, *_args) -> None:

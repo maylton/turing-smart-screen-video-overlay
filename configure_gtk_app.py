@@ -119,6 +119,20 @@ def read_current_theme() -> str:
     if not CONFIG_FILE.is_file():
         return ""
     content = CONFIG_FILE.read_text(encoding="utf-8")
+    try:
+        import yaml
+
+        payload = yaml.safe_load(content) or {}
+        renderer = payload.get("renderer", {})
+        if isinstance(renderer, dict):
+            engine = str(renderer.get("engine") or "yaml").strip().lower()
+            theme = str(renderer.get("theme") or "").strip()
+            if engine == "html" and theme:
+                return theme
+    except Exception:
+        # Preserve the long-standing text fallback when the optional YAML
+        # parser cannot load a hand-edited config file.
+        pass
     match = re.search(r"(?m)^\s*THEME\s*:\s*[\"']?([^\"'\n#]+)", content)
     return match.group(1).strip() if match else ""
 

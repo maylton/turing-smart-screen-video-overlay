@@ -6,6 +6,10 @@ from pathlib import Path
 
 from library.theme_engine import ThemeManifest
 from library.html_hybrid import validate_native_video
+from library.html_theme_authoring import (
+    discover_overlay_candidates,
+    inspect_native_video_artifact,
+)
 
 
 class HtmlAioMaterialThemeTests(unittest.TestCase):
@@ -54,11 +58,12 @@ class HtmlAioMaterialThemeTests(unittest.TestCase):
         html = (self.root / "index.html").read_text(encoding="utf-8")
         for fragment in (
             'id="cpu-load" data-turing-overlay',
-            'class="temperature-row" data-turing-overlay',
+            'class="temperature-row" id="cpu-temperature" data-turing-overlay',
             'id="cpu-bar" data-turing-overlay',
             'id="gpu-load" data-turing-overlay',
+            'class="temperature-row" id="gpu-temperature" data-turing-overlay',
             'id="gpu-bar" data-turing-overlay',
-            'class="liquid-value-row" data-turing-overlay',
+            'class="liquid-value-row" id="liquid-value" data-turing-overlay',
             'id="liquid-label" data-turing-overlay',
             'id="liquid-status" data-turing-overlay',
             'id="ram-usage" data-turing-overlay',
@@ -68,6 +73,33 @@ class HtmlAioMaterialThemeTests(unittest.TestCase):
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, html)
+        marked = {
+            candidate.element_id
+            for candidate in discover_overlay_candidates(manifest)
+            if candidate.marked
+        }
+        self.assertEqual(
+            marked,
+            {
+                "cpu-load",
+                "cpu-temperature",
+                "cpu-bar",
+                "gpu-load",
+                "gpu-temperature",
+                "gpu-bar",
+                "liquid-label",
+                "liquid-value",
+                "liquid-status",
+                "ram-usage",
+                "cooling-label",
+                "pump-value",
+                "pump-unit",
+            },
+        )
+
+    def test_built_video_matches_current_theme_sources(self):
+        state = inspect_native_video_artifact(ThemeManifest.load(self.root))
+        self.assertEqual(state.status, "ready", state.message)
 
     def test_manifest_controls_each_metric_cadence(self):
         manifest = ThemeManifest.load(self.root)

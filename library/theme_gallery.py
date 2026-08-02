@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -19,6 +20,11 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk, Pango
+from library.html_theme_authoring import (
+    discover_overlay_candidates,
+    inspect_native_video_artifact,
+    save_html_theme_authoring,
+)
 from library.theme_engine import ThemeManifest, ThemeValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,25 +61,70 @@ class ThemeRecord:
     permissions: tuple[str, ...] = ()
     native_video_local: str = ""
     native_video_device: str = ""
+    native_video_status: str = ""
+    native_video_message: str = ""
 
     @property
     def editable(self) -> bool:
         return self.yaml_file is not None and self.issue is None
 
     @property
+    def selectable(self) -> bool:
+        return self.issue is None and (self.editable or self.engine == "html")
+
+    @property
+    def authorable(self) -> bool:
+        return self.issue is None and (self.editable or self.engine == "html")
+
+    @property
+    def manageable(self) -> bool:
+        return self.issue is None and self.directory.is_dir()
+
+    @property
+    def can_build_native_video(self) -> bool:
+        return (
+            self.engine == "html"
+            and self.issue is None
+            and bool(self.native_video_local and self.native_video_device)
+        )
+
+    @property
+    def video_syncable(self) -> bool:
+        if self.engine == "html":
+            return self.can_build_native_video and self.native_video_status == "ready"
+        return self.editable
+
+    @property
     def status_label(self) -> str:
         if self.issue:
             return self.issue
+        if self.engine == "html" and self.native_video_status:
+            labels = {
+                "ready": "Video ready",
+                "missing": "Video not built",
+                "stale": "Video needs rebuild",
+                "error": "Video build state error",
+            }
+            state = labels.get(self.native_video_status, "HTML theme ready")
+            return f"Current theme · {state}" if self.current else state
         if self.current:
             return "Current theme"
         return "Ready"
 
     @property
     def display_label(self) -> str:
+        if self.resolution is not None:
+            return f"{self.resolution[0]}×{self.resolution[1]} · {self.engine.upper()}"
         return f'{self.display_size}" display' if self.display_size else "Unknown display size"
 
     def search_text(self) -> str:
-        parts = [self.name, self.status_label, self.display_label, self.engine]
+        parts = [
+            self.name,
+            self.status_label,
+            self.display_label,
+            self.engine,
+            self.native_video_message,
+        ]
         try:
             parts.append(os.path.relpath(self.directory, ROOT))
         except ValueError:
@@ -171,6 +222,41 @@ def read_current_renderer_theme(config_file: Path = CONFIG_FILE) -> str | None:
     return read_current_theme(config_file)
 
 
+def read_renderer_engine(config_file: Path = CONFIG_FILE) -> str:
+    try:
+        import yaml
+
+        payload = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+        renderer = payload.get("renderer", {})
+        if isinstance(renderer, dict):
+            engine = str(renderer.get("engine") or "yaml").strip().lower()
+            return engine if engine in {"yaml", "html"} else "yaml"
+    except Exception:
+        pass
+    return "yaml"
+
+
+_RENDERER_BLOCK = re.compile(
+    r"(?m)^renderer\s*:\s*(?:#.*)?\n(?:^[ \t]+[^\n]*(?:\n|$))*"
+)
+
+
+def _replace_renderer_block(content: str, engine: str, theme: str = "") -> str:
+    lines = ["renderer:", f"  engine: {engine}"]
+    if engine == "html":
+        lines.append(f"  theme: {json.dumps(str(theme), ensure_ascii=False)}")
+    rendered = "\n".join(lines) + "\n"
+    if _RENDERER_BLOCK.search(content):
+        return _RENDERER_BLOCK.sub(rendered, content, count=1)
+    return content.rstrip() + "\n\n" + rendered
+
+
+def _atomic_config_write(config_file: Path, content: str) -> None:
+    temporary = config_file.with_name(f".{config_file.name}.{os.getpid()}.tmp")
+    temporary.write_text(content, encoding="utf-8")
+    os.replace(temporary, config_file)
+
+
 def replace_current_theme_name(
     old_name: str,
     new_name: str,
@@ -180,6 +266,18 @@ def replace_current_theme_name(
         content = config_file.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"Could not find {config_file}") from exc
+
+    if read_renderer_engine(config_file) == "html":
+        configured = read_current_renderer_theme(config_file)
+        if configured != old_name:
+            raise RuntimeError(
+                f"config.yaml renderer.theme is {configured}, expected {old_name}."
+            )
+        _atomic_config_write(
+            config_file,
+            _replace_renderer_block(content, "html", new_name),
+        )
+        return
 
     pattern = re.compile(r"(?m)^(\s*THEME\s*:\s*)([^#\n]*)(\s*(?:#.*)?)$")
     match = pattern.search(content)
@@ -192,9 +290,7 @@ def replace_current_theme_name(
 
     replacement = f"{match.group(1)}{new_name}{match.group(3)}"
     new_content = content[: match.start()] + replacement + content[match.end() :]
-    tmp_file = config_file.with_name(f"{config_file.name}.tmp")
-    tmp_file.write_text(new_content, encoding="utf-8")
-    os.replace(tmp_file, config_file)
+    _atomic_config_write(config_file, new_content)
 
 
 def theme_display_size_from_yaml(yaml_file: Path | None) -> str:
@@ -218,9 +314,9 @@ def selected_display_size(config_file: Path = CONFIG_FILE) -> str:
 
 
 def set_current_theme(record: ThemeRecord, config_file: Path = CONFIG_FILE) -> tuple[str | None, str]:
-    if not record.editable:
+    if not record.selectable:
         raise RuntimeError(
-            f"{record.name} cannot be set as current because it has no theme.yaml/theme.yml."
+            f"{record.name} cannot be selected because the theme is invalid."
         )
 
     try:
@@ -228,24 +324,25 @@ def set_current_theme(record: ThemeRecord, config_file: Path = CONFIG_FILE) -> t
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"Could not find {config_file}") from exc
 
-    old_theme = read_current_theme(config_file)
-    pattern = re.compile(r"(?m)^(\s*THEME\s*:\s*)([^#\n]*)(\s*(?:#.*)?)$")
-    match = pattern.search(content)
-    if match is None:
-        raise RuntimeError("Could not find THEME in config.yaml")
-
-    replacement = f"{match.group(1)}{record.name}{match.group(3)}"
-    new_content = content[: match.start()] + replacement + content[match.end() :]
-    tmp_file = config_file.with_name(f"{config_file.name}.tmp")
-    tmp_file.write_text(new_content, encoding="utf-8")
-    os.replace(tmp_file, config_file)
+    old_theme = read_current_renderer_theme(config_file)
+    if record.engine == "html":
+        new_content = _replace_renderer_block(content, "html", record.name)
+    else:
+        pattern = re.compile(r"(?m)^(\s*THEME\s*:\s*)([^#\n]*)(\s*(?:#.*)?)$")
+        match = pattern.search(content)
+        if match is None:
+            raise RuntimeError("Could not find THEME in config.yaml")
+        replacement = f"{match.group(1)}{record.name}{match.group(3)}"
+        new_content = content[: match.start()] + replacement + content[match.end() :]
+        new_content = _replace_renderer_block(new_content, "yaml")
+    _atomic_config_write(config_file, new_content)
     return old_theme, record.name
 
 
 def duplicate_theme(record: ThemeRecord, requested_name: str) -> str:
-    if not record.editable:
+    if not record.manageable:
         raise RuntimeError(
-            f"{record.name} cannot be duplicated because it has no theme.yaml/theme.yml."
+            f"{record.name} cannot be duplicated because the theme is invalid."
         )
     ensure_theme_child(record.directory)
 
@@ -316,23 +413,59 @@ def validate_zip_members(zip_file: zipfile.ZipFile) -> None:
             raise RuntimeError(f"Unsafe archive path: {member.filename}")
 
 
+def is_theme_directory(path: Path) -> bool:
+    if (path / "manifest.json").is_file():
+        try:
+            manifest = ThemeManifest.load(path)
+            if manifest.engine == "html":
+                return html_theme_gallery_issue(manifest) is None
+        except ThemeValidationError:
+            return False
+    return find_theme_file(path) is not None
+
+
+def html_theme_gallery_issue(manifest: ThemeManifest) -> str | None:
+    """Apply the local-only permission policy used by gallery import/use."""
+    if manifest.engine != "html":
+        return None
+    if manifest.network:
+        return "HTML themes with network access are not supported"
+    if "sensors" not in manifest.permissions:
+        return "HTML theme must request the sensors permission"
+    unsupported = sorted(set(manifest.permissions) - {"sensors"})
+    if unsupported:
+        return "Unsupported HTML permission: " + ", ".join(unsupported)
+    try:
+        html = manifest.entrypoint_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"Could not read HTML entrypoint: {exc}"
+    if re.search(
+        r"<meta\b[^>]*http-equiv\s*=\s*['\"]content-security-policy['\"]",
+        html,
+        re.IGNORECASE,
+    ) is None:
+        return "HTML entrypoint is missing a Content-Security-Policy meta tag"
+    return None
+
+
 def resolve_import_theme_source(path: Path) -> Path:
-    if find_theme_file(path) is not None:
+    if is_theme_directory(path):
         return path
 
     directories = [child for child in path.iterdir() if child.is_dir()]
-    theme_directories = [child for child in directories if find_theme_file(child) is not None]
+    theme_directories = [child for child in directories if is_theme_directory(child)]
     if len(theme_directories) == 1:
         return theme_directories[0]
     if not theme_directories:
-        raise RuntimeError("Imported folder/archive does not contain theme.yaml/theme.yml.")
+        raise RuntimeError(
+            "Imported folder/archive does not contain theme.yaml/theme.yml or a valid HTML manifest."
+        )
     raise RuntimeError("Imported folder/archive contains multiple themes. Import one at a time.")
 
 
 def copy_imported_theme(source_dir: Path) -> str:
-    yaml_file = find_theme_file(source_dir)
-    if yaml_file is None:
-        raise RuntimeError("Imported theme does not contain theme.yaml/theme.yml.")
+    if not is_theme_directory(source_dir):
+        raise RuntimeError("Imported theme package is invalid.")
 
     target_name = next_available_theme_name(source_dir.name)
     target_dir = THEMES_DIR / target_name
@@ -392,8 +525,8 @@ def export_theme(record: ThemeRecord, destination_text: str = "") -> Path:
     if not record.directory.is_dir():
         raise FileNotFoundError(record.directory)
     ensure_theme_child(record.directory)
-    if find_theme_file(record.directory) is None:
-        raise RuntimeError("Theme cannot be exported because it has no theme.yaml/theme.yml.")
+    if not is_theme_directory(record.directory):
+        raise RuntimeError("Theme cannot be exported because its package is invalid.")
 
     destination = resolve_export_destination(record, destination_text)
     fd, tmp_name = tempfile.mkstemp(
@@ -449,6 +582,9 @@ def discover_themes(
         permissions = ()
         native_video_local = ""
         native_video_device = ""
+        native_video_status = ""
+        native_video_message = ""
+        preview_file = theme_dir / "preview.png"
         manifest_issue = None
         if (theme_dir / "manifest.json").is_file():
             try:
@@ -456,9 +592,22 @@ def discover_themes(
                 engine = manifest.engine
                 resolution = (manifest.width, manifest.height)
                 permissions = manifest.permissions
+                policy_issue = html_theme_gallery_issue(manifest)
+                if policy_issue is not None:
+                    manifest_issue = policy_issue
                 if manifest.native_video_overlay is not None:
                     native_video_local = manifest.native_video_overlay.local_path
                     native_video_device = manifest.native_video_overlay.device_path
+                    artifact = inspect_native_video_artifact(manifest)
+                    native_video_status = artifact.status
+                    native_video_message = artifact.message
+                    if not preview_file.is_file():
+                        video = manifest.native_video_overlay.local_file(manifest.root)
+                        generated_preview = video.with_name(
+                            f"{video.stem}-background.png"
+                        )
+                        if generated_preview.is_file():
+                            preview_file = generated_preview
             except ThemeValidationError as exc:
                 manifest_issue = f"Invalid manifest: {exc}"
 
@@ -478,7 +627,7 @@ def discover_themes(
                 name=theme_dir.name,
                 directory=theme_dir,
                 yaml_file=yaml_file,
-                preview_file=theme_dir / "preview.png",
+                preview_file=preview_file,
                 current=theme_dir.name == current_theme,
                 issue=issue,
                 display_size=display_size,
@@ -487,6 +636,8 @@ def discover_themes(
                 permissions=permissions,
                 native_video_local=native_video_local,
                 native_video_device=native_video_device,
+                native_video_status=native_video_status,
+                native_video_message=native_video_message,
             )
         )
 
@@ -513,6 +664,7 @@ def build_theme_gallery_diagnostics_report(
         f"Current theme: {'yes' if record.current else 'no'}",
         f"Target display: {target_display_size or 'unknown'}",
         f"Theme display: {record.display_size or 'unknown'}",
+        f"Theme engine: {record.engine}",
         f"Theme folder: {relative_path_label(record.directory)}",
     ]
 
@@ -532,6 +684,16 @@ def build_theme_gallery_diagnostics_report(
             lines.append(f"Theme YAML status: decode failed: {exc}")
     else:
         lines.append("Theme YAML: missing")
+
+    if record.engine == "html":
+        lines.extend(
+            [
+                f"Native video status: {record.native_video_status or 'disabled'}",
+                f"Native video detail: {record.native_video_message or 'none'}",
+                f"Native video local: {record.native_video_local or 'none'}",
+                f"Native video device: {record.native_video_device or 'none'}",
+            ]
+        )
 
     if record.preview_file.is_file():
         lines.append(f"Preview: {relative_path_label(record.preview_file)}")
@@ -557,7 +719,7 @@ def build_theme_gallery_diagnostics_report(
             "",
             "Gallery checks:",
             f"- Compatible with target display: {'yes' if not target_display_size or record.display_size == target_display_size else 'no'}",
-            f"- Editable in GTK Theme Editor: {'yes' if record.editable else 'no'}",
+            f"- Editable in gallery: {'yes' if record.authorable else 'no'}",
             f"- Has preview image: {'yes' if record.preview_file.is_file() else 'no'}",
             f"- Has theme.yaml/theme.yml: {'yes' if record.yaml_file is not None else 'no'}",
         ]
@@ -853,6 +1015,191 @@ def show_export_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm
     dialog.present(parent)
 
 
+def show_html_theme_authoring_dialog(
+    parent: Gtk.Widget,
+    record: ThemeRecord,
+    *,
+    on_saved: ThemeCallback | None = None,
+    on_build: ThemeCallback | None = None,
+    on_error: Callable[[str], None] | None = None,
+) -> None:
+    """Edit native-video settings and explicit live markers for an HTML theme."""
+    try:
+        manifest = ThemeManifest.load(record.directory)
+        spec = manifest.native_video_overlay
+        candidates = discover_overlay_candidates(manifest)
+    except Exception as exc:
+        if on_error is not None:
+            on_error(str(exc))
+            return
+        raise
+
+    local_name = (
+        Path(spec.local_path).name
+        if spec is not None
+        else f"{record.name}.mp4"
+    )
+    device_directory = (
+        str(Path(spec.device_path).parent)
+        if spec is not None
+        else "/mnt/SDCARD/video"
+    )
+
+    content = Gtk.Box(
+        orientation=Gtk.Orientation.VERTICAL,
+        spacing=12,
+        margin_top=8,
+        margin_bottom=8,
+        margin_start=8,
+        margin_end=8,
+    )
+
+    def field_row(label_text: str, widget: Gtk.Widget) -> None:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        label = Gtk.Label(label=label_text, xalign=0)
+        label.set_size_request(170, -1)
+        widget.set_hexpand(True)
+        row.append(label)
+        row.append(widget)
+        content.append(row)
+
+    filename_entry = Gtk.Entry()
+    filename_entry.set_text(local_name)
+    field_row("MP4 filename", filename_entry)
+
+    storage = Gtk.DropDown.new_from_strings(
+        ["SD card (/mnt/SDCARD/video)", "Internal (/root/video)"]
+    )
+    storage.set_selected(1 if device_directory == "/root/video" else 0)
+    field_row("Display storage", storage)
+
+    fps = Gtk.DropDown.new_from_strings(["24", "30"])
+    fps.set_selected(1 if spec is not None and spec.fps == 30 else 0)
+    field_row("Frame rate", fps)
+
+    duration = Gtk.SpinButton.new_with_range(1.0 / 30.0, 60.0, 1.0 / 24.0)
+    duration.set_digits(3)
+    duration.set_value(spec.duration if spec is not None else 8.0)
+    field_row("Loop duration (seconds)", duration)
+
+    background = Gtk.SpinButton.new_with_range(0.0, 60.0, 1.0 / 24.0)
+    background.set_digits(3)
+    background.set_value(spec.background_frame if spec is not None else 0.0)
+    field_row("Preview frame (seconds)", background)
+
+    separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    separator.set_margin_top(4)
+    content.append(separator)
+
+    marker_title = Gtk.Label(label="Live text and bar overlays", xalign=0)
+    marker_title.add_css_class("heading")
+    content.append(marker_title)
+    marker_help = Gtk.Label(
+        label=(
+            "Checked elements remain dynamic above the compiled video. "
+            "Unmarked HTML and CSS animations become part of the MP4."
+        ),
+        xalign=0,
+        wrap=True,
+    )
+    marker_help.add_css_class("dim-label")
+    content.append(marker_help)
+
+    marker_buttons: dict[str, Gtk.CheckButton] = {}
+    for candidate in candidates:
+        button = Gtk.CheckButton(
+            label=f"#{candidate.element_id}  <{candidate.tag}>"
+        )
+        button.set_active(candidate.marked)
+        marker_buttons[candidate.element_id] = button
+        content.append(button)
+
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_min_content_width(570)
+    scrolled.set_min_content_height(520)
+    scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scrolled.set_child(content)
+
+    dialog = Adw.AlertDialog(
+        heading=f"Edit HTML theme · {record.name}",
+        body="Configure the compiled native background and its live overlay layer.",
+    )
+    dialog.set_extra_child(scrolled)
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("save", "Save")
+    if on_build is not None:
+        dialog.add_response("build", "Save & Build Video")
+        dialog.set_response_appearance(
+            "build",
+            Adw.ResponseAppearance.SUGGESTED,
+        )
+        dialog.set_default_response("build")
+    else:
+        dialog.set_response_appearance(
+            "save",
+            Adw.ResponseAppearance.SUGGESTED,
+        )
+        dialog.set_default_response("save")
+    dialog.set_close_response("cancel")
+
+    def fail(message: str) -> None:
+        if on_error is not None:
+            on_error(message)
+        else:
+            raise RuntimeError(message)
+
+    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+        if response not in {"save", "build"}:
+            return
+        selected = [
+            element_id
+            for element_id, button in marker_buttons.items()
+            if button.get_active()
+        ]
+        try:
+            saved = save_html_theme_authoring(
+                manifest,
+                fps=24 if fps.get_selected() == 0 else 30,
+                duration=duration.get_value(),
+                background_frame=background.get_value(),
+                device_directory=(
+                    "/mnt/SDCARD/video"
+                    if storage.get_selected() == 0
+                    else "/root/video"
+                ),
+                filename=filename_entry.get_text(),
+                overlay_ids=selected,
+            )
+            saved_spec = saved.native_video_overlay
+            if saved_spec is None:
+                raise RuntimeError("Saved HTML theme has no native-video settings")
+            updated = ThemeRecord(
+                name=record.name,
+                directory=record.directory,
+                yaml_file=None,
+                preview_file=record.preview_file,
+                current=record.current,
+                engine="html",
+                resolution=(saved.width, saved.height),
+                permissions=saved.permissions,
+                native_video_local=saved_spec.local_path,
+                native_video_device=saved_spec.device_path,
+                native_video_status="stale",
+                native_video_message="Native-video settings changed; rebuild the video",
+            )
+        except Exception as exc:
+            fail(str(exc))
+            return
+
+        if on_saved is not None:
+            on_saved(updated)
+        if response == "build" and on_build is not None:
+            on_build(updated)
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+
+
 class ThemeGalleryPane(Gtk.Box):
     """Reusable gallery surface for app shell and developer window."""
 
@@ -863,6 +1210,7 @@ class ThemeGalleryPane(Gtk.Box):
         on_open_folder: ThemeCallback,
         on_theme_diagnostics: ThemeCallback | None = None,
         on_set_current_theme: ThemeCallback | None = None,
+        on_build_theme_video: ThemeCallback | None = None,
         on_sync_theme_video: ThemeCallback | None = None,
         on_duplicate_theme: DuplicateThemeCallback | None = None,
         on_rename_theme: RenameThemeCallback | None = None,
@@ -878,6 +1226,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.on_open_folder = on_open_folder
         self.on_theme_diagnostics = on_theme_diagnostics
         self.on_set_current_theme = on_set_current_theme
+        self.on_build_theme_video = on_build_theme_video
         self.on_sync_theme_video = on_sync_theme_video
         self.on_duplicate_theme = on_duplicate_theme or self.apply_duplicate_theme
         self.on_rename_theme = on_rename_theme or self.apply_rename_theme
@@ -889,6 +1238,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.filtered_records: list[ThemeRecord] = []
         self.filter_query = ""
         self.target_display_size = ""
+        self.record_operations: dict[str, str] = {}
 
         controls = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
@@ -977,6 +1327,16 @@ class ThemeGalleryPane(Gtk.Box):
             return
         display = f' · {self.target_display_size}"' if self.target_display_size else ""
         self.result_label.set_text(f"{total} compatible theme{'s' if total != 1 else ''}{display}")
+
+    def set_record_operation(self, theme_name: str, message: str = "") -> None:
+        if message:
+            self.record_operations[str(theme_name)] = str(message)
+        else:
+            self.record_operations.pop(str(theme_name), None)
+        self.render_records(self.filtered_records)
+
+    def record_status_label(self, record: ThemeRecord) -> str:
+        return self.record_operations.get(record.name, record.status_label)
 
     def render_records(self, records: list[ThemeRecord]) -> None:
         self.clear_flow_box()
@@ -1073,7 +1433,7 @@ class ThemeGalleryPane(Gtk.Box):
             name_row.append(badge)
         card.append(name_row)
 
-        status = Gtk.Label(label=record.status_label, xalign=0, wrap=True)
+        status = Gtk.Label(label=self.record_status_label(record), xalign=0, wrap=True)
         status.add_css_class("dim-label")
         card.append(status)
 
@@ -1096,7 +1456,7 @@ class ThemeGalleryPane(Gtk.Box):
 
         if self.on_set_current_theme is not None and not record.current:
             use_button = Gtk.Button(label="Use")
-            use_button.set_sensitive(record.editable)
+            use_button.set_sensitive(record.selectable)
             use_button.set_tooltip_text("Set this theme as current")
             use_button.connect("clicked", lambda *_args: self.on_set_current_theme(record))
             primary_actions.append(use_button)
@@ -1104,16 +1464,13 @@ class ThemeGalleryPane(Gtk.Box):
         edit_button = Gtk.Button(label="Edit")
         edit_button.add_css_class("suggested-action")
         edit_button.set_hexpand(True)
-        edit_button.set_sensitive(record.editable)
+        edit_button.set_sensitive(record.authorable)
         edit_button.connect("clicked", lambda *_args: self.on_open_theme(record))
         primary_actions.append(edit_button)
 
         if self.on_sync_theme_video is not None:
             sync_button = Gtk.Button(label="Sync video")
-            sync_button.set_sensitive(
-                record.editable
-                or bool(record.native_video_local and record.native_video_device)
-            )
+            sync_button.set_sensitive(record.video_syncable)
             sync_button.set_tooltip_text("Sync this theme video to the display")
             sync_button.connect("clicked", lambda *_args: self.on_sync_theme_video(record))
             primary_actions.append(sync_button)
@@ -1126,8 +1483,21 @@ class ThemeGalleryPane(Gtk.Box):
             margin_top=2,
         )
 
+        if self.on_build_theme_video is not None and record.can_build_native_video:
+            build_button = Gtk.Button(icon_name="media-record-symbolic")
+            build_button.set_tooltip_text(
+                "Rebuild native video"
+                if record.native_video_status == "ready"
+                else "Build native video"
+            )
+            build_button.connect(
+                "clicked",
+                lambda *_args: self.on_build_theme_video(record),
+            )
+            secondary_actions.append(build_button)
+
         duplicate_button = Gtk.Button(icon_name="edit-copy-symbolic")
-        duplicate_button.set_sensitive(record.editable)
+        duplicate_button.set_sensitive(record.manageable)
         duplicate_button.set_tooltip_text("Duplicate theme")
         duplicate_button.connect("clicked", lambda *_args: self.confirm_duplicate_theme(record))
         secondary_actions.append(duplicate_button)
@@ -1138,7 +1508,7 @@ class ThemeGalleryPane(Gtk.Box):
         secondary_actions.append(rename_button)
 
         export_button = Gtk.Button(icon_name="document-save-symbolic")
-        export_button.set_sensitive(record.editable)
+        export_button.set_sensitive(record.manageable)
         export_button.set_tooltip_text("Export theme")
         export_button.connect("clicked", lambda *_args: self.confirm_export_theme(record))
         secondary_actions.append(export_button)
@@ -1316,6 +1686,20 @@ class ThemeGalleryWindow(Adw.ApplicationWindow):
         self.open_theme_editor(record)
 
     def open_theme_editor(self, record: ThemeRecord) -> None:
+        if record.engine == "html":
+            show_html_theme_authoring_dialog(
+                self,
+                record,
+                on_saved=lambda _updated: (
+                    self.gallery.reload_themes(),
+                    self.toast(f"HTML settings saved for {record.name}"),
+                ),
+                on_error=lambda message: self.error_dialog(
+                    "Could not edit HTML theme",
+                    message,
+                ),
+            )
+            return
         try:
             launch_theme_editor(record)
         except Exception as exc:

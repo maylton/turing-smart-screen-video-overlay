@@ -116,6 +116,7 @@ def install_runtime_patches(app):
             python_executable=app.project_python(),
         )
         self.runtime_stop_in_progress = False
+        self.theme_video_builds: set[str] = set()
         original_init(self, application)
         app.GLib.timeout_add_seconds(2, self.refresh_runtime_status)
 
@@ -141,7 +142,23 @@ def install_runtime_patches(app):
         original_refresh_overview(self)
 
         if self.current_theme:
-            static_preview = app.THEMES_DIR / self.current_theme / "preview.png"
+            theme_directory = app.THEMES_DIR / self.current_theme
+            static_preview = theme_directory / "preview.png"
+            if not static_preview.is_file():
+                try:
+                    from library.theme_engine import ThemeManifest
+
+                    manifest = ThemeManifest.load(theme_directory)
+                    spec = manifest.native_video_overlay
+                    if spec is not None:
+                        video = spec.local_file(manifest.root)
+                        generated = video.with_name(
+                            f"{video.stem}-background.png"
+                        )
+                        if generated.is_file():
+                            static_preview = generated
+                except Exception:
+                    pass
 
             if static_preview.is_file():
                 cache_dir = app.ROOT / ".cache" / "overview-static-preview"
@@ -228,6 +245,7 @@ def install_runtime_patches(app):
             on_open_folder=self.open_theme_record_folder,
             on_theme_diagnostics=self.show_theme_record_diagnostics,
             on_set_current_theme=self.confirm_set_current_theme_from_gallery,
+            on_build_theme_video=self.build_theme_video_from_gallery,
             on_sync_theme_video=self.sync_theme_video_from_gallery,
             on_records_changed=self.on_theme_gallery_records_changed,
         )
@@ -248,11 +266,186 @@ def install_runtime_patches(app):
         original_refresh_theme_list(self)
 
     def open_theme_record_editor(self, record: ThemeRecord):
+        if record.engine == "html":
+            self.show_html_theme_authoring_dialog(record)
+            return
         self.launch_script(
             app.THEME_EDITOR,
             record.name,
             use_system_python=True,
         )
+
+    def show_html_theme_authoring_dialog(self, record: ThemeRecord):
+        from library.html_theme_authoring import discover_overlay_candidates
+        from library.theme_engine import ThemeManifest
+
+        try:
+            manifest = ThemeManifest.load(record.directory)
+            spec = manifest.native_video_overlay
+            candidates = discover_overlay_candidates(manifest)
+        except Exception as exc:
+            self.toast(f"Could not open HTML theme editor: {exc}")
+            return
+
+        local_name = (
+            Path(spec.local_path).name
+            if spec is not None
+            else f"{record.name}.mp4"
+        )
+        device_directory = (
+            str(Path(spec.device_path).parent)
+            if spec is not None
+            else "/mnt/SDCARD/video"
+        )
+
+        content = app.Gtk.Box(
+            orientation=app.Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin_top=8,
+            margin_bottom=8,
+            margin_start=8,
+            margin_end=8,
+        )
+
+        def field_row(label_text, widget):
+            row = app.Gtk.Box(
+                orientation=app.Gtk.Orientation.HORIZONTAL,
+                spacing=12,
+            )
+            label = app.Gtk.Label(label=label_text, xalign=0)
+            label.set_size_request(170, -1)
+            widget.set_hexpand(True)
+            row.append(label)
+            row.append(widget)
+            content.append(row)
+
+        filename_entry = app.Gtk.Entry()
+        filename_entry.set_text(local_name)
+        field_row("MP4 filename", filename_entry)
+
+        storage = app.Gtk.DropDown.new_from_strings(
+            ["SD card (/mnt/SDCARD/video)", "Internal (/root/video)"]
+        )
+        storage.set_selected(1 if device_directory == "/root/video" else 0)
+        field_row("Display storage", storage)
+
+        fps = app.Gtk.DropDown.new_from_strings(["24", "30"])
+        fps.set_selected(1 if spec is not None and spec.fps == 30 else 0)
+        field_row("Frame rate", fps)
+
+        duration = app.Gtk.SpinButton.new_with_range(1.0 / 30.0, 60.0, 1.0 / 24.0)
+        duration.set_digits(3)
+        duration.set_value(spec.duration if spec is not None else 8.0)
+        field_row("Loop duration (seconds)", duration)
+
+        background = app.Gtk.SpinButton.new_with_range(0.0, 60.0, 1.0 / 24.0)
+        background.set_digits(3)
+        background.set_value(spec.background_frame if spec is not None else 0.0)
+        field_row("Preview frame (seconds)", background)
+
+        separator = app.Gtk.Separator(orientation=app.Gtk.Orientation.HORIZONTAL)
+        separator.set_margin_top(4)
+        content.append(separator)
+
+        marker_title = app.Gtk.Label(
+            label="Live text and bar overlays",
+            xalign=0,
+        )
+        marker_title.add_css_class("heading")
+        content.append(marker_title)
+        marker_help = app.Gtk.Label(
+            label=(
+                "Checked elements remain dynamic above the compiled video. "
+                "Unmarked HTML and CSS animations become part of the MP4."
+            ),
+            xalign=0,
+            wrap=True,
+        )
+        marker_help.add_css_class("dim-label")
+        content.append(marker_help)
+
+        marker_buttons = {}
+        for candidate in candidates:
+            button = app.Gtk.CheckButton(
+                label=f"#{candidate.element_id}  <{candidate.tag}>"
+            )
+            button.set_active(candidate.marked)
+            marker_buttons[candidate.element_id] = button
+            content.append(button)
+
+        scrolled = app.Gtk.ScrolledWindow()
+        scrolled.set_min_content_width(570)
+        scrolled.set_min_content_height(520)
+        scrolled.set_policy(
+            app.Gtk.PolicyType.NEVER,
+            app.Gtk.PolicyType.AUTOMATIC,
+        )
+        scrolled.set_child(content)
+
+        dialog = app.Adw.AlertDialog(
+            heading=f"Edit HTML theme · {record.name}",
+            body="Configure the compiled native background and its live overlay layer.",
+        )
+        dialog.set_extra_child(scrolled)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save")
+        dialog.add_response("build", "Save & Build Video")
+        dialog.set_response_appearance(
+            "build",
+            app.Adw.ResponseAppearance.SUGGESTED,
+        )
+        dialog.set_default_response("build")
+        dialog.set_close_response("cancel")
+
+        def on_response(_dialog, response):
+            if response not in {"save", "build"}:
+                return
+            selected = [
+                element_id
+                for element_id, button in marker_buttons.items()
+                if button.get_active()
+            ]
+            try:
+                from library.html_theme_authoring import save_html_theme_authoring
+
+                saved = save_html_theme_authoring(
+                    manifest,
+                    fps=24 if fps.get_selected() == 0 else 30,
+                    duration=duration.get_value(),
+                    background_frame=background.get_value(),
+                    device_directory=(
+                        "/mnt/SDCARD/video"
+                        if storage.get_selected() == 0
+                        else "/root/video"
+                    ),
+                    filename=filename_entry.get_text(),
+                    overlay_ids=selected,
+                )
+            except Exception as exc:
+                self.toast(f"Could not save HTML theme: {exc}")
+                return
+
+            gallery = getattr(self, "theme_gallery", None)
+            if gallery is not None:
+                gallery.reload_themes()
+            self.toast(f"HTML settings saved for {record.name}")
+            if response == "build":
+                updated = ThemeRecord(
+                    name=record.name,
+                    directory=record.directory,
+                    yaml_file=None,
+                    preview_file=record.preview_file,
+                    engine="html",
+                    resolution=(saved.width, saved.height),
+                    permissions=saved.permissions,
+                    native_video_local=saved.native_video_overlay.local_path,
+                    native_video_device=saved.native_video_overlay.device_path,
+                    native_video_status="stale",
+                )
+                self.build_theme_video_from_gallery(updated)
+
+        dialog.connect("response", on_response)
+        dialog.present(self)
 
     def directory_default_app(self) -> str:
         if shutil.which("xdg-mime") is None:
@@ -512,12 +705,16 @@ def install_runtime_patches(app):
     def read_theme_video_config_from_record(record: ThemeRecord) -> dict:
         if record.engine == "html":
             from library.html_hybrid import validate_native_video
+            from library.html_theme_authoring import inspect_native_video_artifact
             from library.theme_engine import ThemeManifest
 
             manifest = ThemeManifest.load(record.directory)
             spec = manifest.native_video_overlay
             if spec is None:
                 return {}
+            artifact = inspect_native_video_artifact(manifest)
+            if not artifact.ready:
+                raise RuntimeError(artifact.message)
             validate_native_video(manifest)
             return {
                 "theme": record.name,
@@ -564,6 +761,73 @@ def install_runtime_patches(app):
             "filename": Path(remote).name,
             "internal": remote.startswith("/root/video/"),
         }
+
+    def run_html_theme_video_builder(record: ThemeRecord) -> str:
+        if record.engine != "html":
+            raise RuntimeError("Only HTML themes can build a native background video")
+        result = subprocess.run(
+            [
+                app.project_python(),
+                str(ROOT / "html-theme-build-video.py"),
+                "--theme",
+                str(record.directory),
+            ],
+            cwd=str(ROOT),
+            text=True,
+            capture_output=True,
+            timeout=600,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "Unknown build error").strip()
+            raise RuntimeError(detail[-1200:])
+        return (result.stdout or "").strip() or f"Video built for {record.name}"
+
+    def build_theme_video_worker(self, record: ThemeRecord):
+        error = ""
+        message = ""
+        try:
+            message = run_html_theme_video_builder(record)
+        except Exception as exc:
+            error = str(exc)
+        app.GLib.idle_add(
+            self.finish_build_theme_video,
+            record.name,
+            message,
+            error,
+        )
+
+    def build_theme_video_from_gallery(self, record: ThemeRecord):
+        if record.name in self.theme_video_builds:
+            self.toast(f"Video build is already running for {record.name}")
+            return
+        if not record.can_build_native_video:
+            self.toast(f"{record.name} does not declare a buildable native video")
+            return
+
+        self.theme_video_builds.add(record.name)
+        gallery = getattr(self, "theme_gallery", None)
+        if gallery is not None:
+            gallery.set_record_operation(record.name, "Building native video…")
+        self.toast(f"Building native video for {record.name}…")
+        threading.Thread(
+            target=build_theme_video_worker,
+            args=(self, record),
+            daemon=True,
+        ).start()
+
+    def finish_build_theme_video(self, theme_name: str, message: str, error: str):
+        self.theme_video_builds.discard(theme_name)
+        gallery = getattr(self, "theme_gallery", None)
+        if gallery is not None:
+            gallery.set_record_operation(theme_name, "")
+            gallery.reload_themes()
+        if error:
+            self.toast(f"Could not build video for {theme_name}: {error}")
+        else:
+            summary = message.splitlines()[-1] if message else "Video built"
+            self.toast(f"{summary} · ready to sync")
+        return False
 
     def sync_theme_video_worker(self, record: ThemeRecord):
         error = ""
@@ -625,6 +889,9 @@ def install_runtime_patches(app):
             update_runtime_status(self)
             return
 
+        gallery = getattr(self, "theme_gallery", None)
+        if gallery is not None:
+            gallery.set_record_operation(record.name, "Syncing video to display…")
         self.toast(f"Syncing video for {record.name}…")
         threading.Thread(
             target=sync_theme_video_worker,
@@ -634,6 +901,10 @@ def install_runtime_patches(app):
 
     def finish_sync_theme_video(self, theme_name: str, message: str, error: str):
         update_runtime_status(self)
+        gallery = getattr(self, "theme_gallery", None)
+        if gallery is not None:
+            gallery.set_record_operation(theme_name, "")
+            gallery.reload_themes()
         if error:
             self.toast(f"Could not sync video for {theme_name}: {error}")
         else:
@@ -1186,6 +1457,37 @@ def install_runtime_patches(app):
         if self.runtime_stop_in_progress:
             self.toast("Another runtime operation is already in progress")
             return
+        if record.name in self.theme_video_builds:
+            self.toast(f"Wait for the video build for {record.name} to finish")
+            return
+
+        if record.engine == "html":
+            try:
+                from library.html_theme_authoring import inspect_native_video_artifact
+                from library.theme_engine import ThemeManifest
+
+                artifact = inspect_native_video_artifact(
+                    ThemeManifest.load(record.directory)
+                )
+            except Exception as exc:
+                self.toast(f"Could not validate HTML theme: {exc}")
+                return
+            if artifact.needs_build:
+                self.runtime_stop_in_progress = True
+                self.theme_video_builds.add(record.name)
+                gallery = getattr(self, "theme_gallery", None)
+                if gallery is not None:
+                    gallery.set_record_operation(
+                        record.name,
+                        "Building video before activation…",
+                    )
+                self.toast(f"{artifact.message}; building before activation…")
+                threading.Thread(
+                    target=prebuild_html_theme_for_use_worker,
+                    args=(self, record),
+                    daemon=True,
+                ).start()
+                return
 
         try:
             old_theme, new_theme = gallery_set_current_theme(record)
@@ -1209,11 +1511,57 @@ def install_runtime_patches(app):
             daemon=True,
         ).start()
 
+    def prebuild_html_theme_for_use_worker(self, record: ThemeRecord):
+        error = ""
+        try:
+            run_html_theme_video_builder(record)
+        except Exception as exc:
+            error = str(exc)
+        app.GLib.idle_add(
+            self.finish_prebuild_html_theme_for_use,
+            record,
+            error,
+        )
+
+    def finish_prebuild_html_theme_for_use(self, record: ThemeRecord, error: str):
+        self.runtime_stop_in_progress = False
+        self.theme_video_builds.discard(record.name)
+        gallery = getattr(self, "theme_gallery", None)
+        if gallery is not None:
+            gallery.set_record_operation(record.name, "")
+            gallery.reload_themes()
+        if error:
+            self.toast(
+                f"Could not build video for {record.name}; theme was not changed: {error}"
+            )
+            return False
+        self.toast(f"Video built for {record.name}; activating theme…")
+        self.apply_set_current_theme_from_gallery(record)
+        return False
+
     def apply_used_theme_video_and_start_worker(self, record: ThemeRecord, new_theme: str):
         error = ""
         message = ""
 
         try:
+            if record.engine == "html":
+                from library.html_theme_authoring import inspect_native_video_artifact
+                from library.theme_engine import ThemeManifest
+
+                manifest = ThemeManifest.load(record.directory)
+                artifact = inspect_native_video_artifact(manifest)
+                if artifact.needs_build:
+                    app.GLib.idle_add(
+                        self.toast,
+                        f"{artifact.message}; building video before sync…",
+                    )
+                    try:
+                        run_html_theme_video_builder(record)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Native video build failed: {exc}"
+                        ) from exc
+
             force_release_monitor_for_theme_apply(self, timeout=18.0)
 
             video = read_theme_video_config_from_record(record)
@@ -1265,6 +1613,11 @@ def install_runtime_patches(app):
                 file=sys.stderr,
                 flush=True,
             )
+            if error.startswith("Native video build failed:"):
+                self.toast(
+                    f"Theme set to {new_theme}, but its video build failed; monitor was not started."
+                )
+                return False
             self.toast(
                 f"Theme set to {new_theme}, but video sync failed. Starting monitor anyway."
             )
@@ -1526,10 +1879,13 @@ def install_runtime_patches(app):
     app.SmartScreenWindow.build_themes_page = build_themes_page
     app.SmartScreenWindow.refresh_theme_list = refresh_theme_list
     app.SmartScreenWindow.open_theme_record_editor = open_theme_record_editor
+    app.SmartScreenWindow.show_html_theme_authoring_dialog = show_html_theme_authoring_dialog
     app.SmartScreenWindow.open_theme_record_folder = open_theme_record_folder
     app.SmartScreenWindow.show_theme_record_diagnostics = show_theme_record_diagnostics
     app.SmartScreenWindow.confirm_set_current_theme_from_gallery = confirm_set_current_theme_from_gallery
     app.SmartScreenWindow.sync_current_theme_video_from_gallery = sync_current_theme_video_from_gallery
+    app.SmartScreenWindow.build_theme_video_from_gallery = build_theme_video_from_gallery
+    app.SmartScreenWindow.finish_build_theme_video = finish_build_theme_video
     app.SmartScreenWindow.sync_theme_video_from_gallery = sync_theme_video_from_gallery
     app.SmartScreenWindow.finish_sync_theme_video = finish_sync_theme_video
     app.SmartScreenWindow.wait_until_display_free_for_theme_apply = wait_until_display_free_for_theme_apply
@@ -1538,6 +1894,7 @@ def install_runtime_patches(app):
     app.SmartScreenWindow.display_has_video_for_theme_apply = display_has_video_for_theme_apply
     app.SmartScreenWindow.apply_set_current_theme_from_gallery = apply_set_current_theme_from_gallery
     app.SmartScreenWindow.finish_used_theme_video_and_start = finish_used_theme_video_and_start
+    app.SmartScreenWindow.finish_prebuild_html_theme_for_use = finish_prebuild_html_theme_for_use
     app.SmartScreenWindow.on_theme_gallery_records_changed = on_theme_gallery_records_changed
     app.SmartScreenWindow.build_settings_page = build_settings_page
     app.SmartScreenWindow.on_start_monitor_changed = on_start_monitor_changed
