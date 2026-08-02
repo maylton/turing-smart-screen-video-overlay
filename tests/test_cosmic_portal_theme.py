@@ -32,13 +32,14 @@ class CosmicPortalThemeTests(unittest.TestCase):
             self.assertEqual(style.formatter, "")
             self.assertEqual(style.sample, "")
 
-    def test_atomic_regions_match_composite_overlay_ids(self):
+    def test_manifest_references_canonical_overlay_document_and_regions(self):
         payload = json.loads(
             (THEME_ROOT / "manifest.json").read_text(encoding="utf-8")
         )
+        self.assertEqual(payload["overlayDocument"], "overlays.json")
         self.assertEqual(
             [region["name"] for region in payload["atomicRegions"]],
-            ["date-card", "clock", "cpu-card"],
+            ["overlay:date-card", "overlay:clock", "overlay:cpu-card"],
         )
 
 
