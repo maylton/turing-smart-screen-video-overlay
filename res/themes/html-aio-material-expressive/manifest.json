@@ -1,0 +1,33 @@
+{
+  "engine": "html",
+  "name": "AIO Material Expressive",
+  "version": 1,
+  "display": {
+    "width": 480,
+    "height": 480
+  },
+  "refreshRate": 2,
+  "entrypoint": "index.html",
+  "permissions": ["sensors"],
+  "network": false,
+  "dataUpdateIntervals": {
+    "default": 5,
+    "$sequence": 5,
+    "$timestamp": 1,
+    "cpu.usage": 2,
+    "cpu.temperature": 5,
+    "gpu.usage": 2,
+    "gpu.temperature": 5,
+    "gpu.fan": 5,
+    "memory.used": 5,
+    "memory.total": 30,
+    "cooling.*": 5
+  },
+  "atomicRegions": [
+    {"name": "cpu-card", "x": 36, "y": 36, "width": 197, "height": 112},
+    {"name": "gpu-card", "x": 247, "y": 36, "width": 197, "height": 112},
+    {"name": "liquid-reading", "x": 160, "y": 207, "width": 160, "height": 92},
+    {"name": "memory-card", "x": 36, "y": 374, "width": 230, "height": 70},
+    {"name": "cooling-card", "x": 286, "y": 374, "width": 158, "height": 70}
+  ]
+}
