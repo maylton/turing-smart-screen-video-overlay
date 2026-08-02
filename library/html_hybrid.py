@@ -130,6 +130,16 @@ def _probe_issues(
     return issues
 
 
+def _allows_original_encoding(manifest: ThemeManifest) -> bool:
+    """Read the explicit per-theme opt-out for source videos kept byte-for-byte."""
+    try:
+        payload = json.loads((manifest.root / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    video = payload.get("nativeVideoOverlay")
+    return isinstance(video, dict) and video.get("allowOriginalEncoding") is True
+
+
 def validate_native_video_file(
     manifest: ThemeManifest,
     path: Path,
@@ -144,6 +154,12 @@ def validate_native_video_file(
         raise ThemeValidationError(f"native video file was not found: {path}")
     result = probe(path)
     issues = _probe_issues(spec, result)
+    if _allows_original_encoding(manifest):
+        tolerated = {
+            "H.264 profile must be Baseline",
+            "B-frames are not supported by the native HTML profile",
+        }
+        issues = [issue for issue in issues if issue not in tolerated]
     if issues:
         raise ThemeValidationError("invalid native HTML video: " + "; ".join(issues))
     return result
