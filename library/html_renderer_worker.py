@@ -7,6 +7,7 @@ import argparse
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 
 import yaml
@@ -36,6 +37,7 @@ from library.theme_engine import ThemeManifest, ThemeValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 SUPPORTED_NATIVE_VIDEO_SIZES = {'2.1"', '2.8"'}
+MIN_CAPTURE_INTERVAL_MS = 500
 
 
 def schedule_once(glib, delay_ms, callback, source_ids) -> int:
@@ -51,6 +53,11 @@ def schedule_once(glib, delay_ms, callback, source_ids) -> int:
     holder["source_id"] = source_id
     source_ids.add(source_id)
     return source_id
+
+
+def overlay_capture_interval_ms(refresh_rate: float) -> int:
+    """Return the bounded cadence used to sample the live HTML overlay."""
+    return max(MIN_CAPTURE_INTERVAL_MS, int(round(1000 / float(refresh_rate))))
 
 
 def configured_display_size(config: dict, root: Path = ROOT) -> str:
@@ -109,8 +116,6 @@ def run(theme: Path) -> int:
                 "native HTML video currently requires a configured Rev. C "
                 "2.1/2.8-inch display hint"
             )
-        # Local codec/size/profile validation happens before the driver factory
-        # can construct LcdCommRevC (whose constructor opens serial).
         validate_native_video(manifest)
 
     import gi
@@ -145,6 +150,7 @@ def run(theme: Path) -> int:
             self.sink = None
             self.planner = None
             self.capture_busy = False
+            self.sensor_update_busy = False
             self.closing = False
             self.source_ids = set()
             self.last_overlay = None
@@ -157,11 +163,14 @@ def run(theme: Path) -> int:
                 return False
             self.closing = True
             for source_id in tuple(self.source_ids):
-                try: GLib.source_remove(source_id)
-                except Exception: pass
+                try:
+                    GLib.source_remove(source_id)
+                except Exception:
+                    pass
             self.source_ids.clear()
             try:
-                if self.sink is not None: self.sink.close()
+                if self.sink is not None:
+                    self.sink.close()
             finally:
                 self.sink = None
                 engine.close()
@@ -233,7 +242,11 @@ def run(theme: Path) -> int:
                         self.sink.submit(frame, transport, protocol, parity)
                         self.planner.commit(frame, plan)
                     if diagnostic_dir and hybrid_spec is None:
-                        write_frame_artifacts(Path(diagnostic_dir), frame, plan.analysis if self.planner and 'plan' in locals() else analysis)
+                        write_frame_artifacts(
+                            Path(diagnostic_dir),
+                            frame,
+                            plan.analysis if self.planner and "plan" in locals() else analysis,
+                        )
                 except Exception as exc:
                     print(f"HTML renderer stopped safely: {exc}", file=sys.stderr, flush=True)
                     self.stop()
@@ -241,22 +254,51 @@ def run(theme: Path) -> int:
             engine.snapshot_png_bytes(finished)
             return True
 
-        def update_and_capture(self):
-            if self.closing or self.capture_busy:
-                return not self.closing
+        def _apply_sensor_snapshot(self, snapshot, collection_error):
+            if self.closing:
+                self.sensor_update_busy = False
+                return False
+            if collection_error is not None:
+                self.sensor_update_busy = False
+                print(
+                    f"HTML sensor collection failed: {collection_error}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self.stop()
+                return False
 
             def updated(error):
+                self.sensor_update_busy = False
                 if self.closing:
                     return
                 if error is not None:
                     print(f"HTML update failed: {error}", file=sys.stderr, flush=True)
                     self.stop()
-                    return
-                # Wait one paint turn after JavaScript has completed before
-                # asking WebKit for a texture.
-                schedule_once(GLib, 12, self.capture, self.source_ids)
 
-            engine.update_async(collector.collect(), updated)
+            engine.update_async(snapshot, updated)
+            return False
+
+        def update_sensors(self):
+            """Collect sensors off the GTK thread so captures remain punctual."""
+            if self.closing or self.sensor_update_busy:
+                return not self.closing
+            self.sensor_update_busy = True
+
+            def collect_sensors():
+                try:
+                    snapshot = collector.collect()
+                    error = None
+                except Exception as exc:
+                    snapshot = None
+                    error = exc
+                GLib.idle_add(self._apply_sensor_snapshot, snapshot, error)
+
+            threading.Thread(
+                target=collect_sensors,
+                name="html-sensor-collector",
+                daemon=True,
+            ).start()
             return True
 
         def start_updates(self, error=None):
@@ -264,10 +306,16 @@ def run(theme: Path) -> int:
                 print(f"HTML layer configuration failed: {error}", file=sys.stderr, flush=True)
                 self.stop()
                 return
-            interval = max(500, int(round(1000 / manifest.refresh_rate)))
-            self.update_and_capture()
-            source_id = GLib.timeout_add(interval, self.update_and_capture)
-            self.source_ids.add(source_id)
+
+            capture_interval = overlay_capture_interval_ms(manifest.refresh_rate)
+            sensor_interval = capture_interval
+
+            self.update_sensors()
+            self.capture()
+
+            capture_source = GLib.timeout_add(capture_interval, self.capture)
+            sensor_source = GLib.timeout_add(sensor_interval, self.update_sensors)
+            self.source_ids.update({capture_source, sensor_source})
 
         def do_activate(self):
             engine.load(manifest)
@@ -278,12 +326,16 @@ def run(theme: Path) -> int:
                     self.start_updates,
                 )
             else:
-                # evaluate() queues until LOAD_FINISHED, replacing the old
-                # fixed 1.2-second startup sleep with an explicit barrier.
                 engine.evaluate("true", self.start_updates)
             if hasattr(GLib, "unix_signal_add"):
                 for signum in (signal.SIGINT, signal.SIGTERM):
-                    self.source_ids.add(GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self.stop))
+                    self.source_ids.add(
+                        GLib.unix_signal_add(
+                            GLib.PRIORITY_DEFAULT,
+                            signum,
+                            self.stop,
+                        )
+                    )
 
     return int(Worker().run([]))
 
