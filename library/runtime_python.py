@@ -15,6 +15,8 @@ from urllib.parse import unquote
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
 DOM_INSPECT_TITLE_PREFIX = "turing-editor-inspect:"
+DOM_INSPECT_CHUNK_SIZE = 160
+DOM_INSPECT_CHUNK_DELAY_MS = 20
 _BUILD_CLASS_HOOK_INSTALLED = False
 _BUILD_CLASS_HOOK_ORIGINAL = None
 
@@ -90,75 +92,150 @@ def _patch_html_editor_instance(window) -> bool:
 
 
 def _dom_inspection_script(element_ids) -> str:
-    """Build a one-way DOM inspection script using the proven title channel."""
+    """Build chunked one-way DOM inspection over the proven title channel."""
     ids = json.dumps(list(element_ids), ensure_ascii=False)
     prefix = json.dumps(DOM_INSPECT_TITLE_PREFIX)
     return f"""
     (() => {{
-      const ids = {ids};
-      const payload = ids.map(id => {{
-        const element = document.getElementById(id);
-        if (!element) return {{id, missing: true}};
-        const rect = element.getBoundingClientRect();
-        const style = getComputedStyle(element);
-        return {{
-          id,
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          width: Math.max(1, Math.round(rect.width)),
-          height: Math.max(1, Math.round(rect.height)),
-          fontSize: Math.max(6, Math.round(parseFloat(style.fontSize) || 16)),
-          color: style.color,
-          fontWeight: style.fontWeight,
-          textAlign: style.textAlign,
-          opacity: Math.round((parseFloat(style.opacity) || 0) * 100),
-          zIndex: style.zIndex,
-          visible: style.display !== 'none',
-          componentType: element.dataset.turingComponent || '',
-          generatedWidget: element.hasAttribute('data-turing-generated-widget'),
-          binding: element.dataset.turingBinding || '',
-          formatter: element.dataset.turingFormat || '',
-          sample: element.dataset.turingKind === 'bar'
-            ? (element.getAttribute('aria-valuenow') || '50')
-            : (element.textContent.trim() || '--'),
-          elementKind: element.dataset.turingKind || (
-            element.textContent.trim() === '' && rect.width >= rect.height * 2
-              ? 'bar'
-              : 'text'
-          )
-        }};
-      }});
-      const message = {{nonce: performance.now(), payload}};
-      document.title = {prefix} + encodeURIComponent(JSON.stringify(message));
+      const prefix = {prefix};
+      const chunkSize = {DOM_INSPECT_CHUNK_SIZE};
+      const chunkDelay = {DOM_INSPECT_CHUNK_DELAY_MS};
+
+      const send = message => {{
+        const encoded = encodeURIComponent(JSON.stringify(message));
+        const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2);
+        const total = Math.max(1, Math.ceil(encoded.length / chunkSize));
+        for (let index = 0; index < total; index += 1) {{
+          const chunk = encoded.slice(index * chunkSize, (index + 1) * chunkSize);
+          window.setTimeout(() => {{
+            document.title = prefix + nonce + ':' + index + ':' + total + ':' + chunk;
+          }}, index * chunkDelay);
+        }}
+      }};
+
+      try {{
+        const ids = {ids};
+        const payload = ids.map(id => {{
+          const element = document.getElementById(id);
+          if (!element) return {{id, missing: true}};
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {{
+            id,
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.max(1, Math.round(rect.width)),
+            height: Math.max(1, Math.round(rect.height)),
+            fontSize: Math.max(6, Math.round(parseFloat(style.fontSize) || 16)),
+            color: style.color,
+            fontWeight: style.fontWeight,
+            textAlign: style.textAlign,
+            opacity: Math.round((parseFloat(style.opacity) || 0) * 100),
+            zIndex: style.zIndex,
+            visible: style.display !== 'none',
+            componentType: element.dataset.turingComponent || '',
+            generatedWidget: element.hasAttribute('data-turing-generated-widget'),
+            binding: element.dataset.turingBinding || '',
+            formatter: element.dataset.turingFormat || '',
+            sample: element.dataset.turingKind === 'bar'
+              ? (element.getAttribute('aria-valuenow') || '50')
+              : (element.textContent.trim() || '--'),
+            elementKind: element.dataset.turingKind || (
+              element.textContent.trim() === '' && rect.width >= rect.height * 2
+                ? 'bar'
+                : 'text'
+            )
+          }};
+        }});
+        send({{payload}});
+      }} catch (error) {{
+        send({{error: String(error && error.stack ? error.stack : error)}});
+      }}
     }})();
     """
 
 
 def _install_title_dom_bridge(window) -> bool:
-    """Route DOM inspection through document.title, never a JS return value."""
+    """Route DOM inspection through short title chunks, never a JS result."""
     if window is None:
         return False
     if getattr(window, "_turing_title_dom_bridge_installed", False):
         return True
 
     view = window.backend.view
+    window._turing_dom_title_chunks = {}
 
     def receive_title(_view, _param) -> None:
         title = str(_view.get_title() or "")
         if not title.startswith(DOM_INSPECT_TITLE_PREFIX):
             return
-        encoded = title[len(DOM_INSPECT_TITLE_PREFIX) :]
+
+        body = title[len(DOM_INSPECT_TITLE_PREFIX) :]
         try:
+            nonce, index_text, total_text, chunk = body.split(":", 3)
+            index = int(index_text)
+            total = int(total_text)
+            if not nonce or total < 1 or index < 0 or index >= total:
+                raise RuntimeError("DOM inspection returned invalid chunk metadata")
+
+            chunks = window._turing_dom_title_chunks
+            bucket = chunks.setdefault(nonce, {"total": total, "parts": {}})
+            if int(bucket["total"]) != total:
+                raise RuntimeError("DOM inspection chunk count changed mid-message")
+            bucket["parts"][index] = chunk
+
+            if len(bucket["parts"]) < total:
+                return
+
+            encoded = "".join(bucket["parts"][part] for part in range(total))
+            del chunks[nonce]
             message = json.loads(unquote(encoded))
-            payload = message.get("payload") if isinstance(message, dict) else message
+            if not isinstance(message, dict):
+                raise RuntimeError("DOM inspection returned an invalid message")
+            if message.get("error"):
+                raise RuntimeError(str(message["error"]))
+            payload = message.get("payload")
             if not isinstance(payload, list):
                 raise RuntimeError("DOM inspection returned an invalid payload")
+
+            window._turing_dom_request_complete = True
             window._receive_dom_styles(payload, None)
+            print(
+                f"Inspeção DOM recebida em {total} fragmentos; "
+                f"overlays={len(payload)}.",
+                file=sys.stderr,
+                flush=True,
+            )
         except Exception as exc:
+            window._turing_dom_request_complete = True
             window._receive_dom_styles(None, exc)
 
     def query_dom_styles(self) -> bool:
+        request_id = int(getattr(self, "_turing_dom_request_id", 0)) + 1
+        self._turing_dom_request_id = request_id
+        self._turing_dom_request_complete = False
+        self._turing_dom_title_chunks = {}
         self.backend.evaluate(_dom_inspection_script(self.element_ids))
+
+        glib = getattr(self.backend, "GLib", None)
+        if glib is not None:
+            def inspection_timeout() -> bool:
+                if (
+                    getattr(self, "_turing_dom_request_id", 0) == request_id
+                    and not getattr(self, "_turing_dom_request_complete", False)
+                ):
+                    self.status_label.set_text(
+                        "A inspeção do tema não respondeu pelo WebKit. "
+                        "Consulte o terminal para diagnóstico."
+                    )
+                    print(
+                        "Timeout aguardando fragmentos da inspeção DOM via título.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                return False
+
+            glib.timeout_add(5000, inspection_timeout)
         return False
 
     view.connect("notify::title", receive_title)
@@ -266,7 +343,7 @@ def _install_html_editor_extensions() -> None:
                                 status.set_text("Reinspecionando elementos…")
                             window._query_dom_styles()
                             print(
-                                "Inspeção DOM via document.title instalada; "
+                                "Inspeção DOM fragmentada via document.title instalada; "
                                 "nova inspeção solicitada.",
                                 file=sys.stderr,
                                 flush=True,
