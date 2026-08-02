@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,8 +8,10 @@ from pathlib import Path
 from library.runtime_python import (
     _decode_javascript_json,
     _evaluate_json_bridge,
+    _install_html_editor_build_class_hook,
     _javascript_json_script,
     _patch_html_editor_class,
+    _restore_build_class_hook,
     resolve_project_python,
 )
 
@@ -54,6 +57,29 @@ class RuntimePythonTests(unittest.TestCase):
         self.assertIs(FakeEditor._evaluate_json, _evaluate_json_bridge)
         self.assertTrue(FakeEditor._turing_json_bridge_installed)
         self.assertTrue(_patch_html_editor_class(FakeEditor))
+
+    def test_build_class_hook_patches_editor_synchronously(self):
+        original_build_class = builtins.__build_class__
+        try:
+            self.assertTrue(
+                _install_html_editor_build_class_hook(target_module=__name__)
+            )
+
+            class HtmlThemeEditorWindow:
+                def _evaluate_json(self, script, callback):
+                    raise AssertionError("legacy bridge should be replaced")
+
+            self.assertIs(
+                HtmlThemeEditorWindow._evaluate_json,
+                _evaluate_json_bridge,
+            )
+            self.assertTrue(
+                HtmlThemeEditorWindow._turing_json_bridge_installed
+            )
+            self.assertIs(builtins.__build_class__, original_build_class)
+        finally:
+            _restore_build_class_hook()
+            builtins.__build_class__ = original_build_class
 
     def test_prefers_explicit_override(self):
         with tempfile.TemporaryDirectory() as temporary:
