@@ -12,6 +12,7 @@
   "network": false,
   "nativeVideoOverlay": {
     "enabled": true,
+    "allowOriginalEncoding": true,
     "localPath": "cosmic-portal-background.mp4",
     "devicePath": "/mnt/SDCARD/video/cosmic-portal-background.mp4",
     "fps": 24,
