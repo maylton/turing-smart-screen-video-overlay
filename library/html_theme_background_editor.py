@@ -59,13 +59,17 @@ def _preview_script(source_uri: str, fit: str, position: str) -> str:
         position: 'fixed', inset: '0', width: '480px', height: '480px',
         objectFit: config.fit === 'stretch' ? 'fill' : config.fit,
         objectPosition: positions[config.position] || '50% 50%',
-        pointerEvents: 'none', zIndex: '-2147483647',
-        background: '#000'
+        pointerEvents: 'none', zIndex: '0', background: '#000'
       }}).forEach(([name, value]) => video.style.setProperty(
         name.replace(/[A-Z]/g, character => '-' + character.toLowerCase()),
         value,
         'important'
       ));
+      for (const child of [...document.body.children]) {{
+        if (child === video) continue;
+        child.style.setProperty('position', child.style.position || 'relative', 'important');
+        child.style.setProperty('z-index', '1', 'important');
+      }}
       if (video.src !== config.source) video.src = config.source;
       video.play().catch(() => {{}});
       return true;
@@ -266,9 +270,13 @@ def _attach_background_page(window, Gtk, Gio) -> None:
                 editor_build.set_sensitive(True)
             toast("Vídeo de fundo salvo")
             if build:
-                starter = getattr(window, "_start_build", None)
-                if callable(starter):
-                    starter()
+                saver = getattr(window, "_save", None)
+                if callable(saver):
+                    saver(True)
+                else:
+                    starter = getattr(window, "_start_build", None)
+                    if callable(starter):
+                        starter()
         except Exception as exc:
             status = getattr(window, "status_label", None)
             if status is not None:
