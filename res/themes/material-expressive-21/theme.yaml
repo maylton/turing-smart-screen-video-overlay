@@ -1,0 +1,166 @@
+author: '@maylton'
+name: Material Expressive 2.1
+
+display:
+  DISPLAY_SIZE: 2.1"
+  DISPLAY_ORIENTATION: landscape
+  DISPLAY_RGB_LED: 168, 199, 250
+
+video:
+  ENABLED: true
+  MODE: native
+  PATH: /mnt/SDCARD/video/material-expressive-21.mp4
+  OVERLAY: true
+  LOCAL_PATH: material-expressive-21.mp4
+  PREVIEW_BACKGROUND: background.png
+  BACKGROUND_FRAME_TIME: 0.0
+
+STATS:
+  CPU:
+    PERCENTAGE:
+      INTERVAL: 1
+      TEXT:
+        SHOW: true
+        SHOW_UNIT: true
+        MIN_SIZE: 0
+        X: 203
+        Y: 47
+        FONT: roboto-mono/RobotoMono-Bold.ttf
+        FONT_SIZE: 16
+        FONT_COLOR: 168, 199, 250
+        BACKGROUND_IMAGE: background.png
+        ALIGN: right
+        ANCHOR: rt
+      GRAPH:
+        SHOW: true
+        X: 52
+        Y: 129
+        WIDTH: 156
+        HEIGHT: 6
+        MIN_VALUE: 0
+        MAX_VALUE: 100
+        BAR_COLOR: 168, 199, 250
+        ORIENTATION: horizontal
+        BAR_OUTLINE: false
+        DRAW_BAR_BACKGROUND: false
+        BACKGROUND_IMAGE: background.png
+        EFFECTS:
+          GRADIENT:
+            ENABLED: true
+            START_COLOR: 151, 191, 255
+            END_COLOR: 191, 215, 255
+            DIRECTION: horizontal
+    TEMPERATURE:
+      INTERVAL: 1
+      TEXT:
+        SHOW: true
+        SHOW_UNIT: true
+        MIN_SIZE: 0
+        X: 53
+        Y: 78
+        WIDTH: 152
+        HEIGHT: 39
+        FONT: roboto/Roboto-Black.ttf
+        FONT_SIZE: 32
+        FONT_COLOR: 233, 231, 239
+        BACKGROUND_IMAGE: background.png
+        ALIGN: left
+        ANCHOR: lt
+
+  GPU:
+    INTERVAL: 1
+    PERCENTAGE:
+      TEXT:
+        SHOW: true
+        SHOW_UNIT: true
+        MIN_SIZE: 0
+        X: 423
+        Y: 47
+        FONT: roboto-mono/RobotoMono-Bold.ttf
+        FONT_SIZE: 16
+        FONT_COLOR: 255, 180, 171
+        BACKGROUND_IMAGE: background.png
+        ALIGN: right
+        ANCHOR: rt
+      GRAPH:
+        SHOW: true
+        X: 269
+        Y: 129
+        WIDTH: 156
+        HEIGHT: 6
+        MIN_VALUE: 0
+        MAX_VALUE: 100
+        BAR_COLOR: 255, 180, 171
+        ORIENTATION: horizontal
+        BAR_OUTLINE: false
+        DRAW_BAR_BACKGROUND: false
+        BACKGROUND_IMAGE: background.png
+        EFFECTS:
+          GRADIENT:
+            ENABLED: true
+            START_COLOR: 255, 164, 171
+            END_COLOR: 255, 196, 187
+            DIRECTION: horizontal
+    TEMPERATURE:
+      TEXT:
+        SHOW: true
+        SHOW_UNIT: true
+        MIN_SIZE: 0
+        X: 269
+        Y: 78
+        WIDTH: 154
+        HEIGHT: 39
+        FONT: roboto/Roboto-Black.ttf
+        FONT_SIZE: 32
+        FONT_COLOR: 233, 231, 239
+        BACKGROUND_IMAGE: background.png
+        ALIGN: left
+        ANCHOR: lt
+
+  MEMORY:
+    INTERVAL: 0
+
+  CUSTOM:
+    INTERVAL: 2
+    MaterialLiquidTemperature:
+      TEXT:
+        SHOW: true
+        X: 145
+        Y: 236
+        WIDTH: 190
+        HEIGHT: 70
+        FONT: roboto/Roboto-Black.ttf
+        FONT_SIZE: 54
+        FONT_COLOR: 24, 18, 31
+        BACKGROUND_IMAGE: background.png
+        ALIGN: center
+        ANCHOR: mm
+    MaterialMemoryUsedGb:
+      TEXT:
+        SHOW: true
+        X: 110
+        Y: 419
+        WIDTH: 113
+        HEIGHT: 27
+        FONT: roboto/Roboto-Black.ttf
+        FONT_SIZE: 20
+        FONT_COLOR: 233, 231, 239
+        BACKGROUND_IMAGE: background.png
+        ALIGN: left
+        ANCHOR: lt
+    MaterialPumpRpm:
+      TEXT:
+        SHOW: true
+        X: 337
+        Y: 413
+        WIDTH: 69
+        HEIGHT: 31
+        FONT: roboto/Roboto-Black.ttf
+        FONT_SIZE: 24
+        FONT_COLOR: 233, 231, 239
+        BACKGROUND_IMAGE: background.png
+        ALIGN: left
+        ANCHOR: lt
+
+static_text: {}
+static_images: {}

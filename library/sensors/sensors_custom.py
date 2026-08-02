@@ -99,3 +99,10 @@ class ExampleCustomTextOnlyData(CustomDataSource):
     def last_values(self) -> List[float]:
         # If a custom data class only has text values, it won't be possible to display line graph
         pass
+
+# Optional sensors used by the Material Expressive 2.1 theme.
+from library.sensors.material_expressive import (
+    MaterialLiquidTemperature,
+    MaterialMemoryUsedGb,
+    MaterialPumpRpm,
+)
