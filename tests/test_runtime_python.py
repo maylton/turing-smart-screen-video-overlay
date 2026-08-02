@@ -11,6 +11,7 @@ from library.runtime_python import (
     _install_html_editor_build_class_hook,
     _javascript_json_script,
     _patch_html_editor_class,
+    _patch_html_editor_instance,
     _restore_build_class_hook,
     resolve_project_python,
 )
@@ -57,6 +58,17 @@ class RuntimePythonTests(unittest.TestCase):
         self.assertIs(FakeEditor._evaluate_json, _evaluate_json_bridge)
         self.assertTrue(FakeEditor._turing_json_bridge_installed)
         self.assertTrue(_patch_html_editor_class(FakeEditor))
+
+    def test_binds_bridge_directly_to_live_instance(self):
+        class FakeEditor:
+            def _evaluate_json(self, script, callback):
+                raise AssertionError("legacy bridge should be replaced")
+
+        window = FakeEditor()
+        self.assertTrue(_patch_html_editor_instance(window))
+        self.assertIs(window._evaluate_json.__func__, _evaluate_json_bridge)
+        self.assertIs(window._evaluate_json.__self__, window)
+        self.assertTrue(window._turing_json_bridge_instance_installed)
 
     def test_build_class_hook_patches_editor_synchronously(self):
         original_build_class = builtins.__build_class__
