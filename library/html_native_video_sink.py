@@ -3,15 +3,18 @@
 
 from __future__ import annotations
 
+import time
 from typing import Callable, Optional
 
 from PIL import Image
 
+from library.display_shutdown import power_off_and_close_display
 from library.theme_engine import NativeVideoOverlay, ThemeValidationError
 
 
 def _default_driver_factory(port: str):
     from library.lcd.lcd_comm_rev_c import LcdCommRevC
+
     return LcdCommRevC(com_port=port, display_width=480, display_height=480)
 
 
@@ -29,9 +32,11 @@ class HtmlNativeVideoSink:
         brightness: int = 20,
         refresh_interval: float = 1.0,
         driver_factory: Optional[Callable[[str], object]] = None,
+        sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self._driver = None
         self._closed = False
+        self._sleeper = sleeper
         self._validate_overlay(initial_overlay)
         try:
             from library.lcd.lcd_comm import Orientation
@@ -105,16 +110,7 @@ class HtmlNativeVideoSink:
             return
         self._closed = True
         driver, self._driver = self._driver, None
-        if driver is None:
-            return
-        try:
-            stop = getattr(driver, "StopVideoOverlay", None)
-            if callable(stop) and bool(getattr(driver, "video_overlay_enabled", False)):
-                stop()
-        finally:
-            close = getattr(driver, "closeSerial", None)
-            if callable(close):
-                close()
+        power_off_and_close_display(driver, sleeper=self._sleeper)
 
     def __enter__(self):
         return self
