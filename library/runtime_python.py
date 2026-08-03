@@ -84,7 +84,10 @@ def _main_app_module():
                 continue
         except (OSError, TypeError, ValueError):
             continue
-        if getattr(module, "SmartScreenWindow", None) is not None:
+        if (
+            getattr(module, "SmartScreenWindow", None) is not None
+            and getattr(module, "SmartScreenApplication", None) is not None
+        ):
             return module
     return None
 
