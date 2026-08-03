@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -16,6 +18,13 @@ _THEME_IMPORT_ENTRY_POINTS = {
     "turing-smart-screen-gtk.py",
     "turing-smart-screen-main.py",
 }
+_MAIN_APP_THEME_CREATOR_ENTRY_POINTS = {
+    "configure-gtk.py",
+    "turing-smart-screen",
+    "turing-smart-screen-gtk.py",
+    "turing-smart-screen-main.py",
+}
+_THEME_CREATOR_WATCH_STARTED = False
 
 
 def _install_html_editor_background_extension() -> None:
@@ -46,6 +55,71 @@ def _install_native_theme_import_dialog() -> None:
             f"Não foi possível preparar o seletor de arquivos de temas: {exc}",
             file=sys.stderr,
         )
+
+
+def _main_app_module():
+    for module in tuple(sys.modules.values()):
+        module_file = str(getattr(module, "__file__", "") or "")
+        if not module_file:
+            continue
+        try:
+            if Path(module_file).name != "configure_gtk_app.py":
+                continue
+        except (OSError, TypeError, ValueError):
+            continue
+        if getattr(module, "SmartScreenWindow", None) is not None:
+            return module
+    return None
+
+
+def _install_main_app_theme_creator_extension() -> None:
+    """Install the HTML theme creator after the dynamically loaded GTK app exists."""
+    global _THEME_CREATOR_WATCH_STARTED
+    if Path(sys.argv[0]).name not in _MAIN_APP_THEME_CREATOR_ENTRY_POINTS:
+        return
+    if _THEME_CREATOR_WATCH_STARTED:
+        return
+    _THEME_CREATOR_WATCH_STARTED = True
+
+    def wait_for_main_app() -> None:
+        for _attempt in range(400):
+            app_module = _main_app_module()
+            if app_module is None:
+                time.sleep(0.025)
+                continue
+
+            def install() -> bool:
+                try:
+                    from library.html_theme_creator import (
+                        install_main_app_theme_creator,
+                    )
+
+                    install_main_app_theme_creator(app_module)
+                except Exception as exc:
+                    print(
+                        f"Não foi possível preparar a criação de temas HTML: {exc}",
+                        file=sys.stderr,
+                    )
+                return False
+
+            glib = getattr(app_module, "GLib", None)
+            idle_add = getattr(glib, "idle_add", None)
+            if callable(idle_add):
+                idle_add(install)
+            else:
+                install()
+            return
+
+        print(
+            "Não foi possível localizar a janela GTK para instalar a criação de temas HTML.",
+            file=sys.stderr,
+        )
+
+    threading.Thread(
+        target=wait_for_main_app,
+        name="turing-html-theme-creator",
+        daemon=True,
+    ).start()
 
 
 def _executable(path: Path) -> bool:
@@ -101,3 +175,4 @@ def resolve_project_python(
 
 _install_html_editor_background_extension()
 _install_native_theme_import_dialog()
+_install_main_app_theme_creator_extension()
