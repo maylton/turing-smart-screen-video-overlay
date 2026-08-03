@@ -43,11 +43,13 @@ def _install_html_editor_background_extension() -> None:
 
 
 def _install_html_editor_style_extension() -> None:
-    """Add outer text outlines and curated presets after editor initialization."""
+    """Add outer text outlines and a dedicated visual-presets page."""
     if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
         return
     try:
-        from library.html_theme_style_presets import install_style_preset_editor_hook
+        from library.html_theme_style_presets_ui import (
+            install_style_preset_editor_hook,
+        )
 
         install_style_preset_editor_hook()
     except Exception as exc:
