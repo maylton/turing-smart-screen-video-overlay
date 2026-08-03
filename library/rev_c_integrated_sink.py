@@ -48,9 +48,6 @@ class IntegratedRevCSink:
 
             self._driver = (driver_factory or _default_driver_factory)(port)
             self._driver.InitializeComm()
-            screen_on = getattr(self._driver, "ScreenOn", None)
-            if callable(screen_on):
-                screen_on()
             self._driver.SetOrientation(Orientation.LANDSCAPE)
             send_protocol_with_status(
                 self._driver,
@@ -62,7 +59,10 @@ class IntegratedRevCSink:
                 sleeper=sleeper,
             )
         except Exception:
-            self.close()
+            try:
+                self.close()
+            except Exception:
+                pass
             raise
 
     def submit(self, frame, transport, protocol, parity) -> None:
