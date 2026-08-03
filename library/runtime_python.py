@@ -42,6 +42,21 @@ def _install_html_editor_background_extension() -> None:
         )
 
 
+def _install_html_editor_style_extension() -> None:
+    """Add outer text outlines and curated presets after editor initialization."""
+    if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
+        return
+    try:
+        from library.html_theme_style_presets import install_style_preset_editor_hook
+
+        install_style_preset_editor_hook()
+    except Exception as exc:
+        print(
+            f"Não foi possível preparar os presets visuais do editor HTML: {exc}",
+            file=sys.stderr,
+        )
+
+
 def _install_native_theme_import_dialog() -> None:
     """Install the native chooser in GTK entry points that already loaded the gallery."""
     if Path(sys.argv[0]).name not in _THEME_IMPORT_ENTRY_POINTS:
@@ -174,5 +189,6 @@ def resolve_project_python(
 
 
 _install_html_editor_background_extension()
+_install_html_editor_style_extension()
 _install_native_theme_import_dialog()
 _install_main_app_theme_creator_extension()
