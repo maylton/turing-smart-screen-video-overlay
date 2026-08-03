@@ -18,13 +18,13 @@ _THEME_IMPORT_ENTRY_POINTS = {
     "turing-smart-screen-gtk.py",
     "turing-smart-screen-main.py",
 }
-_MAIN_APP_THEME_CREATOR_ENTRY_POINTS = {
+_MAIN_APP_ENTRY_POINTS = {
     "configure-gtk.py",
     "turing-smart-screen",
     "turing-smart-screen-gtk.py",
     "turing-smart-screen-main.py",
 }
-_THEME_CREATOR_WATCH_STARTED = False
+_MAIN_APP_WATCH_STARTED = False
 
 
 def _install_html_editor_background_extension() -> None:
@@ -89,14 +89,14 @@ def _main_app_module():
     return None
 
 
-def _install_main_app_theme_creator_extension() -> None:
-    """Install the HTML theme creator after the dynamically loaded GTK app exists."""
-    global _THEME_CREATOR_WATCH_STARTED
-    if Path(sys.argv[0]).name not in _MAIN_APP_THEME_CREATOR_ENTRY_POINTS:
+def _install_main_app_extensions() -> None:
+    """Install main-window features after the dynamically loaded GTK app exists."""
+    global _MAIN_APP_WATCH_STARTED
+    if Path(sys.argv[0]).name not in _MAIN_APP_ENTRY_POINTS:
         return
-    if _THEME_CREATOR_WATCH_STARTED:
+    if _MAIN_APP_WATCH_STARTED:
         return
-    _THEME_CREATOR_WATCH_STARTED = True
+    _MAIN_APP_WATCH_STARTED = True
 
     def wait_for_main_app() -> None:
         for _attempt in range(400):
@@ -117,6 +117,16 @@ def _install_main_app_theme_creator_extension() -> None:
                         f"Não foi possível preparar a criação de temas HTML: {exc}",
                         file=sys.stderr,
                     )
+
+                try:
+                    from library.main_app_shutdown import install_main_app_shutdown
+
+                    install_main_app_shutdown(app_module)
+                except Exception as exc:
+                    print(
+                        f"Não foi possível preparar o desligamento coordenado: {exc}",
+                        file=sys.stderr,
+                    )
                 return False
 
             glib = getattr(app_module, "GLib", None)
@@ -128,13 +138,13 @@ def _install_main_app_theme_creator_extension() -> None:
             return
 
         print(
-            "Não foi possível localizar a janela GTK para instalar a criação de temas HTML.",
+            "Não foi possível localizar a janela GTK para instalar as extensões principais.",
             file=sys.stderr,
         )
 
     threading.Thread(
         target=wait_for_main_app,
-        name="turing-html-theme-creator",
+        name="turing-main-app-extensions",
         daemon=True,
     ).start()
 
@@ -193,4 +203,4 @@ def resolve_project_python(
 _install_html_editor_background_extension()
 _install_html_editor_style_extension()
 _install_native_theme_import_dialog()
-_install_main_app_theme_creator_extension()
+_install_main_app_extensions()
