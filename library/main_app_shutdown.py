@@ -19,7 +19,7 @@ def _monitor_process_group(process: subprocess.Popen) -> int | None:
         return None
     try:
         group = os.getpgid(process.pid)
-    except (OSError, ProcessLookupError):
+    except OSError:
         return None
     # configure_gtk_app.py launches main.py with start_new_session=True, making
     # its PID the group ID. Refuse to signal an inherited/shared process group.
@@ -109,29 +109,40 @@ def install_main_app_shutdown(app: Any) -> bool:
     original_startup = application_class.do_startup
     original_shutdown = application_class.do_shutdown
 
-    def request_quit(self) -> bool:
-        self.quit()
+    def request_quit(application) -> bool:
+        application.quit()
         return False
 
-    def do_startup(self):
-        original_startup(self)
-        if getattr(self, "_turing_shutdown_signal_sources", None) is not None:
-            return
+    def register_signal_sources(application) -> bool:
+        if getattr(application, "_turing_shutdown_signal_sources", None) is not None:
+            return False
         sources = []
         unix_signal_add = getattr(GLib, "unix_signal_add", None)
         if callable(unix_signal_add):
             priority = getattr(GLib, "PRIORITY_HIGH", 0)
+            registered_signals = set()
             for signum in (
                 signal.SIGTERM,
                 signal.SIGINT,
                 getattr(signal, "SIGHUP", signal.SIGTERM),
                 getattr(signal, "SIGQUIT", signal.SIGTERM),
             ):
-                if signum in [item[0] for item in sources]:
+                if signum in registered_signals:
                     continue
-                source_id = unix_signal_add(priority, signum, request_quit, self)
+                registered_signals.add(signum)
+                source_id = unix_signal_add(
+                    priority,
+                    signum,
+                    request_quit,
+                    application,
+                )
                 sources.append((signum, source_id))
-        self._turing_shutdown_signal_sources = sources
+        application._turing_shutdown_signal_sources = sources
+        return False
+
+    def do_startup(self):
+        original_startup(self)
+        register_signal_sources(self)
 
     def do_shutdown(self):
         window = self.props.active_window
@@ -153,4 +164,15 @@ def install_main_app_shutdown(app: Any) -> bool:
     application_class.do_startup = do_startup
     application_class.do_shutdown = do_shutdown
     application_class._turing_shutdown_installed = True
+
+    # The extension is installed by a watcher because configure_gtk_app.py is
+    # loaded dynamically. If GTK startup already ran, register the signals on
+    # the current application during the next main-loop turn.
+    gio = getattr(app, "Gio", None)
+    application_api = getattr(gio, "Application", None)
+    get_default = getattr(application_api, "get_default", None)
+    if callable(get_default):
+        current = get_default()
+        if isinstance(current, application_class):
+            GLib.idle_add(register_signal_sources, current)
     return True
