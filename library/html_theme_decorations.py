@@ -348,25 +348,36 @@ def shape_preview_script(style: HtmlVisualElementStyle) -> str:
       const fill = value.effectsManaged && value.gradientEnabled
         ? `linear-gradient(${{angle}}, ${{value.gradientStart}}, ${{value.gradientEnd}})`
         : value.color;
-      const properties = {{
-        display: 'block', boxSizing: 'border-box', padding: '0', margin: '0',
-        overflow: 'visible', fontSize: '0', lineHeight: '0', color: 'transparent',
-        webkitTextFillColor: 'transparent', webkitTextStroke: '0 transparent',
-        textShadow: 'none', borderRadius: value.radius, background: fill,
-        border: value.effectsManaged && value.outlineWidth
-          ? `${{value.outlineWidth}}px solid ${{value.outlineColor}}`
-          : '0',
-        boxShadow: value.effectsManaged && value.glowRadius
-          ? `0 0 ${{value.glowRadius}}px ${{value.glowColor}}`
-          : 'none'
-      }};
-      Object.entries(properties).forEach(([name, property]) =>
-        element.style.setProperty(
-          name.replace(/[A-Z]/g, character => '-' + character.toLowerCase()),
-          property,
-          'important'
-        )
-      );
+      const properties = [
+        ['display', 'block'],
+        ['box-sizing', 'border-box'],
+        ['padding', '0'],
+        ['margin', '0'],
+        ['overflow', 'visible'],
+        ['font-size', '0'],
+        ['line-height', '0'],
+        ['color', 'transparent'],
+        ['-webkit-text-fill-color', 'transparent'],
+        ['-webkit-text-stroke', '0 transparent'],
+        ['text-shadow', 'none'],
+        ['border-radius', value.radius],
+        ['background', fill],
+        [
+          'border',
+          value.effectsManaged && value.outlineWidth
+            ? `${{value.outlineWidth}}px solid ${{value.outlineColor}}`
+            : '0'
+        ],
+        [
+          'box-shadow',
+          value.effectsManaged && value.glowRadius
+            ? `0 0 ${{value.glowRadius}}px ${{value.glowColor}}`
+            : 'none'
+        ]
+      ];
+      for (const [name, property] of properties) {{
+        element.style.setProperty(name, property, 'important');
+      }}
       element.textContent = '';
       element.setAttribute('aria-hidden', 'true');
       window.__turingEditorRefreshSelection?.();
