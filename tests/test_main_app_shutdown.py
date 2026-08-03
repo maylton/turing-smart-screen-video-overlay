@@ -44,9 +44,9 @@ class FakeGLib:
     removed = []
 
     @classmethod
-    def unix_signal_add(cls, priority, signum, callback, application):
+    def unix_signal_add(cls, priority, signum, callback):
         source_id = len(cls.registered) + 1
-        cls.registered.append((priority, signum, callback, application, source_id))
+        cls.registered.append((priority, signum, callback, source_id))
         return source_id
 
     @classmethod
@@ -85,8 +85,12 @@ class FakeApplication:
     shutdown_calls = 0
 
     def __init__(self, window=None):
-        self.props = SimpleNamespace(active_window=window)
+        self.props = SimpleNamespace(active_window=None)
+        self.window = window
         self.quit_calls = 0
+
+    def get_windows(self):
+        return [self.window] if self.window is not None else []
 
     def do_startup(self):
         type(self).startup_calls += 1
@@ -161,7 +165,7 @@ class MainAppShutdownTests(unittest.TestCase):
         kill_group.assert_not_called()
         self.assertIn("terminate", process.events)
 
-    def test_application_shutdown_stops_monitor_and_registers_signals(self):
+    def test_hidden_application_window_still_stops_monitor_on_shutdown(self):
         module = SimpleNamespace(
             SmartScreenWindow=FakeWindow,
             SmartScreenApplication=FakeApplication,
