@@ -8,6 +8,7 @@ from typing import Callable, Optional
 
 from PIL import Image
 
+from library.display_shutdown import power_off_and_close_display
 from library.rev_c_live_sink import LiveWriteRefused, _validate_protocol_parity
 from library.rev_c_physical_sink import _default_driver_factory, _validate_parity
 from library.rev_c_status_transport import send_protocol_with_status
@@ -47,6 +48,9 @@ class IntegratedRevCSink:
 
             self._driver = (driver_factory or _default_driver_factory)(port)
             self._driver.InitializeComm()
+            screen_on = getattr(self._driver, "ScreenOn", None)
+            if callable(screen_on):
+                screen_on()
             self._driver.SetOrientation(Orientation.LANDSCAPE)
             send_protocol_with_status(
                 self._driver,
@@ -90,10 +94,7 @@ class IntegratedRevCSink:
             return
         self._closed = True
         driver, self._driver = self._driver, None
-        if driver is not None:
-            close = getattr(driver, "closeSerial", None)
-            if callable(close):
-                close()
+        power_off_and_close_display(driver, sleeper=self._sleeper)
 
     def __enter__(self):
         return self
@@ -101,4 +102,3 @@ class IntegratedRevCSink:
     def __exit__(self, *_args):
         self.close()
         return False
-
