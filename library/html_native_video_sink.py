@@ -57,7 +57,10 @@ class HtmlNativeVideoSink:
             )
             self.submit(initial_overlay)
         except Exception:
-            self.close()
+            try:
+                self.close()
+            except Exception:
+                pass
             raise
 
     @staticmethod
