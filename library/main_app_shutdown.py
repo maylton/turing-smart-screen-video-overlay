@@ -130,12 +130,8 @@ def install_main_app_shutdown(app: Any) -> bool:
                 if signum in registered_signals:
                     continue
                 registered_signals.add(signum)
-                source_id = unix_signal_add(
-                    priority,
-                    signum,
-                    request_quit,
-                    application,
-                )
+                callback = lambda current=application: request_quit(current)
+                source_id = unix_signal_add(priority, signum, callback)
                 sources.append((signum, source_id))
         application._turing_shutdown_signal_sources = sources
         return False
@@ -145,8 +141,13 @@ def install_main_app_shutdown(app: Any) -> bool:
         register_signal_sources(self)
 
     def do_shutdown(self):
-        window = self.props.active_window
-        if window is not None:
+        get_windows = getattr(self, "get_windows", None)
+        windows = tuple(get_windows()) if callable(get_windows) else ()
+        if not windows:
+            active = getattr(self.props, "active_window", None)
+            windows = (active,) if active is not None else ()
+
+        for window in windows:
             callback = getattr(window, "_turing_stop_monitor_process", None)
             if callable(callback):
                 callback(notify=False)
