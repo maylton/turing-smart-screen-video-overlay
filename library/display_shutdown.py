@@ -18,6 +18,12 @@ def _disable_async_queue(driver: object) -> None:
         pass
 
 
+def _set_brightness_zero(driver: object) -> None:
+    callback = getattr(driver, "SetBrightness", None)
+    if callable(callback):
+        callback(0)
+
+
 def _turn_off_backplate(driver: object) -> None:
     callback = getattr(driver, "SetBackplateLedColor", None)
     if not callable(callback):
@@ -57,12 +63,10 @@ def power_off_and_close_display(
             screen_off()
         except Exception as exc:
             power_error = exc
-            set_brightness = getattr(driver, "SetBrightness", None)
-            if callable(set_brightness):
-                try:
-                    set_brightness(0)
-                except Exception:
-                    pass
+            try:
+                _set_brightness_zero(driver)
+            except Exception:
+                pass
     else:
         stop_video = getattr(driver, "StopVideoOverlay", None)
         if callable(stop_video) and bool(
@@ -72,6 +76,10 @@ def power_off_and_close_display(
                 stop_video()
             except Exception as exc:
                 power_error = exc
+        try:
+            _set_brightness_zero(driver)
+        except Exception:
+            pass
 
     try:
         _turn_off_backplate(driver)
@@ -79,12 +87,23 @@ def power_off_and_close_display(
         # Backplate LEDs are optional and must not prevent serial cleanup.
         pass
 
+    settle_error: Exception | None = None
+    close_error: Exception | None = None
     try:
         sleeper(max(0.0, float(settle_seconds)))
+    except Exception as exc:
+        settle_error = exc
     finally:
         close = getattr(driver, "closeSerial", None)
         if callable(close):
-            close()
+            try:
+                close()
+            except Exception as exc:
+                close_error = exc
 
     if power_error is not None:
         raise power_error
+    if settle_error is not None:
+        raise settle_error
+    if close_error is not None:
+        raise close_error
