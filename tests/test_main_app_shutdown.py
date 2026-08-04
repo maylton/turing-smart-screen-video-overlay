@@ -116,7 +116,7 @@ class MainAppShutdownTests(unittest.TestCase):
                 delattr(FakeApplication, attribute)
         FakeGioApplicationAPI.current = None
 
-    def test_dedicated_process_group_receives_sigterm(self):
+    def test_dedicated_process_group_still_signals_only_parent_first(self):
         process = FakeProcess()
         signals = []
         with (
@@ -129,10 +129,10 @@ class MainAppShutdownTests(unittest.TestCase):
         ):
             self.assertTrue(stop_monitor_process(process))
 
-        self.assertEqual(signals, [(process.pid, signal.SIGTERM)])
-        self.assertNotIn("terminate", process.events)
+        self.assertEqual(process.events, ["terminate"])
+        self.assertEqual(signals, [])
 
-    def test_timeout_force_kills_whole_group(self):
+    def test_timeout_force_kills_whole_dedicated_group(self):
         process = FakeProcess(time_out=True)
         signals = []
         with (
@@ -145,25 +145,20 @@ class MainAppShutdownTests(unittest.TestCase):
         ):
             stop_monitor_process(process, graceful_timeout=0, force_timeout=0)
 
-        self.assertEqual(
-            signals,
-            [
-                (process.pid, signal.SIGTERM),
-                (process.pid, signal.SIGKILL),
-            ],
-        )
+        self.assertEqual(process.events, ["terminate"])
+        self.assertEqual(signals, [(process.pid, signal.SIGKILL)])
 
-    def test_shared_process_group_only_terminates_child(self):
-        process = FakeProcess()
+    def test_shared_process_group_force_kills_only_child_after_timeout(self):
+        process = FakeProcess(time_out=True)
         with (
             patch("library.main_app_shutdown.os.name", "posix"),
             patch("library.main_app_shutdown.os.getpgid", return_value=9999),
             patch("library.main_app_shutdown.os.killpg") as kill_group,
         ):
-            stop_monitor_process(process)
+            stop_monitor_process(process, graceful_timeout=0, force_timeout=0)
 
         kill_group.assert_not_called()
-        self.assertIn("terminate", process.events)
+        self.assertEqual(process.events, ["terminate", "kill"])
 
     def test_hidden_application_window_still_stops_monitor_on_shutdown(self):
         module = SimpleNamespace(
