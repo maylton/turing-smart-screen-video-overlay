@@ -4,7 +4,7 @@ import signal
 import subprocess
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from library.main_app_shutdown import (
     install_main_app_shutdown,
@@ -67,53 +67,92 @@ class FakeGioApplicationAPI:
         return cls.current
 
 
-class FakeWindow:
-    def __init__(self, process=None):
-        self.monitor_process = process
-        self.messages = []
-        self.refreshes = 0
+class FakeController:
+    def __init__(self, *, busy=True, monitor_running=True, stopped=True):
+        self.runtime_state = SimpleNamespace(
+            busy=busy,
+            monitor_running=monitor_running,
+            owner=SimpleNamespace(role="monitor", describe=lambda: "monitor"),
+        )
+        self.stopped = stopped
+        self.terminate_calls = []
 
-    def toast(self, message):
-        self.messages.append(message)
+    def state(self):
+        return self.runtime_state
 
-    def refresh_overview(self):
-        self.refreshes += 1
+    def terminate_monitor(self, timeout, kill_timeout):
+        self.terminate_calls.append((timeout, kill_timeout))
+        self.runtime_state = SimpleNamespace(
+            busy=False,
+            monitor_running=False,
+            owner=SimpleNamespace(role="unknown", describe=lambda: "unknown"),
+        )
+        return SimpleNamespace(stopped=self.stopped, message="Monitor stopped")
 
 
-class FakeApplication:
-    startup_calls = 0
-    shutdown_calls = 0
+def build_fake_module(window, events):
+    class Window:
+        def __init__(self, process=None):
+            self.monitor_process = process
+            self.messages = []
+            self.refreshes = 0
 
-    def __init__(self, window=None):
-        self.props = SimpleNamespace(active_window=None)
-        self.window = window
-        self.quit_calls = 0
+        def toast(self, message):
+            self.messages.append(message)
 
-    def get_windows(self):
-        return [self.window] if self.window is not None else []
+        def refresh_overview(self):
+            self.refreshes += 1
 
-    def do_startup(self):
-        type(self).startup_calls += 1
+    class Application:
+        startup_calls = 0
+        shutdown_calls = 0
 
-    def do_shutdown(self):
-        type(self).shutdown_calls += 1
+        def __init__(self, selected_window=None):
+            self.props = SimpleNamespace(active_window=None)
+            self.window = selected_window
+            self.quit_calls = 0
 
-    def quit(self):
-        self.quit_calls += 1
+        def get_windows(self):
+            return [self.window] if self.window is not None else []
+
+        def do_startup(self):
+            type(self).startup_calls += 1
+
+        def do_shutdown(self):
+            type(self).shutdown_calls += 1
+
+        def quit(self):
+            events.append("quit")
+            self.quit_calls += 1
+
+    class Menu:
+        def __init__(self, application):
+            self.app = application
+
+        def action_for_id(self, item_id):
+            return "quit" if item_id == 6 else "other"
+
+        def activate_item(self, item_id):
+            events.append(("original-menu", item_id))
+
+    module = SimpleNamespace(
+        SmartScreenWindow=Window,
+        SmartScreenApplication=Application,
+        StatusNotifierMenu=Menu,
+        GLib=FakeGLib,
+        Gio=SimpleNamespace(Application=FakeGioApplicationAPI),
+        ROOT="/tmp/turing",
+        MAIN_PROGRAM="/tmp/turing/main.py",
+        project_python=lambda: "/usr/bin/python3",
+        sys=SimpleNamespace(stderr=None),
+    )
+    return module, Window, Application, Menu
 
 
 class MainAppShutdownTests(unittest.TestCase):
     def setUp(self):
         FakeGLib.registered = []
         FakeGLib.removed = []
-        FakeApplication.startup_calls = 0
-        FakeApplication.shutdown_calls = 0
-        for attribute in (
-            "_turing_shutdown_installed",
-            "_turing_shutdown_signal_sources",
-        ):
-            if hasattr(FakeApplication, attribute):
-                delattr(FakeApplication, attribute)
         FakeGioApplicationAPI.current = None
 
     def test_dedicated_process_group_still_signals_only_parent_first(self):
@@ -160,36 +199,78 @@ class MainAppShutdownTests(unittest.TestCase):
         kill_group.assert_not_called()
         self.assertEqual(process.events, ["terminate", "kill"])
 
-    def test_hidden_application_window_still_stops_monitor_on_shutdown(self):
-        module = SimpleNamespace(
-            SmartScreenWindow=FakeWindow,
-            SmartScreenApplication=FakeApplication,
-            GLib=FakeGLib,
-            Gio=SimpleNamespace(Application=FakeGioApplicationAPI),
-            sys=SimpleNamespace(stderr=None),
-        )
-        process = FakeProcess()
-        window = FakeWindow(process)
-        application = FakeApplication(window)
+    def test_shutdown_stops_lock_owner_without_local_popen(self):
+        events = []
+        module, Window, Application, _Menu = build_fake_module(None, events)
+        window = Window(process=None)
+        application = Application(window)
+        controller = FakeController()
         FakeGioApplicationAPI.current = application
 
         with patch(
-            "library.main_app_shutdown.stop_monitor_process",
-            side_effect=lambda item: setattr(item, "running", False),
-        ) as stop:
+            "library.main_app_shutdown._monitor_controller",
+            return_value=controller,
+        ):
             self.assertTrue(install_main_app_shutdown(module))
             application.do_startup()
             application.do_shutdown()
 
-        stop.assert_called_once_with(process)
+        self.assertEqual(controller.terminate_calls, [(8, 2)])
         self.assertIsNone(window.monitor_process)
         self.assertGreaterEqual(len(FakeGLib.registered), 2)
         self.assertEqual(
             sorted(FakeGLib.removed),
             sorted(item[-1] for item in FakeGLib.registered),
         )
-        self.assertEqual(FakeApplication.startup_calls, 1)
-        self.assertEqual(FakeApplication.shutdown_calls, 1)
+        self.assertEqual(Application.startup_calls, 1)
+        self.assertEqual(Application.shutdown_calls, 1)
+
+    def test_tray_quit_stops_persistent_owner_before_application_quit(self):
+        events = []
+        module, Window, Application, Menu = build_fake_module(None, events)
+        window = Window(process=None)
+        application = Application(window)
+        controller = FakeController()
+        FakeGioApplicationAPI.current = application
+
+        def terminate(timeout, kill_timeout):
+            events.append("stop-monitor")
+            controller.terminate_calls.append((timeout, kill_timeout))
+            controller.runtime_state = SimpleNamespace(
+                busy=False,
+                monitor_running=False,
+                owner=SimpleNamespace(role="unknown", describe=lambda: "unknown"),
+            )
+            return SimpleNamespace(stopped=True, message="Monitor stopped")
+
+        controller.terminate_monitor = terminate
+
+        with patch(
+            "library.main_app_shutdown._monitor_controller",
+            return_value=controller,
+        ):
+            self.assertTrue(install_main_app_shutdown(module))
+            menu = Menu(application)
+            menu.activate_item(6)
+
+        self.assertEqual(events, ["stop-monitor", "quit"])
+        self.assertEqual(controller.terminate_calls, [(8, 2)])
+        self.assertEqual(application.quit_calls, 1)
+
+    def test_non_quit_tray_action_keeps_original_handler(self):
+        events = []
+        module, _Window, Application, Menu = build_fake_module(None, events)
+        application = Application(None)
+
+        with patch(
+            "library.main_app_shutdown._monitor_controller",
+            return_value=FakeController(busy=False, monitor_running=False),
+        ):
+            self.assertTrue(install_main_app_shutdown(module))
+            menu = Menu(application)
+            menu.activate_item(2)
+
+        self.assertEqual(events, [("original-menu", 2)])
 
 
 if __name__ == "__main__":
