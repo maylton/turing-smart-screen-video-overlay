@@ -32,18 +32,24 @@ def stop_monitor_process(
     graceful_timeout: float = GRACEFUL_MONITOR_TIMEOUT_SECONDS,
     force_timeout: float = FORCE_MONITOR_TIMEOUT_SECONDS,
 ) -> bool:
-    """Terminate main.py and its HTML worker as one dedicated process group."""
+    """Let main.py stop its worker and LCD; force the group only on timeout.
+
+    Sending SIGTERM to the complete process group races the parent cleanup
+    against the HTML worker cleanup. The worker can stop its live overlays
+    while the parent simultaneously tears it down, leaving native video frozen
+    in the firmware. Signal only main.py first: its registered handler owns the
+    renderer controller and waits for the worker to power the display off.
+    """
     if process is None or process.poll() is not None:
         return False
 
     group = _monitor_process_group(process)
     try:
-        if group is not None:
-            os.killpg(group, signal.SIGTERM)
-        else:
-            process.terminate()
+        process.terminate()
         process.wait(timeout=max(0.0, float(graceful_timeout)))
     except subprocess.TimeoutExpired:
+        # The orderly parent-owned path did not finish. At this point force the
+        # dedicated group so neither main.py nor an orphan worker survives.
         if group is not None:
             try:
                 os.killpg(group, signal.SIGKILL)
