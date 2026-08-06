@@ -59,6 +59,21 @@ def _install_html_editor_style_extension() -> None:
         )
 
 
+def _install_html_editor_color_extension() -> None:
+    """Add color pickers and preview palettes inside Style and Effects."""
+    if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
+        return
+    try:
+        from library.html_theme_color_tools import install_color_tools_hook
+
+        install_color_tools_hook()
+    except Exception as exc:
+        print(
+            f"Não foi possível preparar os seletores de cor: {exc}",
+            file=sys.stderr,
+        )
+
+
 def _install_native_theme_import_dialog() -> None:
     """Install the native chooser in GTK entry points that already loaded the gallery."""
     if Path(sys.argv[0]).name not in _THEME_IMPORT_ENTRY_POINTS:
@@ -192,7 +207,7 @@ def resolve_project_python(
 
     candidates = (
         root / "venv" / "bin" / "python3",
-        root / ".venv" / "bin" / "python3",
+        root / ".venv" / "bin" / "python.exe",
         root / "venv" / "Scripts" / "python.exe",
         root / ".venv" / "Scripts" / "python.exe",
         user_data_home / "turing-smart-screen" / "venv" / "bin" / "python3",
@@ -205,5 +220,6 @@ def resolve_project_python(
 
 _install_html_editor_background_extension()
 _install_html_editor_style_extension()
+_install_html_editor_color_extension()
 _install_native_theme_import_dialog()
 _install_main_app_extensions()
