@@ -207,7 +207,7 @@ def resolve_project_python(
 
     candidates = (
         root / "venv" / "bin" / "python3",
-        root / ".venv" / "bin" / "python.exe",
+        root / ".venv" / "bin" / "python3",
         root / "venv" / "Scripts" / "python.exe",
         root / ".venv" / "Scripts" / "python.exe",
         user_data_home / "turing-smart-screen" / "venv" / "bin" / "python3",
