@@ -12,24 +12,45 @@ class FakeDriver:
         self.video_overlay_enabled = False
         self.video_overlay_error = None
         self.events = []
+        self.update_queue = object()
 
-    def InitializeComm(self): self.events.append("initialize")
-    def ScreenOn(self): self.events.append("screen-on")
-    def SetBrightness(self, value): self.events.append(("brightness", value))
-    def SetOrientation(self, _orientation): self.events.append("orientation")
+    def InitializeComm(self):
+        self.events.append("initialize")
+
+    def ScreenOn(self):
+        self.events.append("screen-on")
+
+    def SetBrightness(self, value):
+        self.events.append(("brightness", value))
+
+    def SetBackplateLedColor(self, *, led_color):
+        self.events.append(("led", led_color))
+
+    def SetOrientation(self, _orientation):
+        self.events.append("orientation")
+
     def StartVideoOverlay(self, path, refresh_interval=1.0):
         self.events.append(("start-video", path, refresh_interval))
         if self.fail_start:
             raise RuntimeError("start failed")
         self.video_overlay_enabled = True
+
     def DisplayPILImageOnVideoOverlay(self, image, **_kwargs):
         self.events.append(("overlay", image.size))
+
     def StopVideoOverlay(self):
         self.events.append("stop-video")
         if self.fail_stop:
             raise RuntimeError("stop failed")
         self.video_overlay_enabled = False
-    def closeSerial(self): self.events.append("close")
+
+    def ScreenOff(self):
+        if self.video_overlay_enabled:
+            self.StopVideoOverlay()
+        self.events.append("screen-off")
+
+    def closeSerial(self):
+        self.events.append("close")
 
 
 class HtmlNativeVideoSinkTests(unittest.TestCase):
@@ -43,27 +64,38 @@ class HtmlNativeVideoSinkTests(unittest.TestCase):
         self.overlay = Image.new("RGBA", (480, 480), (0, 0, 0, 0))
         self.overlay.putpixel((10, 10), (255, 255, 255, 255))
 
+    def create_sink(self, driver):
+        return HtmlNativeVideoSink(
+            self.overlay,
+            self.spec,
+            port="/dev/fake",
+            driver_factory=lambda _port: driver,
+            sleeper=lambda _seconds: None,
+        )
+
     def test_starts_video_before_submitting_atomic_overlay(self):
         driver = FakeDriver()
-        sink = HtmlNativeVideoSink(
-            self.overlay, self.spec, port="/dev/fake",
-            driver_factory=lambda _port: driver,
-        )
+        sink = self.create_sink(driver)
         sink.close()
         labels = [event[0] if isinstance(event, tuple) else event for event in driver.events]
         self.assertLess(labels.index("start-video"), labels.index("overlay"))
-        self.assertLess(labels.index("stop-video"), labels.index("close"))
+        self.assertLess(labels.index("stop-video"), labels.index("screen-off"))
+        self.assertLess(labels.index("screen-off"), labels.index("close"))
+        self.assertIsNone(driver.update_queue)
         sink.close()
-        self.assertEqual(labels.count("close"), 1)
+        labels_after_second_close = [
+            event[0] if isinstance(event, tuple) else event
+            for event in driver.events
+        ]
+        self.assertEqual(labels_after_second_close.count("close"), 1)
 
-    def test_start_failure_always_closes_serial(self):
+    def test_start_failure_powers_off_and_closes_serial(self):
         driver = FakeDriver(fail_start=True)
         with self.assertRaisesRegex(RuntimeError, "start failed"):
-            HtmlNativeVideoSink(
-                self.overlay, self.spec, port="/dev/fake",
-                driver_factory=lambda _port: driver,
-            )
-        self.assertEqual(driver.events[-1], "close")
+            self.create_sink(driver)
+        labels = [event[0] if isinstance(event, tuple) else event for event in driver.events]
+        self.assertIn("screen-off", labels)
+        self.assertEqual(labels[-1], "close")
 
     def test_fully_opaque_capture_is_refused_before_driver_factory(self):
         calls = []
@@ -73,6 +105,7 @@ class HtmlNativeVideoSinkTests(unittest.TestCase):
                 self.spec,
                 port="/dev/fake",
                 driver_factory=lambda _port: calls.append(True),
+                sleeper=lambda _seconds: None,
             )
         self.assertEqual(calls, [])
 
@@ -84,6 +117,7 @@ class HtmlNativeVideoSinkTests(unittest.TestCase):
                 self.spec,
                 port="/dev/fake",
                 driver_factory=lambda _port: calls.append(True),
+                sleeper=lambda _seconds: None,
             )
         self.assertEqual(calls, [])
 
@@ -97,28 +131,24 @@ class HtmlNativeVideoSinkTests(unittest.TestCase):
                 self.spec,
                 port="/dev/fake",
                 driver_factory=lambda _port: calls.append(True),
+                sleeper=lambda _seconds: None,
             )
         self.assertEqual(calls, [])
 
     def test_async_transport_error_is_reported(self):
         driver = FakeDriver()
-        sink = HtmlNativeVideoSink(
-            self.overlay, self.spec, port="/dev/fake",
-            driver_factory=lambda _port: driver,
-        )
+        sink = self.create_sink(driver)
         driver.video_overlay_error = ValueError("empty status")
         with self.assertRaisesRegex(RuntimeError, "empty status"):
             sink.check_health()
         sink.close()
 
-    def test_stop_failure_still_closes_serial(self):
+    def test_stop_failure_uses_brightness_fallback_and_closes_serial(self):
         driver = FakeDriver(fail_stop=True)
-        sink = HtmlNativeVideoSink(
-            self.overlay, self.spec, port="/dev/fake",
-            driver_factory=lambda _port: driver,
-        )
+        sink = self.create_sink(driver)
         with self.assertRaisesRegex(RuntimeError, "stop failed"):
             sink.close()
+        self.assertIn(("brightness", 0), driver.events)
         self.assertEqual(driver.events[-1], "close")
 
 

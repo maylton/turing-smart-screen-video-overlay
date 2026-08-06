@@ -1,0 +1,173 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Noto Sans", "Segoe UI", system-ui, sans-serif;
+  --text: #f8f7ff;
+  --muted: #c9c2df;
+  --accent: #b8a5ff;
+  --accent-strong: #8c74ff;
+  --panel: rgba(7, 5, 20, 0.64);
+  --panel-border: rgba(207, 194, 255, 0.34);
+  --temperature: #c9bcff;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  width: 480px;
+  height: 480px;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+body { color: var(--text); }
+
+.screen {
+  position: relative;
+  width: 480px;
+  height: 480px;
+  overflow: hidden;
+  background: transparent;
+}
+
+.date-card,
+.cpu-card {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.date-card {
+  top: 70px;
+  left: 112px;
+  width: 256px;
+  height: 48px;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 24px;
+  text-transform: uppercase;
+}
+.weekday {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+.calendar-date {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.clock {
+  position: absolute;
+  top: 154px;
+  left: 68px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 344px;
+  height: 124px;
+  padding-top: 8px;
+  color: var(--text);
+  text-align: center;
+  filter: drop-shadow(0 7px 16px rgba(0, 0, 0, 0.75));
+}
+.clock-hours {
+  font-size: 92px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.075em;
+  font-variant-numeric: tabular-nums;
+}
+.clock-seconds {
+  min-width: 30px;
+  margin: 10px 0 0 8px;
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.cpu-card {
+  top: 326px;
+  left: 112px;
+  width: 256px;
+  height: 66px;
+  padding: 10px 17px;
+  border-radius: 22px 10px 22px 10px;
+}
+.cpu-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 14px 7px 14px 7px;
+  color: var(--accent);
+  background: rgba(140, 116, 255, 0.16);
+}
+.cpu-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cpu-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-left: 13px;
+}
+.cpu-copy small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+.cpu-copy strong {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 1px;
+  color: var(--temperature);
+  font-size: 27px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.cpu-copy em {
+  margin: 3px 0 0 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--temperature);
+  box-shadow: 0 0 12px var(--temperature);
+}
+
+.cpu-card.is-warm {
+  --temperature: #ffca8a;
+  --panel-border: rgba(255, 202, 138, 0.38);
+}
+.cpu-card.is-hot {
+  --temperature: #ff8f9a;
+  --panel-border: rgba(255, 143, 154, 0.46);
+}
+.cpu-card.is-unavailable {
+  --temperature: #8f8a9d;
+}
