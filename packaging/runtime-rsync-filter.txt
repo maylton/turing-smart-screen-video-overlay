@@ -41,9 +41,10 @@
 + /tools/render_theme_preview.py
 - /tools/***
 
-# The checked installer uses this helper from an installed source tree.
+# Scripts used by checked installs and hardware-access setup.
 + /scripts/
 + /scripts/installation-report.py
++ /scripts/configure-hardware-access.sh
 - /scripts/***
 
 # Runtime packages and resources.
@@ -54,6 +55,7 @@
 + /packaging/
 + /packaging/core-fonts-rsync-filter.txt
 + /packaging/runtime-rsync-filter.txt
++ /packaging/70-turing-smart-screen.rules
 - /packaging/***
 
 # Licensing, release metadata, configuration, and dependencies.
