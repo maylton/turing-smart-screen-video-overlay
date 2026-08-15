@@ -4,6 +4,7 @@ set -euo pipefail
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_FILTER="$SOURCE_DIR/packaging/runtime-rsync-filter.txt"
 CORE_FONT_FILTER="$SOURCE_DIR/packaging/core-fonts-rsync-filter.txt"
+HARDWARE_ACCESS_HELPER="$SOURCE_DIR/scripts/configure-hardware-access.sh"
 
 APP_ID="io.github.turing.SmartScreen"
 APP_NAME="Turing Smart Screen"
@@ -14,6 +15,7 @@ INSTALL_DEPS=1
 ENABLE_AUTOSTART=0
 PRESERVE_USER_DATA=1
 INCLUDE_FULL_FONTS=0
+CONFIGURE_HARDWARE_ACCESS=1
 
 usage() {
   cat <<'EOF'
@@ -22,12 +24,13 @@ Usage: ./install.sh [OPTIONS]
 Install Turing Smart Screen as a native Linux desktop application.
 
 Options:
-  --system          Install in /opt and /usr/local (requires sudo)
-  --no-deps         Do not install system packages
-  --autostart       Start the application automatically after login
-  --fresh           Replace installed themes/configuration instead of preserving them
-  --full-fonts      Install the complete optional font catalog
-  -h, --help        Show this help
+  --system              Install in /opt and /usr/local (requires sudo)
+  --no-deps             Do not install system packages
+  --no-hardware-access  Skip udev/serial permission configuration
+  --autostart           Start the application automatically after login
+  --fresh               Replace installed themes/configuration instead of preserving them
+  --full-fonts          Install the complete optional font catalog
+  -h, --help            Show this help
 
 Default installation:
   Application: ~/.local/share/turing-smart-screen
@@ -40,6 +43,7 @@ for arg in "$@"; do
   case "$arg" in
     --system) MODE="system" ;;
     --no-deps) INSTALL_DEPS=0 ;;
+    --no-hardware-access) CONFIGURE_HARDWARE_ACCESS=0 ;;
     --autostart) ENABLE_AUTOSTART=1 ;;
     --fresh) PRESERVE_USER_DATA=0 ;;
     --full-fonts) INCLUDE_FULL_FONTS=1 ;;
@@ -119,17 +123,16 @@ if [[ "$INSTALL_DEPS" -eq 1 ]]; then
     echo "Installing Arch/CachyOS dependencies..."
     HTML_SYSTEM_DEPS=()
     if grep -A 3 -E '^renderer:' "$SOURCE_DIR/config.yaml" | grep -q -E '^[[:space:]]+engine:[[:space:]]*html[[:space:]]*$'; then
-      # WebKitGTK stays optional for legacy YAML-only installations.
       HTML_SYSTEM_DEPS+=(webkitgtk-6.0 webkit2gtk-4.1)
     fi
     sudo pacman -S --needed \
       python python-pip python-virtualenv python-gobject \
       gtk4 libadwaita ffmpeg rsync git tk python-pillow \
-      python-pyserial python-babel desktop-file-utils \
+      python-pyserial python-babel desktop-file-utils xdg-utils acl \
       "${HTML_SYSTEM_DEPS[@]}"
   else
     echo "Automatic dependency installation currently supports Arch/CachyOS." >&2
-    echo "Required: Python 3, PyGObject, GTK3/GTK4, WebKitGTK 4.1/6.0, Libadwaita, ffmpeg, rsync, Git, Tk, Pillow, pyserial and Babel." >&2
+    echo "Required: Python 3, PyGObject, GTK3/GTK4, WebKitGTK 4.1/6.0, Libadwaita, ffmpeg, rsync, Git, Tk, Pillow, pyserial, Babel, desktop-file-utils and xdg-utils." >&2
   fi
 fi
 
@@ -151,6 +154,18 @@ if [[ ! -f "$CORE_FONT_FILTER" ]]; then
   exit 1
 fi
 
+if [[ "$CONFIGURE_HARDWARE_ACCESS" -eq 1 ]]; then
+  if [[ -x "$HARDWARE_ACCESS_HELPER" || -f "$HARDWARE_ACCESS_HELPER" ]]; then
+    echo
+    echo "Configuring display hardware access..."
+    bash "$HARDWARE_ACCESS_HELPER"
+  else
+    echo "Hardware-access helper was not found: $HARDWARE_ACCESS_HELPER" >&2
+    exit 1
+  fi
+fi
+
+echo
 echo "Installing $APP_NAME in: $PREFIX"
 
 if [[ "$SELF_INSTALL" -eq 1 ]]; then
@@ -173,9 +188,6 @@ if [[ "$SELF_INSTALL" -eq 0 ]] && [[ -d "$PREFIX" ]] && [[ "$PRESERVE_USER_DATA"
 
   if [[ -d "$PREFIX/res/themes" ]]; then
     mkdir -p "$BACKUP_DIR/themes"
-    # The legacy example collection is an optional distribution pack, not user
-    # data. Preserve installed and custom themes without carrying this large
-    # source-only directory back into the reduced runtime payload.
     rsync -a \
       --exclude='--Theme examples/' \
       --exclude='*.tmp' \
@@ -224,8 +236,6 @@ if [[ "$SELF_INSTALL" -eq 0 ]]; then
   fi
 fi
 
-# Install the tracked GTK interface from this branch. Do not prefer local
-# configure-gtk-final.py files; those are stale developer artifacts.
 if [[ -f "$SOURCE_DIR/configure-gtk.py" ]]; then
   copy_if_different "$SOURCE_DIR/configure-gtk.py" "$PREFIX/configure-gtk.py"
 else
@@ -249,7 +259,6 @@ if [[ -f "$SOURCE_DIR/gtk-checkup.py" ]]; then
   copy_if_different "$SOURCE_DIR/gtk-checkup.py" "$PREFIX/gtk-checkup.py"
 fi
 
-# Restore the user's existing configuration, custom themes and videos.
 if [[ -n "$BACKUP_DIR" ]]; then
   if [[ -f "$BACKUP_DIR/config.yaml" ]]; then
     $SUDO cp "$BACKUP_DIR/config.yaml" "$PREFIX/config.yaml"
@@ -284,7 +293,6 @@ if [[ -n "$BACKUP_DIR" ]]; then
   rm -rf "$BACKUP_DIR"
 fi
 
-# Recreate the backend virtual environment so dependencies match the installed release.
 $SUDO rm -rf "$PREFIX/venv"
 
 if [[ "$MODE" == "system" ]]; then
@@ -301,7 +309,6 @@ else
   fi
 fi
 
-# Validate both the system GTK runtime and the project backend environment.
 echo "Validating GTK4, Libadwaita and project dependencies..."
 /usr/bin/python3 -c '
 import gi
@@ -359,7 +366,6 @@ if [[ -f "$PREFIX/gtk-checkup.py" ]]; then
   )
 fi
 
-# Native launcher.
 TMP_LAUNCHER="$(mktemp)"
 cat > "$TMP_LAUNCHER" <<EOF
 #!/usr/bin/env bash
@@ -372,8 +378,50 @@ chmod +x "$TMP_LAUNCHER"
 $SUDO cp "$TMP_LAUNCHER" "$LAUNCHER"
 rm -f "$TMP_LAUNCHER"
 
-# Canonical desktop identity. The filename, Icon and GTK application ID must
-# match for Wayland/Niri docks to associate the running window correctly.
+# Install icons before the desktop entry and validate them. Prefer exact-size
+# sources; fall back to the source checkout so a packaging mistake cannot
+# silently create a launcher with no icon.
+ICON_SOURCE_64=""
+ICON_SOURCE_128=""
+
+for candidate in \
+  "$PREFIX/res/icons/monitor-icon-17865/64.png" \
+  "$SOURCE_DIR/res/icons/monitor-icon-17865/64.png"
+do
+  if [[ -f "$candidate" ]]; then
+    ICON_SOURCE_64="$candidate"
+    break
+  fi
+done
+
+for candidate in \
+  "$PREFIX/res/icons/monitor-icon-17865/128.png" \
+  "$SOURCE_DIR/res/icons/monitor-icon-17865/128.png" \
+  "$PREFIX/res/icons/monitor-icon-17865/64.png" \
+  "$SOURCE_DIR/res/icons/monitor-icon-17865/64.png"
+do
+  if [[ -f "$candidate" ]]; then
+    ICON_SOURCE_128="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$ICON_SOURCE_64" || -z "$ICON_SOURCE_128" ]]; then
+  echo "Application icon source is missing from the installation payload." >&2
+  exit 1
+fi
+
+$SUDO install -Dm0644 "$ICON_SOURCE_64" "$ICON_64"
+$SUDO install -Dm0644 "$ICON_SOURCE_128" "$ICON_128"
+
+if [[ ! -s "$ICON_64" || ! -s "$ICON_128" ]]; then
+  echo "Application icon installation failed." >&2
+  exit 1
+fi
+
+# Use the absolute installed icon path in the desktop entry. This avoids a
+# first-install race with desktop/icon caches while the desktop filename and
+# GTK application ID still provide canonical Wayland application identity.
 TMP_DESKTOP="$(mktemp)"
 cat > "$TMP_DESKTOP" <<EOF
 [Desktop Entry]
@@ -383,7 +431,7 @@ Name=$APP_NAME
 GenericName=Hardware Monitor Display
 Comment=Configure and manage the Turing Smart Screen display
 Exec=$LAUNCHER
-Icon=$APP_ID
+Icon=$ICON_128
 Terminal=false
 Categories=Settings;System;Utility;
 StartupNotify=true
@@ -394,34 +442,17 @@ EOF
 $SUDO cp "$TMP_DESKTOP" "$DESKTOP_FILE"
 rm -f "$TMP_DESKTOP"
 
-# Remove old mismatched launcher identities.
 $SUDO rm -f "$DESKTOP_DIR/turing-smart-screen.desktop"
 $SUDO rm -f \
   "$ICON_BASE/64x64/apps/turing-smart-screen.png" \
   "$ICON_BASE/128x128/apps/turing-smart-screen.png"
 
-# Install icon using the same name as APP_ID for launcher, dock and tray.
-ICON_SOURCE=""
-for candidate in \
-  "$PREFIX/res/icons/monitor-icon-17865/128.png" \
-  "$PREFIX/res/icons/monitor-icon-17865/64.png" \
-  "$PREFIX/res/icons/monitor-icon-17865/icon.png"
-do
-  if [[ -f "$candidate" ]]; then
-    ICON_SOURCE="$candidate"
-    break
-  fi
-done
-
-if [[ -n "$ICON_SOURCE" ]]; then
-  $SUDO cp "$ICON_SOURCE" "$ICON_64"
-  $SUDO cp "$ICON_SOURCE" "$ICON_128"
-else
-  echo "Warning: application icon source was not found." >&2
+if command -v desktop-file-validate >/dev/null 2>&1; then
+  $SUDO desktop-file-validate "$DESKTOP_FILE"
 fi
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-  $SUDO gtk-update-icon-cache -q "$(dirname "$(dirname "$ICON_BASE/64x64/apps")")" || true
+  $SUDO gtk-update-icon-cache -f -t "$ICON_BASE" || true
 fi
 
 if command -v update-desktop-database >/dev/null 2>&1; then
@@ -429,13 +460,11 @@ if command -v update-desktop-database >/dev/null 2>&1; then
 fi
 
 if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
+  AUTOSTART_DIR="$HOME/.config/autostart"
+  mkdir -p "$AUTOSTART_DIR"
   if [[ "$MODE" == "system" ]]; then
-    AUTOSTART_DIR="$HOME/.config/autostart"
-    mkdir -p "$AUTOSTART_DIR"
     cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
   else
-    AUTOSTART_DIR="$HOME/.config/autostart"
-    mkdir -p "$AUTOSTART_DIR"
     cp "$DESKTOP_FILE" "$AUTOSTART_DIR/$APP_ID.desktop"
   fi
 fi
