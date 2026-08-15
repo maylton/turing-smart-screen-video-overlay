@@ -73,23 +73,30 @@ if [[ -f "$RULE_SOURCE" ]] && command -v udevadm >/dev/null 2>&1; then
   # Re-apply rules to already connected devices so a fresh install can work
   # immediately when systemd-logind/uaccess is available.
   sudo udevadm trigger --subsystem-match=tty --action=change || true
-  sudo udevadm trigger --subsystem-match=usb --action=change || true
+  sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=1cbe --action=change || true
   sudo udevadm settle || true
 else
   echo "udev rules could not be installed; falling back to serial groups." >&2
 fi
 
 GROUP_MEMBERSHIP_CHANGED=0
+SESSION_REFRESH_NEEDED=0
+CURRENT_USER="$(id -un)"
+
 for group in "${SERIAL_GROUPS[@]:-}"; do
   [[ -n "$group" ]] || continue
   if id -nG "$TARGET_USER" | tr ' ' '\n' | grep -Fxq "$group"; then
-    echo "Serial access group already active: $group"
+    echo "User already belongs to serial access group: $group"
+    if [[ "$TARGET_USER" == "$CURRENT_USER" ]] && ! id -nG | tr ' ' '\n' | grep -Fxq "$group"; then
+      SESSION_REFRESH_NEEDED=1
+    fi
     continue
   fi
 
   echo "Adding $TARGET_USER to serial access group: $group"
   sudo usermod -aG "$group" "$TARGET_USER"
   GROUP_MEMBERSHIP_CHANGED=1
+  SESSION_REFRESH_NEEDED=1
 done
 
 ACCESSIBLE=0
@@ -119,7 +126,7 @@ shopt -u nullglob
 
 if [[ "$FOUND_SERIAL" -eq 0 ]]; then
   echo "No ttyACM/ttyUSB endpoint is connected right now; persistent access rules are installed."
-elif [[ "$ACCESSIBLE" -eq 0 && "$GROUP_MEMBERSHIP_CHANGED" -eq 1 ]]; then
+elif [[ "$ACCESSIBLE" -eq 0 && ( "$GROUP_MEMBERSHIP_CHANGED" -eq 1 || "$SESSION_REFRESH_NEEDED" -eq 1 ) ]]; then
   echo
   echo "Hardware access was configured, but this login session has not inherited the new group yet." >&2
   echo "The udev uaccess rule may make the device available immediately; otherwise sign out and back in once." >&2
