@@ -21,7 +21,8 @@ from library.tray_icon_preferences import (
 
 TRAY_ICON_NAME = "turing-smart-screen-tray-symbolic"
 DEFAULT_SIZES = (16, 22, 32, 64)
-_SOURCE_RELATIVE = Path("res/icons/monitor-icon-17865/64.png")
+_SOURCE_RELATIVE = Path("res/icons/turing-screen-overlay.png")
+_DEDICATED_TRAY_ARTWORK = "turing-screen-overlay.png"
 
 # Tuned against Caelestia's Material tray palette. The dark-theme variant is
 # intentionally not pure white, so it visually matches the other symbolic
@@ -78,7 +79,13 @@ def symbolic_image(
 
 
 def tray_icon_image(source: Path, variant: str, size: int = 64) -> Image.Image:
-    """Render one of the supported color/symbolic icon variants."""
+    """Render the dedicated tray artwork or a legacy symbolic variant."""
+    # The dedicated tray asset is already a purpose-built two-tone glyph.
+    # Recoloring it as a single alpha mask would erase the pulse line, so keep
+    # its authored black/white contrast for every tray appearance mode.
+    if Path(source).name == _DEDICATED_TRAY_ARTWORK:
+        return _load_rgba(source, size)
+
     if variant == MODE_COLOR:
         return _load_rgba(source, size)
     if variant == MODE_LIGHT_THEME:
