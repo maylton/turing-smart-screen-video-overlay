@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 
+from library.display_shutdown import power_off_and_close_display
 from library.runtime import DeviceBusyError, DeviceLock
 
 ROOT = Path(__file__).resolve().parent
@@ -22,15 +23,12 @@ def run_power_command(command: str) -> None:
 
     lcd.update_queue = None
     lcd.InitializeComm()
+    if command == "off":
+        power_off_and_close_display(lcd)
+        return
+
     try:
-        if command == "off":
-            try:
-                lcd.SetBrightness(0)
-            except Exception:
-                pass
-            display.turn_off()
-        else:
-            display.turn_on()
+        display.turn_on()
         time.sleep(0.25)
     finally:
         try:

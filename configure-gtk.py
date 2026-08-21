@@ -1980,6 +1980,19 @@ def install_main_app_integrations(app) -> None:
             flush=True,
         )
 
+    # Install last because runtime patches above replace monitor methods. This
+    # wrapper must remain the final owner of GTK/session shutdown behavior.
+    try:
+        from library.main_app_shutdown import install_main_app_shutdown
+
+        install_main_app_shutdown(app)
+    except Exception as exc:  # pragma: no cover - defensive startup guard
+        print(
+            f"[main-app-shutdown] could not install: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
 
 def main() -> int:
     app = load_app_module()

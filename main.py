@@ -29,6 +29,7 @@ try:
         import win32con
         import win32gui
 
+    from library.display_shutdown import power_off_and_close_display
     from library.log import logger
     import library.scheduler as scheduler
     from library.runtime import DeviceBusyError, DeviceLock
@@ -126,34 +127,13 @@ def close_yaml_display() -> None:
             except Exception:
                 pass
 
-        # Native video playback continues inside the display firmware even
-        # after the Python process exits, so stop it explicitly first.
-        if lcd is not None and hasattr(lcd, "StopVideoOverlay"):
-            try:
-                if getattr(lcd, "video_overlay_enabled", False):
-                    lcd.StopVideoOverlay()
-            except Exception as exc:
-                logger.warning(
-                    "Could not stop the native video overlay during shutdown: %s",
-                    exc,
-                )
-
         try:
-            display.turn_off()
-            # Give Rev. C firmware time to process STOP_MEDIA and TURNOFF
-            # before closing the serial connection.
-            time.sleep(0.35)
+            power_off_and_close_display(lcd)
         except Exception as exc:
             logger.warning(
                 "Could not turn the display off during shutdown: %s",
                 exc,
             )
-
-        try:
-            if lcd is not None:
-                lcd.closeSerial()
-        except Exception:
-            pass
         # Scheduler callbacks observe STOPPING and leave their loops. Give
         # them a bounded opportunity to finish before reload can reopen serial.
         time.sleep(0.25)

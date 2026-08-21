@@ -81,6 +81,8 @@ def validate_install(home: Path, env: dict[str, str]) -> Path:
         prefix / "main.py",
         prefix / "configure-gtk.py",
         prefix / "video_manager.py",
+        prefix / "library" / "display_shutdown.py",
+        prefix / "library" / "main_app_shutdown.py",
         prefix / "library" / "runtime.py",
         prefix / "library" / "video_media.py",
         launcher,
@@ -150,7 +152,12 @@ def main() -> int:
         raise InstallTestError(f"Test HOME is not empty: {home}. Use --reset explicitly.")
 
     env = prepare_env(home)
-    install = ["bash", str(ROOT / "install.sh"), "--no-deps"]
+    install = [
+        "bash",
+        str(ROOT / "install.sh"),
+        "--no-deps",
+        "--no-hardware-access",
+    ]
 
     print("\n=== First isolated installation ===")
     run(install, cwd=ROOT, env=env)
@@ -169,7 +176,7 @@ def main() -> int:
 
     print("\n=== Final installed checkup ===")
     run(
-        ["/usr/bin/python3", str(prefix / "gtk-checkup.py"), str(prefix)],
+        [str(prefix / "venv" / "bin" / "python3"), str(prefix / "gtk-checkup.py"), str(prefix)],
         cwd=prefix,
         env=env,
     )

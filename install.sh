@@ -345,6 +345,8 @@ PYTHON_ENTRYPOINTS=(
   media-preparation.py
   display-detection.py
   gtk-checkup.py
+  library/display_shutdown.py
+  library/main_app_shutdown.py
   library/runtime.py
   library/video_media.py
   library/media_preparation.py
