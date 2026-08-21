@@ -31,6 +31,68 @@ class RevCNativeVideoHealthTests(unittest.TestCase):
 
         self.assertEqual(lcd._send_command.call_count, 2)
 
+    def test_overlay_transaction_retries_transient_empty_status(self):
+        lcd = self.bare_lcd()
+        lcd.orientation = object()
+        lcd._video_overlay_serial_lock = threading.Lock()
+        lcd.serial_flush_input = mock.Mock()
+        lcd._send_full_video_overlay_transaction = mock.Mock(
+            side_effect=[RuntimeError("empty status"), None]
+        )
+        frame = Image.new("RGBA", (1, 1), (255, 0, 0, 255))
+
+        with (
+            mock.patch("library.lcd.lcd_comm_rev_c.time.sleep") as sleeper,
+            mock.patch("library.lcd.lcd_comm_rev_c.logger.warning") as warning,
+        ):
+            lcd._send_full_video_overlay(frame)
+
+        self.assertEqual(lcd._send_full_video_overlay_transaction.call_count, 2)
+        lcd.serial_flush_input.assert_called_once()
+        sleeper.assert_called_once_with(0.15)
+        warning.assert_called_once()
+
+    def test_overlay_transaction_fails_after_bounded_retries(self):
+        lcd = self.bare_lcd()
+        lcd.orientation = object()
+        lcd._video_overlay_serial_lock = threading.Lock()
+        lcd.serial_flush_input = mock.Mock()
+        lcd._send_full_video_overlay_transaction = mock.Mock(
+            side_effect=RuntimeError("status lost")
+        )
+        frame = Image.new("RGBA", (1, 1), (255, 0, 0, 255))
+
+        with (
+            mock.patch("library.lcd.lcd_comm_rev_c.time.sleep"),
+            mock.patch("library.lcd.lcd_comm_rev_c.logger.warning"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "status lost"):
+                lcd._send_full_video_overlay(frame)
+
+        self.assertEqual(lcd._send_full_video_overlay_transaction.call_count, 3)
+        self.assertEqual(lcd.serial_flush_input.call_count, 2)
+
+    def test_overlay_retry_continues_when_input_flush_temporarily_fails(self):
+        lcd = self.bare_lcd()
+        lcd.orientation = object()
+        lcd._video_overlay_serial_lock = threading.Lock()
+        lcd.serial_flush_input = mock.Mock(
+            side_effect=RuntimeError("device is waking")
+        )
+        lcd._send_full_video_overlay_transaction = mock.Mock(
+            side_effect=[RuntimeError("empty status"), None]
+        )
+        frame = Image.new("RGBA", (1, 1), (255, 0, 0, 255))
+
+        with (
+            mock.patch("library.lcd.lcd_comm_rev_c.time.sleep"),
+            mock.patch("library.lcd.lcd_comm_rev_c.logger.warning"),
+        ):
+            lcd._send_full_video_overlay(frame)
+
+        self.assertEqual(lcd._send_full_video_overlay_transaction.call_count, 2)
+        lcd.serial_flush_input.assert_called_once()
+
     def test_overlay_worker_records_first_transport_error_and_stops(self):
         lcd = self.bare_lcd()
         lcd._video_overlay_stop = threading.Event()
