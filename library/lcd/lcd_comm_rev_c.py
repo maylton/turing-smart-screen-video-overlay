@@ -123,6 +123,8 @@ class SubRevision(Enum):
 
 
 WAKE_RETRIES = 15
+VIDEO_OVERLAY_MAX_ATTEMPTS = 3
+VIDEO_OVERLAY_RETRY_DELAYS_SECONDS = (0.15, 0.35)
 
 
 # This class is for Turing Smart Screen 2.1" / 2.8" / 5" / 8" screens
@@ -697,45 +699,87 @@ class LcdCommRevC(LcdComm):
                 self._video_overlay_event.set()
                 break
 
+    def _send_full_video_overlay_transaction(self, image: Image.Image) -> None:
+        """Send one complete CA + bitmap + D0 + CF transaction."""
+        overlay_size = int(
+            self.display_width * self.display_height / 64
+        ).to_bytes(2, "big")
+
+        video_overlay_cmd = (
+            bytearray((0xCA, 0xEF, 0x69, 0x00)) + overlay_size
+        )
+
+        self._send_command(
+            Command.PRE_UPDATE_BITMAP,
+            bypass_queue=True,
+        )
+        self._send_command(
+            Command.START_DISPLAY_BITMAP,
+            padding=Padding.START_DISPLAY_BITMAP,
+            bypass_queue=True,
+        )
+        self._send_command(
+            Command.SEND_PAYLOAD,
+            payload=video_overlay_cmd,
+            bypass_queue=True,
+        )
+        response = self._send_command(
+            Command.SEND_PAYLOAD,
+            payload=bytearray(self._generate_full_image(image)),
+            bypass_queue=True,
+            readsize=1024,
+        )
+        self._require_video_overlay_status(response, "bitmap payload")
+
+        self._send_video_visible_pixels(image)
+        self._apply_video_overlay()
+
     def _send_full_video_overlay(self, image: Image.Image):
-        """Send one proven CA + bitmap + D0 + CF overlay transaction."""
+        """Send an overlay frame with bounded transient transport recovery.
+
+        PySerial returns ``b""`` when the one-second read timeout expires; it
+        does not raise ``SerialException`` and therefore bypasses the generic
+        reopen path. Rev. C firmware can occasionally delay or omit an ACK
+        while still remaining usable, especially across host sleep or under
+        load. Retry the complete atomic transaction before surfacing a fatal
+        error to the supervising HTML worker.
+        """
         with self._video_overlay_serial_lock:
             backup_orientation = self.orientation
             try:
                 self.orientation = Orientation.LANDSCAPE
-
-                overlay_size = int(
-                    self.display_width * self.display_height / 64
-                ).to_bytes(2, "big")
-
-                video_overlay_cmd = (
-                    bytearray((0xCA, 0xEF, 0x69, 0x00)) + overlay_size
-                )
-
-                self._send_command(
-                    Command.PRE_UPDATE_BITMAP,
-                    bypass_queue=True,
-                )
-                self._send_command(
-                    Command.START_DISPLAY_BITMAP,
-                    padding=Padding.START_DISPLAY_BITMAP,
-                    bypass_queue=True,
-                )
-                self._send_command(
-                    Command.SEND_PAYLOAD,
-                    payload=video_overlay_cmd,
-                    bypass_queue=True,
-                )
-                response = self._send_command(
-                    Command.SEND_PAYLOAD,
-                    payload=bytearray(self._generate_full_image(image)),
-                    bypass_queue=True,
-                    readsize=1024,
-                )
-                self._require_video_overlay_status(response, "bitmap payload")
-
-                self._send_video_visible_pixels(image)
-                self._apply_video_overlay()
+                for attempt in range(1, VIDEO_OVERLAY_MAX_ATTEMPTS + 1):
+                    try:
+                        self._send_full_video_overlay_transaction(image)
+                        return
+                    except Exception as exc:
+                        if attempt >= VIDEO_OVERLAY_MAX_ATTEMPTS:
+                            raise
+                        delay = VIDEO_OVERLAY_RETRY_DELAYS_SECONDS[
+                            min(attempt - 1, len(VIDEO_OVERLAY_RETRY_DELAYS_SECONDS) - 1)
+                        ]
+                        logger.warning(
+                            "Native video overlay transaction failed "
+                            "(attempt %d/%d: %s); retrying in %.2fs",
+                            attempt,
+                            VIDEO_OVERLAY_MAX_ATTEMPTS,
+                            exc,
+                            delay,
+                        )
+                        # Drop a late ACK from the failed transaction before
+                        # starting the next complete transaction.
+                        try:
+                            self.serial_flush_input()
+                        except Exception as flush_exc:
+                            # A device waking from suspend may briefly reject
+                            # both reads and buffer resets. The next complete
+                            # transaction is still worth attempting.
+                            logger.warning(
+                                "Could not flush the display input buffer "
+                                "before retry: %s",
+                                flush_exc,
+                            )
+                        time.sleep(delay)
             finally:
                 self.orientation = backup_orientation
 
