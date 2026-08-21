@@ -325,7 +325,7 @@ def run_forever() -> None:
 
 
 def main() -> int:
-    global _DEVICE_LOCK, _DISPLAY, _TRAY_ICON, _RENDERER_CONTROLLER, _RENDERER_SELECTION
+    global _DEVICE_LOCK, _TRAY_ICON, _RENDERER_CONTROLLER, _RENDERER_SELECTION
 
     locale.setlocale(locale.LC_ALL, "")
     logger.debug("Using Python %s", sys.version)
