@@ -57,6 +57,6 @@ fi
 
 export TURING_SMART_SCREEN_HOME="$RUNTIME"
 export TURING_SMART_SCREEN_PYTHON="/usr/bin/python3"
-export AMDGPU_ASIC_ID_TABLE_PATH="/app/share/libdrm/amdgpu.ids"
+export AMDGPU_ASIC_ID_TABLE_PATHS="/app/share/libdrm"
 cd "$RUNTIME"
 exec /usr/bin/python3 "$RUNTIME/configure-gtk.py" "$@"
