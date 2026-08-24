@@ -16,6 +16,10 @@ finish-args:
   - --device=all
   - --filesystem=xdg-videos:rw
   - --filesystem=xdg-download:ro
+  # KDE StatusNotifier registration needs to talk to the host watcher. The
+  # packaged copy uses the app's own D-Bus namespace, which Flatpak permits by
+  # default, instead of requesting broad org.kde.* ownership.
+  - --talk-name=org.kde.StatusNotifierWatcher
 
 modules:
   - name: python-runtime-dependencies
@@ -49,6 +53,8 @@ modules:
       - install -d /app/share/turing-smart-screen
       - cp -a . /app/share/turing-smart-screen/
       - rm -rf /app/share/turing-smart-screen/.git /app/share/turing-smart-screen/.github
+      - >-
+        python3 -c 'from pathlib import Path; p=Path("/app/share/turing-smart-screen/configure_gtk_app.py"); s=p.read_text(encoding="utf-8"); old="self.bus_name = f\"org.kde.StatusNotifierItem-{os.getpid()}-1\""; new="self.bus_name = (os.environ.get(\"FLATPAK_ID\") + \".StatusNotifierItem\" if os.environ.get(\"FLATPAK_ID\") else f\"org.kde.StatusNotifierItem-{os.getpid()}-1\")"; assert old in s, "StatusNotifier bus name hook not found"; p.write_text(s.replace(old, new, 1), encoding="utf-8")'
       - install -Dm755 packaging/flatpak/turing-smart-screen-flatpak /app/bin/turing-smart-screen
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.desktop /app/share/applications/io.github.turing.SmartScreen.desktop
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.metainfo.xml /app/share/metainfo/io.github.turing.SmartScreen.metainfo.xml
