@@ -20,16 +20,31 @@ finish-args:
   # packaged copy uses the app's own D-Bus namespace, which Flatpak permits by
   # default, instead of requesting broad org.kde.* ownership.
   - --talk-name=org.kde.StatusNotifierWatcher
-  # libdrm normally looks for /usr/share/libdrm/amdgpu.ids. Modern libdrm uses
-  # AMDGPU_ASIC_ID_TABLE_PATHS (plural) to search alternative directories.
-  # Bundle the upstream database under /app and point libdrm at that directory.
+  # libdrm 2.4.130+ can search an app-local AMDGPU ID database. GNOME Platform
+  # 50 currently exposes an older libdrm to pyamdgpuinfo, so the app bundles a
+  # current libdrm below and keeps the explicit search path as a fallback.
   - --env=AMDGPU_ASIC_ID_TABLE_PATHS=/app/share/libdrm
 
 modules:
-  - name: amdgpu-id-database
-    buildsystem: simple
-    build-commands:
-      - install -Dm644 data/amdgpu.ids /app/share/libdrm/amdgpu.ids
+  - name: libdrm-amdgpu-runtime
+    buildsystem: meson
+    config-opts:
+      - -Dlibkms=false
+      - -Dintel=false
+      - -Dradeon=false
+      - -Damdgpu=true
+      - -Dnouveau=false
+      - -Dvmwgfx=false
+      - -Domap=false
+      - -Dexynos=false
+      - -Dfreedreno=false
+      - -Dtegra=false
+      - -Dvc4=false
+      - -Detnaviv=false
+      - -Dcairo-tests=false
+      - -Dman-pages=false
+      - -Dvalgrind=false
+      - -Dudev=false
     sources:
       - type: archive
         url: https://dri.freedesktop.org/libdrm/libdrm-2.4.134.tar.xz
