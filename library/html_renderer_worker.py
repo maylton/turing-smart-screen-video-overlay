@@ -116,7 +116,7 @@ def run(theme: Path) -> int:
     import gi
     gi.require_version("Gtk", "3.0")
     gi.require_version("WebKit2", "4.1")
-    from gi.repository import GLib, Gtk, WebKit2
+    from gi.repository import Gio, GLib, Gtk, WebKit2
 
     legacy_config = config.get("config", {})
     legacy_config = legacy_config if isinstance(legacy_config, dict) else {}
@@ -140,7 +140,13 @@ def run(theme: Path) -> int:
 
     class Worker(Gtk.Application):
         def __init__(self):
-            super().__init__(application_id="io.github.turing.HtmlRendererWorker")
+            # This is an internal renderer process, not a user-facing
+            # single-instance application. Avoid D-Bus name ownership entirely
+            # so Flatpak's session-bus proxy is not part of renderer startup.
+            super().__init__(
+                application_id=None,
+                flags=Gio.ApplicationFlags.NON_UNIQUE,
+            )
             self.window = None
             self.sink = None
             self.planner = None
