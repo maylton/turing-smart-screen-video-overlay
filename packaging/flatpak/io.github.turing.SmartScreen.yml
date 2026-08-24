@@ -56,8 +56,6 @@ modules:
       - rm -rf /app/share/turing-smart-screen/.git /app/share/turing-smart-screen/.github
       - >-
         python3 -c 'from pathlib import Path; p=Path("/app/share/turing-smart-screen/configure_gtk_app.py"); s=p.read_text(encoding="utf-8"); old="self.bus_name = f\"org.kde.StatusNotifierItem-{os.getpid()}-1\""; new="self.bus_name = (os.environ.get(\"FLATPAK_ID\") + \".StatusNotifierItem\" if os.environ.get(\"FLATPAK_ID\") else f\"org.kde.StatusNotifierItem-{os.getpid()}-1\")"; assert old in s, "StatusNotifier bus name hook not found"; p.write_text(s.replace(old, new, 1), encoding="utf-8")'
-      - >-
-        python3 -c 'from pathlib import Path; p=Path("/app/share/turing-smart-screen/library/html_renderer_worker.py"); s=p.read_text(encoding="utf-8"); old="super().__init__(application_id=\"io.github.turing.HtmlRendererWorker\")"; new="super().__init__(application_id=\"io.github.turing.SmartScreen.HtmlRendererWorker\")"; assert old in s, "HTML renderer application ID hook not found"; p.write_text(s.replace(old, new, 1), encoding="utf-8")'
       - install -Dm755 packaging/flatpak/turing-smart-screen-flatpak /app/bin/turing-smart-screen
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.desktop /app/share/applications/io.github.turing.SmartScreen.desktop
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.metainfo.xml /app/share/metainfo/io.github.turing.SmartScreen.metainfo.xml
