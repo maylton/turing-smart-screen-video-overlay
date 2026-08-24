@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PAYLOAD="/app/share/turing-smart-screen"
+DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/turing-smart-screen"
+RUNTIME="$DATA_ROOT/runtime"
+MARKER="$DATA_ROOT/.flatpak-payload-version"
+PACKAGED_VERSION="$(cat "$PAYLOAD/VERSION" 2>/dev/null || printf '%s' unknown)"
+
+mkdir -p "$DATA_ROOT"
+
+needs_refresh=0
+if [[ ! -d "$RUNTIME" ]]; then
+  needs_refresh=1
+elif [[ ! -f "$MARKER" ]]; then
+  needs_refresh=1
+elif [[ "$(cat "$MARKER" 2>/dev/null || true)" != "$PACKAGED_VERSION" ]]; then
+  needs_refresh=1
+fi
+
+if [[ "$needs_refresh" -eq 1 ]]; then
+  NEW_RUNTIME="$DATA_ROOT/runtime.new"
+  OLD_RUNTIME="$RUNTIME"
+  rm -rf "$NEW_RUNTIME"
+  mkdir -p "$NEW_RUNTIME"
+  cp -a "$PAYLOAD/." "$NEW_RUNTIME/"
+
+  if [[ -d "$OLD_RUNTIME" ]]; then
+    [[ -f "$OLD_RUNTIME/config.yaml" ]] && cp -a "$OLD_RUNTIME/config.yaml" "$NEW_RUNTIME/config.yaml"
+
+    for path in res/themes res/video res/videos .gtk-ui-backups .theme-editor-backups; do
+      if [[ -d "$OLD_RUNTIME/$path" ]]; then
+        mkdir -p "$NEW_RUNTIME/$path"
+        cp -a "$OLD_RUNTIME/$path/." "$NEW_RUNTIME/$path/"
+      fi
+    done
+  fi
+
+  rm -rf "$RUNTIME.old"
+  if [[ -d "$RUNTIME" ]]; then
+    mv "$RUNTIME" "$RUNTIME.old"
+  fi
+  mv "$NEW_RUNTIME" "$RUNTIME"
+  printf '%s\n' "$PACKAGED_VERSION" > "$MARKER"
+  rm -rf "$RUNTIME.old"
+fi
+
+export TURING_SMART_SCREEN_HOME="$RUNTIME"
+export TURING_SMART_SCREEN_PYTHON="/usr/bin/python3"
+cd "$RUNTIME"
+exec /usr/bin/python3 "$RUNTIME/configure-gtk.py" "$@"
