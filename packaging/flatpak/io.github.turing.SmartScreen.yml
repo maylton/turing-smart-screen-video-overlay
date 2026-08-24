@@ -90,6 +90,101 @@ modules:
 
         path.write_text(source, encoding="utf-8")
         PY
+      - |-
+        python3 - <<'PY'
+        from pathlib import Path
+
+        dashboard = Path("/app/share/turing-smart-screen/library/main_app_dashboard_polish.py")
+        source = dashboard.read_text(encoding="utf-8")
+        old = '''        apply_button = Gtk.Button(
+            label="Apply + Start",
+            icon_name="media-playback-start-symbolic",
+        )
+        apply_button.add_css_class("suggested-action")
+        apply_button.set_tooltip_text("Apply, sync video, then start the monitor")
+        apply_button.connect(
+            "clicked",
+            lambda *_: _call_if_available(
+                self,
+                "apply_current_theme_sync_and_start",
+                "Apply + Sync is available from the Themes page",
+            ),
+        )
+        attach_button(apply_button, 2, 0)
+'''
+        new = '''        start_button = Gtk.Button(
+            label="Start monitor",
+            icon_name="media-playback-start-symbolic",
+        )
+        start_button.add_css_class("suggested-action")
+        start_button.set_tooltip_text("Start the monitor using the active theme")
+        start_button.set_action_name("win.start-monitor")
+        attach_button(start_button, 2, 0)
+'''
+        if old not in source:
+            raise AssertionError("Flatpak dashboard Start button hook not found")
+        dashboard.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+        runtime = Path("/app/share/turing-smart-screen/library/runtime.py")
+        source = runtime.read_text(encoding="utf-8")
+        old = '''        else:
+            process_options["start_new_session"] = True
+'''
+        new = '''        else:
+            # Keep the monitor in the Flatpak application's process group so a
+            # real terminal interrupt/application shutdown cannot orphan it.
+            # Native installs retain the historical detached-session behavior.
+            process_options["start_new_session"] = not bool(os.environ.get("FLATPAK_ID"))
+'''
+        if old not in source:
+            raise AssertionError("Flatpak monitor process-group hook not found")
+        runtime.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+        sensors = Path("/app/share/turing-smart-screen/library/sensors/sensors_python.py")
+        source = sensors.read_text(encoding="utf-8")
+        old = '''class GpuAmd(sensors.Gpu):
+    selected_index = -1
+'''
+        new = '''class GpuAmd(sensors.Gpu):
+    selected_index = -1
+    selected_gpu = None
+'''
+        if old not in source:
+            raise AssertionError("AMD GPU cache class hook not found")
+        source = source.replace(old, new, 1)
+
+        old = '''        if GpuAmd.selected_index < 0:
+            GpuAmd.selected_index = GpuAmd.preferred_linux_gpu_index()
+        if GpuAmd.selected_index < 0:
+            raise RuntimeError("No AMD GPU was detected")
+
+        return pyamdgpuinfo.get_gpu(GpuAmd.selected_index)
+'''
+        new = '''        if GpuAmd.selected_index < 0:
+            GpuAmd.selected_index = GpuAmd.preferred_linux_gpu_index()
+        if GpuAmd.selected_index < 0:
+            raise RuntimeError("No AMD GPU was detected")
+
+        if GpuAmd.selected_gpu is None:
+            GpuAmd.selected_gpu = pyamdgpuinfo.get_gpu(GpuAmd.selected_index)
+        return GpuAmd.selected_gpu
+'''
+        if old not in source:
+            raise AssertionError("AMD GPU cache lookup hook not found")
+        source = source.replace(old, new, 1)
+
+        old = '''                    selected_gpu = pyamdgpuinfo.get_gpu(selected_index)
+                    try:
+'''
+        new = '''                    selected_gpu = pyamdgpuinfo.get_gpu(selected_index)
+                    GpuAmd.selected_gpu = selected_gpu
+                    try:
+'''
+        if old not in source:
+            raise AssertionError("AMD GPU cache selection hook not found")
+        source = source.replace(old, new, 1)
+        sensors.write_text(source, encoding="utf-8")
+        PY
       - install -Dm755 packaging/flatpak/turing-smart-screen-flatpak /app/bin/turing-smart-screen
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.desktop /app/share/applications/io.github.turing.SmartScreen.desktop
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.metainfo.xml /app/share/metainfo/io.github.turing.SmartScreen.metainfo.xml
