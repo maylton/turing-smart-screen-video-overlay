@@ -29,22 +29,9 @@ modules:
   - name: libdrm-amdgpu-runtime
     buildsystem: meson
     config-opts:
-      - -Dlibkms=false
-      - -Dintel=false
-      - -Dradeon=false
-      - -Damdgpu=true
-      - -Dnouveau=false
-      - -Dvmwgfx=false
-      - -Domap=false
-      - -Dexynos=false
-      - -Dfreedreno=false
-      - -Dtegra=false
-      - -Dvc4=false
-      - -Detnaviv=false
-      - -Dcairo-tests=false
-      - -Dman-pages=false
-      - -Dvalgrind=false
+      - -Dtests=false
       - -Dudev=false
+      - -Dvalgrind=disabled
     sources:
       - type: archive
         url: https://dri.freedesktop.org/libdrm/libdrm-2.4.134.tar.xz
