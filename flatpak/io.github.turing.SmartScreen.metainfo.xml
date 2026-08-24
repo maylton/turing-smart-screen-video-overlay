@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.turing.SmartScreen</id>
+  <name>Turing Smart Screen</name>
+  <summary>Configure and monitor USB smart screens on Linux</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer_name>Maylton</developer_name>
+
+  <description>
+    <p>
+      Turing Smart Screen is a Linux-focused GTK application for configuring,
+      monitoring and managing compatible Turing, TURZX and related USB smart
+      screens.
+    </p>
+    <p>
+      The application includes a GTK4/Libadwaita shell, theme gallery and
+      editor, media preparation with FFmpeg, and experimental Rev. C native
+      video and storage workflows.
+    </p>
+    <p>
+      This Flatpak is an experimental development release. Hardware access
+      requires device permissions in the Flatpak sandbox and host-side udev
+      rules supplied with the release.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.turing.SmartScreen.desktop</launchable>
+  <url type="homepage">https://github.com/maylton/turing-smart-screen-video-overlay</url>
+  <url type="bugtracker">https://github.com/maylton/turing-smart-screen-video-overlay/issues</url>
+  <url type="vcs-browser">https://github.com/maylton/turing-smart-screen-video-overlay</url>
+
+  <provides>
+    <binary>turing-smart-screen</binary>
+  </provides>
+
+  <releases>
+    <release version="0.9.0-dev1" date="2026-08-24" type="development">
+      <description>
+        <p>First Flatpak packaging preview for the Linux GTK application.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+</component>
