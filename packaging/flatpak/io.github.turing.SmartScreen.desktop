@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Turing Smart Screen
+GenericName=Hardware Monitor Display
+Comment=Configure and manage Turing Smart Screen displays
+Exec=turing-smart-screen
+Icon=io.github.turing.SmartScreen
+Terminal=false
+Categories=Settings;System;Utility;
+StartupNotify=true
+StartupWMClass=io.github.turing.SmartScreen
+DBusActivatable=false
