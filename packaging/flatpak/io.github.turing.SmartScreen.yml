@@ -21,8 +21,8 @@ finish-args:
   # default, instead of requesting broad org.kde.* ownership.
   - --talk-name=org.kde.StatusNotifierWatcher
   # libdrm 2.4.130+ can search an app-local AMDGPU ID database. GNOME Platform
-  # 50 currently exposes an older libdrm to pyamdgpuinfo, so the app bundles a
-  # current libdrm below and keeps the explicit search path as a fallback.
+  # 50 currently exposes an older libdrm, so the app bundles a current libdrm
+  # and points it at the bundled ASIC database.
   - --env=AMDGPU_ASIC_ID_TABLE_PATHS=/app/share/libdrm
 
 modules:
@@ -36,6 +36,22 @@ modules:
       - type: archive
         url: https://dri.freedesktop.org/libdrm/libdrm-2.4.134.tar.xz
         sha256: ac5e74d157830eb8bee44c6a6bf3ad49774ef0dd2a72bdad74a8f20308b52a95
+
+  - name: pyamdgpuinfo-source
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+      env:
+        PKG_CONFIG_PATH: /app/lib/pkgconfig
+        CFLAGS: -I/app/include -I/app/include/libdrm
+        LDFLAGS: -L/app/lib
+    build-commands:
+      - python3 -m pip install --prefix=/app --no-cache-dir 'Cython>=3,<4'
+      - >-
+        python3 -m pip install --prefix=/app --no-cache-dir
+        --no-build-isolation --no-binary=pyamdgpuinfo
+        'pyamdgpuinfo==2.1.8'
 
   - name: python-runtime-dependencies
     buildsystem: simple
@@ -60,7 +76,6 @@ modules:
         'requests>=2.32,<3'
         'Pillow>=11,<13'
         'numpy>=2,<3'
-        'pyamdgpuinfo>=2.1.8,<2.2'
         'GPUtil @ git+https://github.com/mathoudebine/gputil.git@1.4.1-py3.13'
 
   - name: turing-smart-screen
