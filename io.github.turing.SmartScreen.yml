@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/flatpak/flatpak-builder/main/data/flatpak-manifest.schema.json
+
+app-id: io.github.turing.SmartScreen
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: turing-smart-screen
+
+# GNOME 50 is based on Freedesktop 25.08. codecs-extra replaces the old
+# ffmpeg-full extension and provides the codec-enabled libav* stack used by the
+# runtime ffmpeg binary. The CI smoke test requires the libx264 encoder.
+add-extensions:
+  org.freedesktop.Platform.codecs-extra:
+    version: '25.08-extra'
+    directory: lib/codecs-extra
+    add-ld-path: .
+
+finish-args:
+  # GTK4/GTK3/WebKit desktop integration.
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+
+  # The application controls USB smart screens through ttyACM/ttyUSB and, for
+  # newer TURZX models, raw USB. Flatpak still has no fine-grained tty device
+  # permission, therefore this first hardware-oriented release needs device=all.
+  # Host udev permissions are configured separately by the release helper.
+  - --device=all
+
+  # Tray/desktop notifications used by the GTK application shell.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/doc
+  - /share/man
+  - '*.a'
+  - '*.la'
+
+cleanup-commands:
+  - mkdir -p /app/lib/codecs-extra
+
+modules:
+  # Generated with flatpak-pip-generator before flatpak-builder is invoked.
+  # See flatpak/generate-python-deps.sh and the Flatpak GitHub Actions workflow.
+  - flatpak/python3-requirements.json
+
+  - name: turing-smart-screen
+    buildsystem: simple
+    build-commands:
+      - install -d /app/share/turing-smart-screen
+      - cp -a ./. /app/share/turing-smart-screen/
+      - rm -rf /app/share/turing-smart-screen/.git /app/share/turing-smart-screen/.github /app/share/turing-smart-screen/.idea /app/share/turing-smart-screen/tests /app/share/turing-smart-screen/packaging
+      - install -Dm644 flatpak/release-version.txt /app/share/turing-smart-screen/.flatpak-release
+      - install -Dm755 flatpak/turing-smart-screen-bootstrap.py /app/libexec/turing-smart-screen-bootstrap.py
+      - install -Dm755 flatpak/turing-smart-screen /app/bin/turing-smart-screen
+      - install -Dm644 flatpak/io.github.turing.SmartScreen.desktop /app/share/applications/io.github.turing.SmartScreen.desktop
+      - install -Dm644 flatpak/io.github.turing.SmartScreen.metainfo.xml /app/share/metainfo/io.github.turing.SmartScreen.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/io.github.turing.SmartScreen/LICENSE
+      - install -Dm644 res/icons/monitor-icon-17865/24.png /app/share/icons/hicolor/24x24/apps/io.github.turing.SmartScreen.png
+      - install -Dm644 res/icons/monitor-icon-17865/32.png /app/share/icons/hicolor/32x32/apps/io.github.turing.SmartScreen.png
+      - install -Dm644 res/icons/monitor-icon-17865/48.png /app/share/icons/hicolor/48x48/apps/io.github.turing.SmartScreen.png
+      - install -Dm644 res/icons/monitor-icon-17865/64.png /app/share/icons/hicolor/64x64/apps/io.github.turing.SmartScreen.png
+      - install -Dm644 res/icons/monitor-icon-17865/128.png /app/share/icons/hicolor/128x128/apps/io.github.turing.SmartScreen.png
+      - rm -rf /app/share/turing-smart-screen/flatpak
+      - find /app/share/turing-smart-screen -type d -name '__pycache__' -prune -exec rm -rf '{}' +
+    sources:
+      - type: dir
+        path: .
