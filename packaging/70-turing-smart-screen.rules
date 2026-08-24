@@ -9,6 +9,14 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="0525", ATTRS{idProduct}=="a4a7", MODE="0660"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="0121", MODE="0660", TAG+="uaccess"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="0106", MODE="0660", TAG+="uaccess"
 
+# Raw USB nodes for serial-backed Rev. C devices. These permissions are also
+# needed for a user-session USB reset when the display firmware is wedged and
+# no longer accepts serial RESTART/HELLO commands.
+SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="ca21", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="0525", ATTR{idProduct}=="a4a7", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1d6b", ATTR{idProduct}=="0121", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1d6b", ATTR{idProduct}=="0106", MODE="0660", TAG+="uaccess"
+
 # Kipye / WeAct compatible serial devices
 SUBSYSTEM=="tty", ATTRS{idVendor}=="454d", ATTRS{idProduct}=="4e41", MODE="0660", TAG+="uaccess"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="fe0c", MODE="0660", TAG+="uaccess"
