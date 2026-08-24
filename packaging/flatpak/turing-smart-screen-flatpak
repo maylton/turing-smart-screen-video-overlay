@@ -4,8 +4,18 @@ set -euo pipefail
 PAYLOAD="/app/share/turing-smart-screen"
 DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/turing-smart-screen"
 RUNTIME="$DATA_ROOT/runtime"
-MARKER="$DATA_ROOT/.flatpak-payload-version"
+MARKER="$DATA_ROOT/.flatpak-payload-fingerprint"
 PACKAGED_VERSION="$(cat "$PAYLOAD/VERSION" 2>/dev/null || printf '%s' unknown)"
+PACKAGED_FINGERPRINT="$({
+  printf '%s\n' "$PACKAGED_VERSION"
+  sha256sum \
+    "$PAYLOAD/main.py" \
+    "$PAYLOAD/configure-gtk.py" \
+    "$PAYLOAD/configure_gtk_app.py"
+  find "$PAYLOAD/library" -type f -name '*.py' -print0 \
+    | sort -z \
+    | xargs -0 sha256sum
+} | sha256sum | awk '{print $1}')"
 
 mkdir -p "$DATA_ROOT"
 
@@ -14,7 +24,7 @@ if [[ ! -d "$RUNTIME" ]]; then
   needs_refresh=1
 elif [[ ! -f "$MARKER" ]]; then
   needs_refresh=1
-elif [[ "$(cat "$MARKER" 2>/dev/null || true)" != "$PACKAGED_VERSION" ]]; then
+elif [[ "$(cat "$MARKER" 2>/dev/null || true)" != "$PACKAGED_FINGERPRINT" ]]; then
   needs_refresh=1
 fi
 
@@ -41,7 +51,7 @@ if [[ "$needs_refresh" -eq 1 ]]; then
     mv "$RUNTIME" "$RUNTIME.old"
   fi
   mv "$NEW_RUNTIME" "$RUNTIME"
-  printf '%s\n' "$PACKAGED_VERSION" > "$MARKER"
+  printf '%s\n' "$PACKAGED_FINGERPRINT" > "$MARKER"
   rm -rf "$RUNTIME.old"
 fi
 
