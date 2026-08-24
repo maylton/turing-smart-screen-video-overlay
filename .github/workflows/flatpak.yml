@@ -1,0 +1,163 @@
+name: Flatpak
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/flatpak-*'
+    paths:
+      - 'io.github.turing.SmartScreen.yml'
+      - 'flatpak/**'
+      - '.github/workflows/flatpak.yml'
+      - 'requirements.txt'
+      - 'requirements-gpu-amd.txt'
+      - 'configure-gtk.py'
+      - 'configure_gtk_app.py'
+      - 'library/**'
+      - 'res/**'
+      - 'VERSION'
+  pull_request:
+    paths:
+      - 'io.github.turing.SmartScreen.yml'
+      - 'flatpak/**'
+      - '.github/workflows/flatpak.yml'
+      - 'requirements.txt'
+      - 'requirements-gpu-amd.txt'
+      - 'configure-gtk.py'
+      - 'configure_gtk_app.py'
+      - 'library/**'
+      - 'res/**'
+      - 'VERSION'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ID: io.github.turing.SmartScreen
+  RUNTIME_BRANCH: '50'
+  FREEDESKTOP_BRANCH: '25.08'
+
+jobs:
+  build-flatpak:
+    name: Build and smoke-test x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder appstream desktop-file-utils
+          python -m pip install --upgrade pip
+          python -m pip install 'flatpak_pip_generator==2026.5.28'
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub \
+            org.gnome.Platform//${RUNTIME_BRANCH} \
+            org.gnome.Sdk//${RUNTIME_BRANCH} \
+            org.freedesktop.Platform.codecs-extra//${FREEDESKTOP_BRANCH}-extra
+
+      - name: Validate desktop metadata
+        run: |
+          desktop-file-validate flatpak/io.github.turing.SmartScreen.desktop
+          appstreamcli validate --no-net flatpak/io.github.turing.SmartScreen.metainfo.xml
+
+      - name: Generate offline Python dependency sources
+        run: ./flatpak/generate-python-deps.sh
+
+      - name: Build Flatpak repository
+        env:
+          FLATPAK_BUILD: ${{ runner.temp }}/turing-flatpak-build
+          FLATPAK_REPO: ${{ runner.temp }}/turing-flatpak-repo
+        run: |
+          flatpak-builder \
+            --user \
+            --force-clean \
+            --default-branch=stable \
+            --install-deps-from=flathub \
+            --repo="$FLATPAK_REPO" \
+            "$FLATPAK_BUILD" \
+            io.github.turing.SmartScreen.yml
+
+      - name: Install CI build
+        env:
+          FLATPAK_REPO: ${{ runner.temp }}/turing-flatpak-repo
+        run: |
+          flatpak remote-add --user --if-not-exists --no-gpg-verify turing-ci "$FLATPAK_REPO"
+          flatpak install --user --noninteractive -y turing-ci ${APP_ID}
+
+      - name: Smoke-test Python and desktop runtimes
+        run: |
+          flatpak run --command=python3 ${APP_ID} -c 'import serial, yaml, psutil, babel, uptime, ping3, usb, Crypto, requests, PIL, numpy, GPUtil, pyamdgpuinfo; from ruamel import yaml as ruamel_yaml; print("Python dependencies OK")'
+          flatpak run --command=python3 ${APP_ID} -c 'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); from gi.repository import Gtk, Adw; print("GTK4/Libadwaita OK")'
+          flatpak run --command=python3 ${APP_ID} -c 'import gi; gi.require_version("Gtk", "3.0"); gi.require_version("WebKit2", "4.1"); from gi.repository import Gtk, WebKit2; print("GTK3/WebKit2 4.1 OK")'
+          flatpak run --command=python3 ${APP_ID} -m compileall -q /app/share/turing-smart-screen
+
+      - name: Smoke-test writable payload and media stack
+        run: |
+          flatpak run --env=TURING_FLATPAK_BOOTSTRAP_ONLY=1 ${APP_ID}
+          flatpak run --command=sh ${APP_ID} -c 'test -f "$XDG_DATA_HOME/turing-smart-screen/config.yaml"'
+          flatpak run --command=sh ${APP_ID} -c 'command -v ffmpeg && command -v ffprobe'
+          flatpak run --command=sh ${APP_ID} -c 'ffmpeg -hide_banner -encoders 2>/dev/null | grep -F libx264'
+
+      - name: Build release assets
+        id: assets
+        env:
+          FLATPAK_REPO: ${{ runner.temp }}/turing-flatpak-repo
+        run: |
+          RELEASE_VERSION="$(tr -d '\n' < flatpak/release-version.txt)"
+          BUNDLE="Turing-Smart-Screen-${RELEASE_VERSION}-x86_64.flatpak"
+          HARDWARE="turing-smart-screen-flatpak-hardware-setup-${RELEASE_VERSION}.tar.gz"
+          flatpak build-bundle \
+            --arch=x86_64 \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            "$FLATPAK_REPO" \
+            "$BUNDLE" \
+            ${APP_ID} \
+            stable
+          tar -czf "$HARDWARE" scripts/configure-hardware-access.sh packaging/70-turing-smart-screen.rules
+          sha256sum "$BUNDLE" "$HARDWARE" > SHA256SUMS
+          echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "bundle=$BUNDLE" >> "$GITHUB_OUTPUT"
+          echo "hardware=$HARDWARE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: turing-smart-screen-flatpak-${{ steps.assets.outputs.release_version }}-x86_64
+          path: |
+            ${{ steps.assets.outputs.bundle }}
+            ${{ steps.assets.outputs.hardware }}
+            SHA256SUMS
+            flatpak/io.github.turing.SmartScreen.metainfo.xml
+          if-no-files-found: error
+
+      - name: Publish GitHub Flatpak pre-release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.assets.outputs.release_version }}
+          BUNDLE: ${{ steps.assets.outputs.bundle }}
+          HARDWARE: ${{ steps.assets.outputs.hardware }}
+        run: |
+          TAG="flatpak-v${RELEASE_VERSION}"
+          TITLE="Turing Smart Screen ${RELEASE_VERSION}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes-file flatpak/RELEASE_NOTES.md \
+              --prerelease
+          fi
+          gh release upload "$TAG" "$BUNDLE" "$HARDWARE" SHA256SUMS --clobber
