@@ -66,7 +66,7 @@ flatpak remote-add --user --if-not-exists flathub \
 flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
   org.freedesktop.Platform.codecs-extra//25.08-extra
 python3 -m pip install --user flatpak_pip_generator==2026.5.28
-./flatpak/generate-python-deps.sh
+bash flatpak/generate-python-deps.sh
 ```
 
 This creates `flatpak/python3-requirements.json`. It is generated immediately
