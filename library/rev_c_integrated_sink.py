@@ -10,7 +10,7 @@ from PIL import Image
 
 from library.display_shutdown import power_off_and_close_display
 from library.rev_c_live_sink import LiveWriteRefused, _validate_protocol_parity
-from library.rev_c_physical_sink import _validate_parity
+from library.rev_c_physical_sink import _default_driver_factory, _validate_parity
 from library.rev_c_status_transport import send_protocol_with_status
 
 
@@ -18,16 +18,6 @@ MAX_REGIONS_PER_CYCLE = 8
 MAX_WIRE_BYTES_PER_CYCLE = 300_000
 REGION_PACING_SECONDS = 0.10
 MINIMUM_STATUS_BYTES = 1
-
-
-def _default_driver_factory(port: str):
-    from library.rev_c_recovery import RecoveringLcdCommRevC
-
-    return RecoveringLcdCommRevC(
-        com_port=port,
-        display_width=480,
-        display_height=480,
-    )
 
 
 class IntegratedRevCSink:
