@@ -31,7 +31,7 @@ try:
 
     from library.display_shutdown import power_off_and_close_display
     from library.log import logger
-    import library.scheduler as scheduler
+    scheduler = None
     from library.runtime import DeviceBusyError, DeviceLock
     from library.tray_icon import load_pystray_image
 except Exception as exc:
@@ -376,7 +376,10 @@ def main() -> int:
             selection = RendererSelection("yaml", str(raw_config.get("config", {}).get("THEME") or ""))
 
         def start_yaml():
-            global _DISPLAY
+            global _DISPLAY, scheduler
+            if scheduler is None:
+                import library.scheduler as scheduler_module
+                scheduler = scheduler_module
             scheduler.STOPPING = False
             # Imported lazily: HTML-only installations do not load the YAML
             # display/scheduler renderer or construct its LcdComm.
