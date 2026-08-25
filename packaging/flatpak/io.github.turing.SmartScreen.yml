@@ -85,6 +85,7 @@ modules:
       - cp -a . /app/share/turing-smart-screen/
       - rm -rf /app/share/turing-smart-screen/.git /app/share/turing-smart-screen/.github
       - python3 packaging/flatpak/postprocess.py /app/share/turing-smart-screen
+      - python3 packaging/flatpak/cold_start_postprocess.py /app/share/turing-smart-screen
       - install -Dm755 packaging/flatpak/turing-smart-screen-flatpak /app/bin/turing-smart-screen
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.desktop /app/share/applications/io.github.turing.SmartScreen.desktop
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.metainfo.xml /app/share/metainfo/io.github.turing.SmartScreen.metainfo.xml
