@@ -1,44 +1,40 @@
-# Turing Smart Screen Linux GTK Fork
+# Turing Smart Screen for Linux
 
 <p align="center">
-  <strong>An experimental Linux desktop fork of <code>turing-smart-screen-python</code></strong><br />
-  GTK4/Libadwaita app shell · Theme Gallery · media preparation · Rev. C video/storage experiments
+  <strong>A Linux-first GTK4/Libadwaita desktop application for Turing Smart Screen-compatible displays</strong><br />
+  Theme Gallery · Theme Editor · HTML/YAML themes · native video workflows · system monitoring
 </p>
 
 <p align="center">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-focused-FCC624?style=for-the-badge&logo=linux&logoColor=black" />
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.x-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.9.0-2ea44f?style=for-the-badge" />
+  <img alt="Flatpak" src="https://img.shields.io/badge/Flatpak-x86__64-4A86CF?style=for-the-badge&logo=flatpak&logoColor=white" />
   <img alt="GTK4" src="https://img.shields.io/badge/GTK4%20%2B%20Libadwaita-desktop%20UI-4A86CF?style=for-the-badge" />
-  <img alt="Experimental" src="https://img.shields.io/badge/status-experimental-orange?style=for-the-badge" />
 </p>
 
 ---
 
 ## What is this?
 
-<!-- MAYLTON_FORK_OVERVIEW -->
+This repository is a Linux-focused fork of
+[`mathoudebine/turing-smart-screen-python`](https://github.com/mathoudebine/turing-smart-screen-python),
+built around a GTK4/Libadwaita desktop experience while keeping the upstream
+Python display and theme foundations.
 
-This repository is a **Linux-focused experimental fork** of
-[`mathoudebine/turing-smart-screen-python`](https://github.com/mathoudebine/turing-smart-screen-python).
+The application brings the most common workflows into one interface:
 
-The original project is a cross-platform Python system monitor and display
-abstraction library for small USB-C smart screens. This fork explores a more
-integrated **Linux desktop application** experience around that foundation:
+- start, stop and monitor the connected display;
+- automatically detect compatible hardware;
+- browse and activate themes from a visual Theme Gallery;
+- edit YAML themes with an embedded Theme Editor;
+- run HTML themes and transparent overlays;
+- prepare GIF/video media for compatible displays;
+- manage native video on validated Rev. C hardware;
+- inspect system telemetry, including AMD GPU metrics on Linux;
+- keep monitor execution available from the system tray.
 
-- GTK4/Libadwaita app shell;
-- visual Theme Gallery / Theme Manager;
-- embedded Theme Editor;
-- embedded Video Manager;
-- media preparation tools for GIF/video inputs;
-- generated-media tracking;
-- theme import/export with preflight checks;
-- Linux installer readiness diagnostics;
-- experimental native video/storage workflows for tested Rev. C hardware.
-
-This is **not** the official vendor software and it is **not** the upstream
-project. It is a public experimental fork shared so other users and upstream
-maintainers can inspect the direction, reuse ideas, or discuss possible smaller
-contributions later.
+The project is **not official vendor software** and is not maintained by the
+upstream project.
 
 ---
 
@@ -59,210 +55,220 @@ contributions later.
 
 ---
 
-## Current public app branch
+## Latest stable release: 0.9.0
 
-The full GTK app-shell work currently lives on:
+Version **0.9.0** is the first stable GitHub-distributed Flatpak build of this
+fork. The `main` branch is now the canonical source for the application.
 
-```text
-feature/theme-video-inspector-live-preview
-```
+The release includes:
 
-Until that work is promoted to `main`, install from the active branch:
+- `Turing-Smart-Screen-0.9.0-x86_64.flatpak` — installable Flatpak bundle;
+- `70-turing-smart-screen.rules` — host udev permissions for supported USB/serial hardware;
+- `SHA256SUMS` — checksums for the release assets.
+
+See the [GitHub Releases page](https://github.com/maylton/turing-smart-screen-video-overlay/releases).
+
+### Quick Flatpak install
+
+Download the `.flatpak` bundle and `70-turing-smart-screen.rules` from the
+release, then install the host hardware rule:
 
 ```bash
-git clone --branch feature/theme-video-inspector-live-preview \
-  https://github.com/maylton/turing-smart-screen-video-overlay.git
+sudo install -Dm0644 \
+  70-turing-smart-screen.rules \
+  /etc/udev/rules.d/70-turing-smart-screen.rules
 
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+Reconnect the display after installing the rule.
+
+Make sure Flathub is available for the GNOME runtime dependency, then install the
+bundle:
+
+```bash
+flatpak remote-add --user --if-not-exists \
+  flathub \
+  https://flathub.org/repo/flathub.flatpakrepo
+
+flatpak install --user ./Turing-Smart-Screen-0.9.0-x86_64.flatpak
+```
+
+Launch it with:
+
+```bash
+flatpak run io.github.turing.SmartScreen
+```
+
+> [!NOTE]
+> The Flatpak sandbox can expose the device, but it cannot install udev rules on
+> the host. The host rule is therefore a separate release asset and remains
+> necessary on systems where the device does not already receive suitable
+> `uaccess` permissions.
+
+For source/native installation and troubleshooting, see
+[`docs/INSTALLATION.md`](docs/INSTALLATION.md).
+
+---
+
+## Hardware validation
+
+The upstream project supports multiple families of small USB displays. This fork
+inherits much of that support, but fork-specific features have a narrower
+physical validation scope.
+
+| Area | Current status |
+| --- | --- |
+| Linux GTK4/Libadwaita app | Stable in 0.9.0 |
+| Flatpak x86_64 packaging | Stable GitHub release |
+| Theme Gallery / Theme Manager | Implemented |
+| Embedded Theme Editor | Implemented |
+| HTML themes / overlays | Implemented |
+| System tray control | Implemented |
+| AMD GPU telemetry in Flatpak | Validated with app-local libdrm |
+| Native Rev. C video/storage | Physically validated on one 2.1-inch profile |
+| Broad hardware-family validation | Ongoing |
+| Flathub distribution | Not submitted yet |
+
+### Physically validated fork-specific profile
+
+| Device/profile | Validation |
+| --- | --- |
+| Turing Smart Screen Rev. C 2.1-inch, ROM 88 | Physically validated |
+| Native video playback/storage management | Validated on the profile above |
+| HTML theme + native video overlay | Validated on the profile above |
+| Raw USB reset/recovery permissions in Flatpak | Validated with host udev rules |
+| Other Turing/TURZX revisions and sizes | Monitor support may work; media operations are not guaranteed |
+| XuanFang / Kipye / WeAct / other devices | Inherited support may work; fork-specific media operations are not guaranteed |
+
+---
+
+## Main features
+
+### GTK desktop app
+
+The Overview provides display state, active theme, detected hardware, monitor PID
+and quick actions. The monitor can keep running while the main window is hidden,
+and the tray exposes display controls without requiring the window to stay open.
+
+### Theme Gallery
+
+The visual gallery supports:
+
+- preview cards and current-theme state;
+- compatibility information;
+- import from folders, `.theme` packages and legacy archives;
+- duplicate, rename and delete flows;
+- export with preflight checks for missing or generated assets.
+
+### Embedded Theme Editor
+
+The editor keeps themes editable as project files while adding safer desktop
+workflows:
+
+- guarded/atomic saves;
+- external change detection;
+- element navigation and layer ordering;
+- image transforms and crop controls;
+- text/effect presets;
+- generated-media tracking.
+
+### HTML themes and overlays
+
+HTML themes run through the embedded WebKit renderer and can be combined with
+native video on supported hardware. Authoring details live in
+[`docs/HTML_THEME_AUTHORING_GUIDE.md`](docs/HTML_THEME_AUTHORING_GUIDE.md) and
+[`docs/HTML_OVERLAY_DOCUMENT.md`](docs/HTML_OVERLAY_DOCUMENT.md).
+
+### Media and native video
+
+The media workflow can inspect source media with FFprobe, prepare device-sized
+outputs, preview framing, and manage compatible native video storage. Hardware-
+writing operations remain intentionally limited to validated profiles.
+
+### AMD GPU telemetry in Flatpak
+
+The 0.9.0 Flatpak bundles a current libdrm and builds `pyamdgpuinfo` from source
+against the app-local libraries. This avoids the private manylinux libdrm copies
+that previously looked for a missing `/usr/share/libdrm/amdgpu.ids` inside the
+sandbox.
+
+---
+
+## Source installation
+
+Flatpak is the recommended installation method for normal users. Developers and
+users who prefer a native per-user installation can still clone `main`:
+
+```bash
+git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
 cd turing-smart-screen-video-overlay
+
 ./install.sh --check-only
 ./install.sh
+
 turing-smart-screen
 ```
 
-The repository's `main` branch is currently used as the public landing/default
-branch, so this README intentionally points users to the active app branch.
+The native installer preserves user configuration, custom themes and local media
+on updates by default. See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for the
+full workflow.
+
+---
+
+## Development and validation
+
+Before publishing changes, run the release-readiness helper:
+
+```bash
+./scripts/verify-release-readiness.sh
+```
+
+For Flatpak work, the repository also contains
+[`packaging/flatpak/README.md`](packaging/flatpak/README.md) and a GitHub Actions
+workflow that builds the repository, smoke-checks the exported app, creates a
+single-file bundle and validates that `pyamdgpuinfo` is not using its bundled
+manylinux `libdrm` copies.
 
 ---
 
 ## Important safety notice
 
 > [!WARNING]
-> This fork was developed through a heavily **AI-assisted / vibe-coded**
-> workflow. Many changes were tested in small iterations, but the code has not
-> gone through a traditional upstream maintainer review process. Use it at your
-> own risk.
+> Features that write to real display storage or change hardware state should be
+> treated carefully. Fork-specific native media operations have not been
+> physically validated across every supported display family.
 
-Be especially careful with features that interact with real hardware state:
-
-- media upload;
-- device-side delete operations;
-- video playback/stop commands;
-- display power/control flows;
-- storage/media management;
-- any command that writes to the connected device.
-
-Before testing, keep backups of custom themes, configuration files, and local
-media. Read commands before running them.
+Keep backups of custom themes/configuration and review commands before using
+hardware-writing utilities. Ambiguous display detection is not used to silently
+reconfigure the device.
 
 ---
 
-## Validation scope
+## Development process disclosure
 
-The inherited monitor/theme functionality comes from the upstream project and may
-work with the same general families of supported devices. The **new fork-specific
-media/video/storage work** is much more limited.
-
-| Area | Status |
-| --- | --- |
-| Linux GTK app shell | Implemented in the active app branch |
-| Theme Gallery / Theme Manager | Implemented in the active app branch |
-| Embedded Theme Editor | Implemented in the active app branch |
-| Embedded Video Manager | Implemented in the active app branch |
-| Theme import/export | Implemented in the active app branch |
-| Export preflight | Implemented in the active app branch |
-| Installer `--check-only` diagnostics | Implemented in the active app branch |
-| Native Rev. C video/storage workflow | Experimental; validated on one device profile |
-| Broad hardware validation | Not complete |
-| Broad non-Arch packaging validation | Not complete |
-
-### Tested hardware for fork-specific media features
-
-| Device/profile | Validation |
-| --- | --- |
-| Turing Smart Screen Rev. C 2.1-inch, ROM 88 | Physically validated by the fork author |
-| Native video playback/storage management | Validated on the Rev. C 2.1-inch profile above |
-| Other Turing/TURZX sizes/revisions | Not guaranteed for fork-specific media operations |
-| XuanFang / Kipye / WeAct / other devices | Inherited monitor support may work, but fork-specific media flows are not guaranteed |
+This fork has been developed through an iterative, heavily AI-assisted workflow,
+with changes tested and refined in small loops. That speeds up experimentation,
+but does not replace hardware validation or human code review. Contributions and
+independent testing are welcome.
 
 ---
 
-## Why this fork exists
+## Documentation
 
-The upstream project is powerful, cross-platform, and scriptable. This fork asks
-a different question:
+Useful project documentation includes:
 
-> What would a Linux-first, GTK-native desktop app for these displays feel like?
-
-The answer explored here is an app that keeps the YAML/theme foundations while
-adding a more guided desktop workflow:
-
-- manage themes visually;
-- edit themes without losing YAML control;
-- prepare images/videos without writing FFmpeg commands manually;
-- track generated media instead of overwriting source files;
-- validate exports before sharing themes;
-- make device access and installer readiness easier to diagnose on Linux.
-
----
-
-## Feature overview
-
-### Linux GTK app shell
-
-The main launcher is:
-
-```bash
-turing-smart-screen
-```
-
-The app shell brings together overview, quick actions, settings, theme
-management, editing, and video/media tools in one GTK4/Libadwaita desktop
-application.
-
-### Theme Gallery / Theme Manager
-
-The Theme Gallery provides a visual entry point for themes:
-
-- theme cards and preview thumbnails;
-- active/current theme markers;
-- compatibility and diagnostics indicators;
-- open/edit actions;
-- duplicate, rename, and delete with confirmation;
-- import from folder/archive;
-- export to a versioned single-file `.theme` package;
-- import `.theme`, theme folders, and legacy `.zip` archives;
-- export preflight warnings for missing/generated/outside assets.
-
-### Embedded Theme Editor
-
-The editor keeps the YAML-first model while adding safer workflows:
-
-- guarded saves;
-- Undo/Redo-friendly operations;
-- external file change detection;
-- atomic writes;
-- semantic element navigation;
-- layer ordering;
-- image layout/transform/crop inspectors;
-- text/effect presets;
-- generated-media tracking.
-
-### Media preparation
-
-The media preparation workflow helps convert GIF/video inputs into device-ready
-outputs:
-
-- source analysis with FFprobe;
-- fit/fill/stretch/original/custom framing;
-- trim controls;
-- rotation/mirroring/crop style workflows;
-- output preview;
-- profile-aware dimensions;
-- guarded upload path for validated hardware.
-
-### Native video/storage experiments
-
-For the validated Rev. C 2.1-inch workflow, the fork includes experimental tools
-for:
-
-- listing display-side media;
-- checking size/storage information;
-- uploading prepared media;
-- playing and stopping video;
-- deleting media with guarded flows;
-- rendering transparent overlays above native video backgrounds.
-
-This is the most hardware-specific and risky area of the fork.
-
----
-
-## Release readiness validation
-
-Before publishing or promoting a branch, run the release-readiness helper:
-
-```bash
-./scripts/verify-release-readiness.sh
-```
-
-This check is intended to catch packaging, documentation, test, and install-readiness regressions before a release candidate is shared.
-
----
-
-## Installer readiness diagnostics
-
-Before installing, run:
-
-```bash
-./install.sh --check-only
-```
-
-This mode is designed to be non-destructive. It reports:
-
-- detected Linux distribution and package manager;
-- dependency hints for common distro families;
-- Python/venv readiness;
-- GTK4/Libadwaita imports;
-- Pillow, PyYAML, and ruamel.yaml availability;
-- installed virtual-environment health when present;
-- whether the launcher directory is in `PATH`;
-- connected serial/USB devices under `/dev/ttyACM*`, `/dev/ttyUSB*`, and
-  `/dev/serial/by-id/*`;
-- real device owner/group/mode;
-- whether the current user belongs to the required access group.
-
-Different distributions use different serial-device groups. For example,
-Arch/CachyOS often uses `uucp`, while Debian/Ubuntu commonly uses `dialout`.
-The readiness check reports the actual group exposed by your connected device.
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
+- [`docs/DISPLAY_DETECTION.md`](docs/DISPLAY_DETECTION.md)
+- [`docs/DISPLAY_LIFECYCLE.md`](docs/DISPLAY_LIFECYCLE.md)
+- [`docs/GPU_SELECTION.md`](docs/GPU_SELECTION.md)
+- [`docs/HTML_THEME_AUTHORING_GUIDE.md`](docs/HTML_THEME_AUTHORING_GUIDE.md)
+- [`docs/HTML_OVERLAY_DOCUMENT.md`](docs/HTML_OVERLAY_DOCUMENT.md)
+- [`docs/MEDIA_PREPARATION.md`](docs/MEDIA_PREPARATION.md)
+- [`docs/THEME_PACKAGE_FORMAT.md`](docs/THEME_PACKAGE_FORMAT.md)
+- [`docs/YAML_THEME_MIGRATION.md`](docs/YAML_THEME_MIGRATION.md)
+- [`CHANGELOG.md`](CHANGELOG.md)
 
 ---
 
@@ -271,75 +277,20 @@ The readiness check reports the actual group exposed by your connected device.
 This fork is based on and deeply indebted to
 [`mathoudebine/turing-smart-screen-python`](https://github.com/mathoudebine/turing-smart-screen-python).
 
-This repository is **not** a request to merge the whole fork upstream as-is. The
-fork is intentionally broad, Linux-first, and experimental. If upstream maintainers
-or users find parts of it useful, those parts can be discussed and split into
-small, focused, upstream-friendly pull requests later.
-
-Likely upstream-friendly areas:
-
-- small bug fixes;
-- pure helper functions;
-- diagnostics improvements;
-- packaging/test improvements;
-- isolated hardware findings;
-- documentation clarifications.
-
-Likely fork-specific areas for now:
-
-- the full GTK4/Libadwaita app shell;
-- Theme Gallery as implemented here;
-- generated-media policy tied to this editor;
-- Linux-only installer workflow;
-- Rev. C native video/storage flows until upstream agrees on scope.
+The fork intentionally has a broader Linux desktop scope than upstream. Small,
+self-contained fixes and hardware findings may still be suitable for upstream
+contribution when they can be separated cleanly.
 
 ---
 
-## Development process disclosure
+## Contributing
 
-This fork was built through iterative, AI-assisted development. In practice, that
-means many changes were designed, generated, tested, reviewed, and refined in
-small loops.
+Bug reports, hardware validation results, documentation fixes and focused code
+contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and use this
+repository's [issue tracker](https://github.com/maylton/turing-smart-screen-video-overlay/issues).
 
-That process helped move quickly, but it does **not** remove the need for careful
-human review. Treat this project as experimental unless you have reviewed and
-tested the pieces you plan to use.
-
----
-
-## Documentation
-
-Most detailed documentation currently lives on the active app branch:
-
-```text
-feature/theme-video-inspector-live-preview
-```
-
-Useful documents there include:
-
-- `docs/INSTALLATION.md`
-- `docs/ROADMAP_CURRENT_STATUS.md`
-- `docs/ROADMAP.md`
-- `docs/OFFICIAL_WINDOWS_PARITY_ROADMAP.md`
-- `docs/THEME_APP_ARCHITECTURE_CHECKPOINT.md`
-- `docs/MEDIA_PREPARATION.md`
-- `docs/HTML_THEME_AUTHORING_GUIDE.md`
-- `docs/THEME_PACKAGE_FORMAT.md`
-- `docs/HTML_OVERLAY_DOCUMENT.md`
-- `docs/YAML_THEME_MIGRATION.md`
-- `docs/UPSTREAM_SHARING.md`
-- `CHANGELOG.md`
-
----
-
-## Credits
-
-Original project:
-
-- <https://github.com/mathoudebine/turing-smart-screen-python>
-
-This fork would not exist without the upstream project's Python display
-abstraction, theme model, hardware support, documentation, and community work.
+When reporting hardware issues, include the display model/revision, USB IDs,
+Linux distribution, installation type (Flatpak/native), and relevant logs.
 
 ---
 
@@ -347,18 +298,15 @@ abstraction, theme model, hardware support, documentation, and community work.
 
 This project is **not affiliated, associated, authorized, endorsed by, or in any
 way officially connected with Turing / XuanFang / Kipye brands**, or any of their
-subsidiaries, affiliates, manufacturers, or sellers. All product and company
-names are trademarks or registered trademarks of their respective owners.
+subsidiaries, affiliates, manufacturers, or sellers. Product and company names
+remain the property of their respective owners.
 
-This project is an open-source alternative software experiment, not the original
-software provided for the smart screens. Do not open issues here for vendor
-applications such as `USBMonitor.exe` or `ExtendScreen.exe`, or for hardware
-warranty support.
-
-For vendor or hardware support, use the manufacturer/reseller channels.
+For vendor applications, firmware or warranty support, use the manufacturer or
+reseller channels.
 
 ---
 
 ## License
 
-This fork follows the license of the upstream project. See [LICENSE](LICENSE).
+This fork follows the upstream project's GPL-3.0-or-later license. See
+[`LICENSE`](LICENSE).
