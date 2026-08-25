@@ -16,8 +16,43 @@ finish-args:
   - --device=all
   - --filesystem=xdg-videos:rw
   - --filesystem=xdg-download:ro
+  # KDE StatusNotifier registration needs to talk to the host watcher. The
+  # packaged copy uses the app's own D-Bus namespace, which Flatpak permits by
+  # default, instead of requesting broad org.kde.* ownership.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # libdrm 2.4.130+ can search an app-local AMDGPU ID database. GNOME Platform
+  # 50 currently exposes an older libdrm, so the app bundles a current libdrm
+  # and points it at the bundled ASIC database.
+  - --env=AMDGPU_ASIC_ID_TABLE_PATHS=/app/share/libdrm
 
 modules:
+  - name: libdrm-amdgpu-runtime
+    buildsystem: meson
+    config-opts:
+      - -Dtests=false
+      - -Dudev=false
+      - -Dvalgrind=disabled
+    sources:
+      - type: archive
+        url: https://dri.freedesktop.org/libdrm/libdrm-2.4.134.tar.xz
+        sha256: ac5e74d157830eb8bee44c6a6bf3ad49774ef0dd2a72bdad74a8f20308b52a95
+
+  - name: pyamdgpuinfo-source
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+      env:
+        PKG_CONFIG_PATH: /app/lib/pkgconfig
+        CFLAGS: -I/app/include -I/app/include/libdrm
+        LDFLAGS: -L/app/lib
+    build-commands:
+      - python3 -m pip install --prefix=/app --no-cache-dir 'Cython>=3,<4'
+      - >-
+        python3 -m pip install --prefix=/app --no-cache-dir
+        --no-build-isolation --no-binary=pyamdgpuinfo
+        'pyamdgpuinfo==2.1.8'
+
   - name: python-runtime-dependencies
     buildsystem: simple
     build-options:
@@ -41,7 +76,7 @@ modules:
         'requests>=2.32,<3'
         'Pillow>=11,<13'
         'numpy>=2,<3'
-        'GPUtil>=1.4,<2'
+        'GPUtil @ git+https://github.com/mathoudebine/gputil.git@1.4.1-py3.13'
 
   - name: turing-smart-screen
     buildsystem: simple
@@ -49,6 +84,7 @@ modules:
       - install -d /app/share/turing-smart-screen
       - cp -a . /app/share/turing-smart-screen/
       - rm -rf /app/share/turing-smart-screen/.git /app/share/turing-smart-screen/.github
+      - python3 packaging/flatpak/postprocess.py /app/share/turing-smart-screen
       - install -Dm755 packaging/flatpak/turing-smart-screen-flatpak /app/bin/turing-smart-screen
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.desktop /app/share/applications/io.github.turing.SmartScreen.desktop
       - install -Dm644 packaging/flatpak/io.github.turing.SmartScreen.metainfo.xml /app/share/metainfo/io.github.turing.SmartScreen.metainfo.xml

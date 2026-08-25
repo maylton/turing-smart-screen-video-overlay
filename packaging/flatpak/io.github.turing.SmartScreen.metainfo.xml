@@ -19,9 +19,9 @@
     <binary>turing-smart-screen</binary>
   </provides>
   <releases>
-    <release version="0.9.0-dev1-flatpak1" date="2026-08-24">
+    <release version="0.9.0" date="2026-08-24">
       <description>
-        <p>First Flatpak packaging preview.</p>
+        <p>First stable Flatpak release, validated on physical Turing Smart Screen Rev. C hardware.</p>
       </description>
     </release>
   </releases>
