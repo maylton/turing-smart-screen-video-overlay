@@ -177,6 +177,32 @@ def main() -> int:
         "integrated HTML sink readiness",
     )
 
+    main_program = root / "main.py"
+    replace_once(
+        main_program,
+        "_CLEANUP_STARTED = False\n\n",
+        "_CLEANUP_STARTED = False\n\n"
+        "def _signal_monitor_ready() -> None:\n"
+        "    raw = os.environ.get(\"TURING_MONITOR_READY_FILE\", \"\").strip()\n"
+        "    if not raw:\n"
+        "        return\n"
+        "    path = Path(raw)\n"
+        "    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)\n"
+        "    path.write_text(f\"{os.getpid()}\\n\", encoding=\"utf-8\")\n\n",
+        "main monitor readiness signal",
+    )
+    replace_once(
+        main_program,
+        '''        _RENDERER_CONTROLLER.start(selection)
+        if selection.engine == "html":
+''',
+        '''        _RENDERER_CONTROLLER.start(selection)
+        _signal_monitor_ready()
+        if selection.engine == "html":
+''',
+        "main renderer readiness completion",
+    )
+
     configure = root / "configure-gtk.py"
     replace_once(
         configure,
