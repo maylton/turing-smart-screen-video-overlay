@@ -76,7 +76,7 @@ jobs:
 
       - name: Publish stable Flatpak release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v0.9.0
           name: Turing Smart Screen 0.9.0
