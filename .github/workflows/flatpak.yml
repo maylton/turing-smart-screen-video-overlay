@@ -3,6 +3,7 @@ name: Flatpak
 on:
   pull_request:
     paths:
+      - 'VERSION'
       - 'packaging/flatpak/**'
       - '.github/workflows/flatpak.yml'
   workflow_dispatch:
@@ -11,6 +12,7 @@ on:
       - main
       - 'flatpak/**'
     paths:
+      - 'VERSION'
       - 'packaging/flatpak/**'
       - '.github/workflows/flatpak.yml'
 
@@ -46,27 +48,60 @@ jobs:
           test -f build-flatpak/files/share/applications/io.github.turing.SmartScreen.desktop
           test -f build-flatpak/files/share/metainfo/io.github.turing.SmartScreen.metainfo.xml
           test -f build-flatpak/files/share/turing-smart-screen/configure-gtk.py
+          test -f build-flatpak/files/share/libdrm/amdgpu.ids
+          test -f build-flatpak/files/lib/libdrm_amdgpu.so.1
+          test ! -d build-flatpak/files/lib/python3.13/site-packages/pyamdgpuinfo.libs
 
       - name: Build single-file bundle
         run: |
+          VERSION="$(cat VERSION)"
           flatpak build-bundle \
             flatpak-repo \
-            Turing-Smart-Screen-0.9.0-dev1-flatpak1-x86_64.flatpak \
+            "Turing-Smart-Screen-${VERSION}-x86_64.flatpak" \
             io.github.turing.SmartScreen \
             stable
+          cp packaging/70-turing-smart-screen.rules 70-turing-smart-screen.rules
+          sha256sum \
+            "Turing-Smart-Screen-${VERSION}-x86_64.flatpak" \
+            70-turing-smart-screen.rules \
+            > SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
           name: Turing-Smart-Screen-Flatpak
-          path: Turing-Smart-Screen-0.9.0-dev1-flatpak1-x86_64.flatpak
+          path: |
+            Turing-Smart-Screen-0.9.0-x86_64.flatpak
+            70-turing-smart-screen.rules
+            SHA256SUMS
 
-      - name: Publish first Flatpak preview release
+      - name: Publish stable Flatpak release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.9.0-dev1-flatpak1
-          name: Turing Smart Screen 0.9.0-dev1 Flatpak Preview 1
-          prerelease: true
+          tag_name: v0.9.0
+          name: Turing Smart Screen 0.9.0
+          prerelease: false
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
-          files: Turing-Smart-Screen-0.9.0-dev1-flatpak1-x86_64.flatpak
+          body: |
+            ## Flatpak installation
+
+            Download `Turing-Smart-Screen-0.9.0-x86_64.flatpak` and install it with:
+
+            ```bash
+            flatpak install --user ./Turing-Smart-Screen-0.9.0-x86_64.flatpak
+            ```
+
+            Hardware access still requires the host udev rule. Download `70-turing-smart-screen.rules` from this release and install it with:
+
+            ```bash
+            sudo install -Dm0644 70-turing-smart-screen.rules /etc/udev/rules.d/70-turing-smart-screen.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger
+            ```
+
+            Reconnect the display after installing the rule. `SHA256SUMS` is included for integrity verification.
+          files: |
+            Turing-Smart-Screen-0.9.0-x86_64.flatpak
+            70-turing-smart-screen.rules
+            SHA256SUMS
