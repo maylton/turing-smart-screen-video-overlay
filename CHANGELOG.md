@@ -1,70 +1,77 @@
 # Changelog
 
-All notable changes to this Linux-focused fork are documented in this file.
+All notable changes to this Linux-focused fork are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project intends to use semantic versioning for fork releases.
+and fork releases follow semantic versioning where practical.
 
 ## [Unreleased]
 
+### Planned
+
+- Broader hardware validation across additional Turing/TURZX/XuanFang/Kipye/WeAct profiles.
+- Flathub submission work and further Flatpak permission tightening where possible.
+- Additional packaging/offline-build cleanup.
+
+## [0.9.0] - 2026-08-24
+
+First stable GitHub-distributed Flatpak release of the Linux GTK application.
+
 ### Added
 
-- Public-facing README refresh that presents this repository as an experimental
-  Linux-focused GTK fork.
-- AI-assisted / vibe-coded development notice and user responsibility warning.
-- Hardware validation scope for fork-specific native media workflows.
-- Upstream sharing note explaining how to present the fork without asking the
-  upstream maintainer to merge the whole project as-is.
-- Native Rev. C video overlay and storage management, including upload,
-  playback, stop, listing, size inspection, and deletion commands.
-- Structured command-line and GTK tools for native media management.
-- Exclusive process-wide display ownership through a runtime lock.
-- Media Preparation Editor for GIF and video conversion.
-- Advanced framing controls, including crop, rotation, alignment, timing,
-  playback speed, looping, solid/blurred/image backgrounds, and preview.
-- Reusable display profiles derived from the active theme.
-- Portrait, landscape, square, and ultrawide conversion-only presets.
-- Advisory output-size estimates before media conversion.
-- Safe automatic display detection using serial descriptors and USB IDs.
-- Automatic revision/theme selection only when detection is unambiguous.
-- Linux packaging, desktop integration, installer, update, autostart, and
-  readiness-check documentation.
-- Theme Gallery / Theme Manager app shell integration.
-- Theme import/export with export completeness preflight for referenced and
-  generated media.
-- HTML editor import/export actions and an importable IDE starter theme.
-- Non-destructive YAML-to-HTML text/bar conversion for individual themes and
-  atomic collection batches.
-- Complete HTML theme authoring, overlay, package, and migration documentation.
-- Installer `--check-only` diagnostics for distro/package manager, runtime
-  dependencies, PATH, venv health, and serial/USB permissions.
+- GTK4/Libadwaita desktop application shell with Overview, settings and system tray integration.
+- Theme Gallery / Theme Manager with visual previews, activation, import/export, duplicate/rename/delete and compatibility information.
+- Embedded Theme Editor with guarded saves, external-change detection, semantic navigation, image layout controls, text/effect presets and generated-media tracking.
+- HTML theme renderer and HTML/native-video overlay workflows.
+- Media Preparation Editor for GIF/video conversion with FFprobe analysis, framing, crop/rotation/alignment, timing and preview controls.
+- Native Rev. C media management workflows for validated hardware, including listing, upload, playback, stop, size inspection and guarded deletion.
+- Safe automatic display detection based on serial descriptors and USB IDs.
+- Runtime display ownership lock with PID/role reporting.
+- GTK/runtime diagnostics and `install.sh --check-only` readiness reporting.
+- Flatpak packaging for `io.github.turing.SmartScreen` using GNOME Platform 50.
+- GitHub Actions Flatpak build, smoke checks, single-file bundle generation and release publishing.
+- Host udev rules for serial and raw USB identities used by supported display workflows.
+- Release assets for the Flatpak bundle, udev rules and SHA256 checksums.
 
 ### Changed
 
-- README now emphasizes Linux-first scope, experimental status, hardware limits,
-  upstream credit, and user responsibility.
-- Installation documentation now describes the non-destructive readiness check
-  and distro-specific serial-device group differences.
-- Current roadmap status now reflects completed export preflight, installer
-  readiness diagnostics, and public-facing fork documentation.
-- Media preparation now uses profile-selected dimensions instead of assuming a
-  fixed 480 × 480 target.
-- Startup detection runs before the display driver is imported.
-- Installation preserves user configuration, custom themes, and local media by
-  default.
-- Shutdown synchronously stops native video before closing the display.
+- `main` is now the canonical application branch; users no longer need to clone a separate feature branch.
+- Flatpak is the recommended normal-user installation path; native/source installation remains available for development and advanced users.
+- Monitor startup imports were reorganized so renderer selection happens before legacy display/scheduler construction, avoiding duplicate serial ownership for HTML themes.
+- The GTK Overview Start Monitor action now uses the same runtime start path as the working system tray action.
+- Runtime status follows the actual display lock/PID so the UI transitions reliably from Starting to Running.
+- Flatpak-launched monitor processes remain in the application process group instead of becoming detached/orphaned sessions.
+- Flatpak runtime payload refresh now tracks packaged Python changes while preserving mutable configuration, themes, videos and backups.
+- StatusNotifier registration uses a targeted watcher permission rather than broad session-bus access.
+- GPU selection on Linux prefers the AMD adapter with the largest dedicated VRAM, avoiding accidental iGPU selection on mixed Ryzen/Radeon systems.
 
 ### Fixed
 
+- Rev. C HTML/native-video startup on a physical 2.1-inch display under Flatpak.
+- Raw USB reset/recovery permission failures by adding the required host `uaccess` rules.
+- Repeated Flatpak AMD GPU `/usr/share/libdrm/amdgpu.ids` warnings.
+- AMD telemetry packaging by bundling libdrm 2.4.134 and compiling `pyamdgpuinfo` from source against the app-local libraries instead of using manylinux wheels with private libdrm copies.
 - Rev. C sub-revision initialization and ROM defaults.
 - Rev. C orientation handling and duplicated bitmap-size payload behavior.
 - Safe cleanup and display ownership during shutdown and competing processes.
 
+### Validation
+
+Physically validated during the 0.9.0 release work on:
+
+- KDE Linux;
+- Turing Smart Screen Rev. C 2.1-inch, ROM 88;
+- GTK Start Monitor and system tray Start Screen;
+- HTML/Gengar theme rendering;
+- native video overlay path;
+- serial and raw USB access through Flatpak + host udev rules;
+- AMD GPU telemetry with a discrete Radeon and integrated AMD GPU present.
+
 ### Safety
 
-- Native media upload remains enabled only for the hardware-validated Turing
-  Rev. C 2.1-inch profile using ROM 88.
-- Unverified display profiles remain limited to conversion and local preview.
-- Ambiguous display detections never alter configuration automatically.
-- The public README explicitly warns that the fork was developed through an
-  AI-assisted / vibe-coded process and should be reviewed before reuse.
+- Native media upload/storage-writing remains intended for hardware-validated profiles.
+- Unverified display profiles should be treated as conversion/preview-first until physically validated.
+- Ambiguous display detection does not silently rewrite configuration.
+- The project remains an independent, AI-assisted fork and is not official vendor software.
+
+[0.9.0]: https://github.com/maylton/turing-smart-screen-video-overlay/releases/tag/v0.9.0
