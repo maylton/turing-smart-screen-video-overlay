@@ -1,133 +1,168 @@
-<!-- omit in toc -->
-# Contributing to Turing Smart Screen Python project
+# Contributing to Turing Smart Screen for Linux
 
-First off, thanks for taking the time to contribute! ❤️
+Thanks for your interest in improving this Linux-focused fork.
 
-All types of contributions are encouraged and valued. See the [Table of Contents](#table-of-contents) for different ways to help and details about how this project handles them. Please make sure to read the relevant section before making your contribution. It will make it a lot easier for us maintainers and smooth out the experience for all involved. The community looks forward to your contributions. 🎉
+This repository builds on
+[`mathoudebine/turing-smart-screen-python`](https://github.com/mathoudebine/turing-smart-screen-python),
+but issues and pull requests about the GTK application, Flatpak packaging,
+fork-specific themes/media workflows and hardware findings should be opened **in
+this repository** unless the change is explicitly being prepared for upstream.
 
-> And if you like the project, but just don't have time to contribute, that's fine. There are other easy ways to support the project and show your appreciation, which we would also be very happy about:
-> - Star the project
-> - Tweet about it
-> - Refer this project in your project's readme
-> - Mention the project at local meetups and tell your friends/colleagues
+## Before contributing
 
-<!-- omit in toc -->
-## Table of Contents
+Please read:
 
-- [Code of Conduct](#code-of-conduct)
-- [I Have a Question](#i-have-a-question)
-- [I Want To Contribute](#i-want-to-contribute)
-  - [Reporting Bugs](#reporting-bugs)
-  - [Suggesting Enhancements](#suggesting-enhancements)
-  - [Your First Code Contribution](#your-first-code-contribution)
-  - [Improving The Documentation](#improving-the-documentation)
-- [Styleguides](#styleguides)
-  - [Commit Messages](#commit-messages)
-- [Join The Project Team](#join-the-project-team)
+- [`README.md`](README.md) for current scope and hardware validation;
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for Flatpak/native setup;
+- [`CHANGELOG.md`](CHANGELOG.md) for current release status;
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
+The canonical development branch is `main`.
 
-## Code of Conduct
+## Reporting bugs
 
-This project and everyone participating in it is governed by the
-[Turing Smart Screen Python project Code of Conduct](https://github.com/mathoudebine/turing-smart-screen-pythonblob/master/CODE_OF_CONDUCT.md).
-By participating, you are expected to uphold this code. Please report unacceptable behavior.
+Use this repository's issue tracker:
 
+<https://github.com/maylton/turing-smart-screen-video-overlay/issues>
 
-## I Have a Question
+Before opening a report:
 
-> If you want to ask a question, we assume that you have read the available [Documentation](https://github.com/mathoudebine/turing-smart-screen-python/wiki).
+1. Confirm you are using the latest release or current `main`.
+2. Search existing issues for the same behavior.
+3. Reproduce the problem with as little unrelated state as possible.
+4. Include relevant logs instead of screenshots of terminal text when possible.
 
-Before you ask a question, it is best to search for existing [Issues](https://github.com/mathoudebine/turing-smart-screen-python/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.  
-You can also search for similar questions in the [Discussion space](https://github.com/mathoudebine/turing-smart-screen-python/discussions/) and check the [Troubleshooting guide](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Troubleshooting).  
-If you then still feel the need to ask a question and need clarification, we recommend the following:
+For hardware/runtime bugs, include:
 
-- Open a [Discussion](https://github.com/mathoudebine/turing-smart-screen-python/discussions/new).
-- Provide as much context as you can about what you're running into.
-- Provide project and platform versions (Python, OS, etc), depending on what seems relevant.
+- display model, size and revision;
+- ROM/firmware information when known;
+- USB vendor/product IDs when relevant;
+- Linux distribution and desktop environment;
+- installation type: Flatpak or native/source;
+- application version/commit;
+- whether the problem occurs from the GTK UI, system tray or direct `main.py` execution;
+- serial/raw USB device paths involved;
+- exact error output.
 
-## I Want To Contribute
+For Flatpak device-access problems, also mention whether
+`70-turing-smart-screen.rules` is installed on the host.
 
-> ### Legal Notice <!-- omit in toc -->
-> When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project license.
+## Suggesting enhancements
 
-### Reporting Bugs
+Open an issue describing:
 
-<!-- omit in toc -->
-#### Before Submitting a Bug Report
+- the workflow you want to improve;
+- the current behavior;
+- the proposed behavior;
+- affected hardware/theme type, if any;
+- whether the idea is Linux/fork-specific or might also benefit upstream.
 
-A good bug report shouldn't leave others needing to chase you up for more information. Therefore, we ask you to investigate carefully, collect information and describe the issue in detail in your report. Please complete the following steps in advance to help us fix any potential bug as fast as possible.
+Prefer focused proposals over large unrelated feature bundles.
 
-- Make sure that you are using the latest version.
-- Determine if your bug is really a bug and not an error on your side e.g. using incompatible environment components/versions (Make sure that you have read the [documentation](https://github.com/mathoudebine/turing-smart-screen-python/wiki). If you are looking for support, you might want to check [this section](#i-have-a-question)).
-- To see if other users have experienced (and potentially already solved) the same issue you are having, check if there is not already a bug report existing for your bug or error in the [bug tracker](https://github.com/mathoudebine/turing-smart-screen-pythonissues?q=label%3Abug).
-- You can also search for similar issues in the [Discussion space](https://github.com/mathoudebine/turing-smart-screen-python/discussions/) and check the [Troubleshooting guide](https://github.com/mathoudebine/turing-smart-screen-python/wiki/Troubleshooting)
-- Also make sure to search the internet (including Stack Overflow) to see if users outside of the GitHub community have discussed the issue.
-- Collect information about the bug:
-  - Stack trace (Traceback from console output)
-  - OS, Platform and Version (Windows, Linux, macOS, x86, ARM)
-  - Version of this project, Python interpreter.
-  - Can you reliably reproduce the issue? And can you also reproduce it with older versions?
+## Code contributions
 
-<!-- omit in toc -->
-#### How Do I Submit a Good Bug Report?
+### Set up a source checkout
 
-We use GitHub issues to track bugs and errors. If you run into an issue with the project:
+```bash
+git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
+cd turing-smart-screen-video-overlay
 
-- Open an [Bug report](https://github.com/mathoudebine/turing-smart-screen-python/issues/new).
-- Explain the behavior you would expect and the actual behavior.
-- Please provide as much context as possible and describe the *reproduction steps* that someone else can follow to recreate the issue on their own. This usually includes your code. For good bug reports you should isolate the problem and create a reduced test case.
-- Provide the information you collected in the previous section.
+./install.sh --check-only
+```
 
-Once it's filed:
+For normal end-user use, Flatpak is recommended. For development, a native/source
+checkout is usually easier because project files remain directly editable.
 
-- A team member will try to reproduce the issue with your provided steps. If there are no reproduction steps or no obvious way to reproduce the issue, the team will ask you for those steps and the issue will not be addressed until they are reproduced.
-- If the team is able to reproduce the issue, it will be left to be [implemented by someone](#your-first-code-contribution).
+### Create a branch
 
+```bash
+git switch main
+git pull --ff-only
+git switch -c your-topic-branch
+```
 
-### Suggesting Enhancements
+Keep each pull request centered on one bug, feature or documentation goal where
+practical.
 
-This section guides you through submitting an enhancement suggestion for Turing Smart Screen Python project, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community to understand your suggestion and find related suggestions.
+### Validation
 
-<!-- omit in toc -->
-#### Before Submitting an Enhancement
+Run the checks relevant to your change. Before release-facing changes, run:
 
-- Make sure that you are using the latest version.
-- Read the [documentation](https://github.com/mathoudebine/turing-smart-screen-python/wiki) carefully and find out if the functionality is already covered, maybe by an individual configuration.
-- Perform a [search](https://github.com/mathoudebine/turing-smart-screen-python/issues) to see if the enhancement has already been suggested. If it has, add a comment to the existing issue instead of opening a new one.
-- Find out whether your idea fits with the scope and aims of the project. It's up to you to make a strong case to convince the project's developers of the merits of this feature. Keep in mind that we want features that will be useful to the majority of our users and not just a small subset. If you're just targeting a minority of users, consider writing an add-on/plugin library.
+```bash
+./scripts/verify-release-readiness.sh
+```
 
-<!-- omit in toc -->
-#### How Do I Submit a Good Enhancement Suggestion?
+For Flatpak changes, build from the manifest:
 
-- Open an [Feature request](https://github.com/mathoudebine/turing-smart-screen-python/issues/new).
-- Use a **clear and descriptive title** for the issue to identify the suggestion.
-- Provide a **step-by-step description of the suggested enhancement** in as many details as possible.
-- **Describe the current behavior** and **explain which behavior you expected to see instead** and why. At this point you can also tell which alternatives do not work for you.
-- You may want to **include screenshots and animated GIFs** which help you demonstrate the steps or point out the part which the suggestion is related to. You can use [this tool](https://www.cockos.com/licecap/) to record GIFs on macOS and Windows, and [this tool](https://github.com/colinkeenan/silentcast) or [this tool](https://github.com/GNOME/byzanz) on Linux. <!-- this should only be included if the project has a GUI -->
-- **Explain why this enhancement would be useful** to most Turing Smart Screen Python project users. You may also want to point out the other projects that solved it better and which could serve as inspiration.
+```bash
+flatpak-builder \
+  build-flatpak \
+  --user \
+  --install-deps-from=flathub \
+  --force-clean \
+  --install \
+  packaging/flatpak/io.github.turing.SmartScreen.yml
+```
 
+The GitHub Actions Flatpak workflow also performs export smoke checks and verifies
+that the AMD Python extension does not regress to a wheel containing private
+`pyamdgpuinfo.libs` libdrm copies.
 
-### Your First Code Contribution
-<!-- TODO
-include Setup of env, IDE and typical getting started instructions?
+### Hardware-sensitive changes
 
--->
+Changes involving these areas require extra care:
 
-### Improving The Documentation
-<!-- TODO
-Updating, improving and correcting the documentation
+- raw USB reset/recovery;
+- Rev. C initialization;
+- native video playback;
+- display-side file upload/delete;
+- power control;
+- serial ownership/lifecycle.
 
--->
+Do not broaden or replace working hardware-recovery logic solely to work around a
+packaging or permissions problem. Prefer first identifying whether the failure is
+caused by host udev permissions, Flatpak device exposure, process ownership or the
+actual device protocol.
 
-## Styleguides
-### Commit Messages
-<!-- TODO
+When possible, document physical validation and the exact tested profile in the
+pull request.
 
--->
+## Documentation contributions
 
-## Join The Project Team
-<!-- TODO -->
+Documentation fixes are welcome, especially for:
 
-<!-- omit in toc -->
-## Attribution
-This guide is based on the **contributing-gen**. [Make your own](https://github.com/bttger/contributing-gen)!
+- new hardware validation;
+- Linux distribution differences;
+- Flatpak permissions/runtime behavior;
+- theme authoring;
+- installation/troubleshooting;
+- reproducible bug findings.
+
+Keep public documentation aligned with the current `main` branch and latest
+stable release. Avoid instructions that point users to old feature branches.
+
+## Relationship with upstream
+
+This fork has a broader Linux desktop scope than upstream. Changes that are small,
+platform-neutral and independently useful may be good candidates for the upstream
+project, for example:
+
+- protocol/hardware fixes;
+- isolated helper functions;
+- generic diagnostics;
+- documentation corrections;
+- small test improvements.
+
+Large GTK application, Flatpak or fork-specific workflow changes generally belong
+here unless upstream maintainers explicitly indicate otherwise.
+
+## Development process disclosure
+
+The fork has been developed with substantial AI assistance. Contributions should
+still be understandable, reviewable and testable by humans. Generated code is not
+exempt from normal correctness, licensing, safety or attribution requirements.
+
+## Licensing
+
+By contributing, you confirm that you have the right to submit your changes under
+the repository's GPL-3.0-or-later license. See [`LICENSE`](LICENSE).
