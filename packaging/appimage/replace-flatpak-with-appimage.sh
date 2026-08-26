@@ -8,7 +8,7 @@ SOURCE_APPIMAGE="${1:-$ROOT/dist/Turing-Smart-Screen-${VERSION}-x86_64.AppImage}
 INSTALL_DIR="$HOME/.local/opt/turing-smart-screen"
 INSTALLED_APPIMAGE="$INSTALL_DIR/Turing-Smart-Screen.AppImage"
 BIN_DIR="$HOME/.local/bin"
-BIN_LINK="$BIN_DIR/turing-smart-screen"
+BIN_LAUNCHER="$BIN_DIR/turing-smart-screen"
 DESKTOP_DIR="$HOME/.local/share/applications"
 DESKTOP_FILE="$DESKTOP_DIR/$APP_ID.desktop"
 ICON_DIR="$HOME/.local/share/icons/hicolor/128x128/apps"
@@ -57,7 +57,16 @@ rm -rf \
 
 mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$DESKTOP_DIR" "$ICON_DIR"
 install -m0755 "$SOURCE_APPIMAGE" "$INSTALLED_APPIMAGE"
-ln -sfn "$INSTALLED_APPIMAGE" "$BIN_LINK"
+
+# Use extract-and-run so the installed app does not depend on host libfuse2.
+rm -f "$BIN_LAUNCHER"
+cat > "$BIN_LAUNCHER" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export APPIMAGE_EXTRACT_AND_RUN=1
+exec "$INSTALLED_APPIMAGE" "\$@"
+EOF
+chmod 0755 "$BIN_LAUNCHER"
 
 install -m0644 \
   "$ROOT/res/icons/monitor-icon-17865/128.png" \
@@ -70,7 +79,7 @@ Version=1.0
 Name=Turing Smart Screen
 GenericName=Hardware Monitor Display
 Comment=Configure and manage the Turing Smart Screen display
-Exec=$INSTALLED_APPIMAGE
+Exec=$BIN_LAUNCHER
 Icon=$ICON_FILE
 Terminal=false
 Categories=Settings;System;Utility;
@@ -94,7 +103,7 @@ fi
 echo
 echo "Turing Smart Screen AppImage installed successfully."
 echo "Run it with:"
-echo "  $BIN_LINK"
+echo "  $BIN_LAUNCHER"
 echo
 echo "On first launch, keep the old Flatpak data until migration completes."
 echo "After you confirm your config/themes are present, old Flatpak data may be removed with:"
