@@ -1,0 +1,2 @@
+main-base: 709ac20b3fd5552c5961ada7ab59bc2864ae1668
+purpose: trigger a fresh Linux Packages check suite for the AppImage preview
