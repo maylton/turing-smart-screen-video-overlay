@@ -108,7 +108,9 @@ AppDir:
 
     rm -f "$RUNTIME_REQUIREMENTS"
 
-    "$TARGET_APPDIR/usr/bin/python3" -m compileall -q \
+    # Byte-compile with the builder's matching Ubuntu 24.04 Python. The final
+    # executable is smoke-tested from inside the finished AppImage in CI.
+    python3 -m compileall -q \
       "$TARGET_APPDIR/usr/share/turing-smart-screen/library"
 
   runtime:
