@@ -4,7 +4,10 @@ version: 1
 script:
   - |
     set -eux
-    ROOT="$(git rev-parse --show-toplevel)"
+    # The source checkout is mounted at /src by the container build helper.
+    # Do not use git rev-parse here: git worktrees contain a .git pointer to a
+    # host-only path that is intentionally not mounted inside the container.
+    ROOT="/src"
     rm -rf "$TARGET_APPDIR"
     mkdir -p \
       "$TARGET_APPDIR/usr/bin" \
@@ -86,7 +89,7 @@ AppDir:
 
   after_bundle: |
     set -eux
-    ROOT="$(git rev-parse --show-toplevel)"
+    ROOT="/src"
     RUNTIME_REQUIREMENTS="$(mktemp)"
 
     # PyInstaller is a build-time tool and does not belong in the runtime image.
