@@ -1,3 +1,4 @@
+# AppImage packaging only. Application/runtime source remains the current main code.
 version: 1
 
 script:
