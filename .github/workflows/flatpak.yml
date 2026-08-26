@@ -1,20 +1,35 @@
-name: Flatpak
+name: Linux Packages
 
 on:
   pull_request:
     paths:
       - 'VERSION'
+      - 'requirements.txt'
+      - 'requirements-gpu-amd.txt'
       - 'packaging/flatpak/**'
+      - 'packaging/appimage/**'
+      - 'packaging/runtime-rsync-filter.txt'
+      - 'packaging/70-turing-smart-screen.rules'
+      - 'scripts/configure-hardware-access.sh'
       - '.github/workflows/flatpak.yml'
+      - '.github/workflows/appimage.yml'
   workflow_dispatch:
   push:
     branches:
       - main
       - 'flatpak/**'
+      - 'packaging/appimage'
     paths:
       - 'VERSION'
+      - 'requirements.txt'
+      - 'requirements-gpu-amd.txt'
       - 'packaging/flatpak/**'
+      - 'packaging/appimage/**'
+      - 'packaging/runtime-rsync-filter.txt'
+      - 'packaging/70-turing-smart-screen.rules'
+      - 'scripts/configure-hardware-access.sh'
       - '.github/workflows/flatpak.yml'
+      - '.github/workflows/appimage.yml'
 
 permissions:
   contents: write
@@ -105,3 +120,56 @@ jobs:
             Turing-Smart-Screen-0.9.0-x86_64.flatpak
             70-turing-smart-screen.rules
             SHA256SUMS
+
+  build-appimage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install AppImage build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            rsync git wget file desktop-file-utils \
+            build-essential python3-dev pkg-config libdrm-dev
+
+      - name: Prepare AppImage metadata
+        run: |
+          echo "APP_VERSION=$(cat VERSION)" >> "$GITHUB_ENV"
+          echo "APP_BUILD_ID=${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Download appimage-builder
+        run: |
+          wget -q \
+            'https://github.com/AppImageCrafters/appimage-builder/releases/download/Continuous/appimage-builder-1.1.1.dev32%2Bg2709a3b-x86_64.AppImage' \
+            -O /tmp/appimage-builder.AppImage
+          chmod +x /tmp/appimage-builder.AppImage
+
+      - name: Build AppImage
+        working-directory: packaging/appimage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          /tmp/appimage-builder.AppImage --recipe AppImageBuilder.yml
+
+      - name: Smoke-test AppImage
+        run: |
+          set -eux
+          APPIMAGE="$(find packaging/appimage -maxdepth 1 -type f -name '*.AppImage' ! -name 'appimage-builder*' -print -quit)"
+          test -n "$APPIMAGE"
+          chmod +x "$APPIMAGE"
+          APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE" --appimage-smoke-test
+
+          OUTPUT="Turing-Smart-Screen-${APP_VERSION}-x86_64.AppImage"
+          mv "$APPIMAGE" "$OUTPUT"
+          sha256sum "$OUTPUT" > "${OUTPUT}.sha256"
+          file "$OUTPUT"
+          ls -lh "$OUTPUT" "${OUTPUT}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Turing-Smart-Screen-AppImage
+          path: |
+            Turing-Smart-Screen-0.9.0-x86_64.AppImage
+            Turing-Smart-Screen-0.9.0-x86_64.AppImage.sha256
+          if-no-files-found: error
