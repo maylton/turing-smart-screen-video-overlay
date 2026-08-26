@@ -99,12 +99,29 @@ supported_hardware_present() {
   return 1
 }
 
+serial_endpoints_accessible() {
+  local found=0 device
+  shopt -s nullglob
+  for device in /dev/ttyACM* /dev/ttyUSB*; do
+    [[ -e "$device" ]] || continue
+    found=1
+    if [[ ! -r "$device" || ! -w "$device" ]]; then
+      shopt -u nullglob
+      return 1
+    fi
+  done
+  shopt -u nullglob
+  [[ "$found" -eq 0 ]] || return 0
+  return 0
+}
+
 configure_hardware_access_once() {
-  local helper rule marker current_hash configured_hash target_user
+  local helper rule marker host_rule current_hash configured_hash host_hash target_user
 
   helper="$RUNTIME/scripts/configure-hardware-access.sh"
   rule="$RUNTIME/packaging/70-turing-smart-screen.rules"
   marker="$DATA_ROOT/.hardware-access-rule"
+  host_rule="/etc/udev/rules.d/70-turing-smart-screen.rules"
 
   [[ -f "$helper" && -f "$rule" ]] || return 0
   supported_hardware_present || return 0
@@ -112,6 +129,16 @@ configure_hardware_access_once() {
   current_hash="$(sha256sum "$rule" | awk '{print $1}')"
   configured_hash="$(cat "$marker" 2>/dev/null || true)"
   [[ -n "$current_hash" && "$configured_hash" == "$current_hash" ]] && return 0
+
+  # Reuse permissions installed by an earlier native/Flatpak setup when they
+  # already match this AppImage and the current serial endpoints are usable.
+  if [[ -r "$host_rule" ]]; then
+    host_hash="$(sha256sum "$host_rule" | awk '{print $1}')"
+    if [[ "$host_hash" == "$current_hash" ]] && serial_endpoints_accessible; then
+      printf '%s\n' "$current_hash" > "$marker"
+      return 0
+    fi
+  fi
 
   target_user="$(id -un)"
   echo "Turing Smart Screen hardware detected; configuring persistent device access..." >&2
