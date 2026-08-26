@@ -2,6 +2,18 @@ name: AppImage
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - VERSION
+      - requirements.txt
+      - requirements-gpu-amd.txt
+      - packaging/appimage/**
+      - packaging/runtime-rsync-filter.txt
+      - packaging/70-turing-smart-screen.rules
+      - scripts/configure-hardware-access.sh
+      - .github/workflows/appimage.yml
   push:
     branches:
       - packaging/appimage
