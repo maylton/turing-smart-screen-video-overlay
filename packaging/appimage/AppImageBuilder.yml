@@ -4,7 +4,7 @@ version: 1
 script:
   - |
     set -eux
-    ROOT="$(cd "$SOURCE_DIR/../.." && pwd)"
+    ROOT="$(git rev-parse --show-toplevel)"
     rm -rf "$TARGET_APPDIR"
     mkdir -p \
       "$TARGET_APPDIR/usr/bin" \
@@ -86,7 +86,7 @@ AppDir:
 
   after_bundle: |
     set -eux
-    ROOT="$(cd "$SOURCE_DIR/../.." && pwd)"
+    ROOT="$(git rev-parse --show-toplevel)"
     RUNTIME_REQUIREMENTS="$(mktemp)"
 
     # PyInstaller is a build-time tool and does not belong in the runtime image.
