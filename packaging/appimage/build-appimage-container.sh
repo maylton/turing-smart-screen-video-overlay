@@ -39,7 +39,9 @@ echo "Build: $BUILD_ID"
     apt-get update
     apt-get install -y --no-install-recommends \
       ca-certificates wget rsync git file desktop-file-utils \
-      build-essential python3-dev python3-pip pkg-config libdrm-dev
+      build-essential python3-dev python3-pip pkg-config libdrm-dev \
+      gtk-update-icon-cache libgdk-pixbuf-2.0-bin libglib2.0-bin \
+      shared-mime-info gstreamer1.0-tools
 
     wget -q \
       "https://github.com/AppImageCrafters/appimage-builder/releases/download/Continuous/appimage-builder-1.1.1.dev32%2Bg2709a3b-x86_64.AppImage" \
