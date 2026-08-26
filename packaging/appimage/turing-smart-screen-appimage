@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${APPDIR:-}" ]]; then
+  echo "APPDIR is not set; this launcher must run from the AppImage runtime." >&2
+  exit 1
+fi
+
+PAYLOAD="$APPDIR/usr/share/turing-smart-screen"
+DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/turing-smart-screen-appimage"
+RUNTIME="$DATA_ROOT/runtime"
+MARKER="$DATA_ROOT/.appimage-payload-id"
+PACKAGED_ID="$(cat "$PAYLOAD/.appimage-payload-id" 2>/dev/null || cat "$PAYLOAD/VERSION" 2>/dev/null || printf '%s' unknown)"
+
+mkdir -p "$DATA_ROOT"
+
+needs_refresh=0
+if [[ ! -d "$RUNTIME" ]]; then
+  needs_refresh=1
+elif [[ ! -f "$MARKER" ]]; then
+  needs_refresh=1
+elif [[ "$(cat "$MARKER" 2>/dev/null || true)" != "$PACKAGED_ID" ]]; then
+  needs_refresh=1
+fi
+
+if [[ "$needs_refresh" -eq 1 ]]; then
+  NEW_RUNTIME="$DATA_ROOT/runtime.new"
+  OLD_RUNTIME="$RUNTIME"
+
+  rm -rf "$NEW_RUNTIME"
+  mkdir -p "$NEW_RUNTIME"
+  cp -a "$PAYLOAD/." "$NEW_RUNTIME/"
+
+  if [[ -d "$OLD_RUNTIME" ]]; then
+    [[ -f "$OLD_RUNTIME/config.yaml" ]] && cp -a "$OLD_RUNTIME/config.yaml" "$NEW_RUNTIME/config.yaml"
+
+    for path in res/themes res/video res/videos .gtk-ui-backups .theme-editor-backups; do
+      if [[ -d "$OLD_RUNTIME/$path" ]]; then
+        mkdir -p "$NEW_RUNTIME/$path"
+        cp -a "$OLD_RUNTIME/$path/." "$NEW_RUNTIME/$path/"
+      fi
+    done
+  fi
+
+  rm -rf "$RUNTIME.old"
+  if [[ -d "$RUNTIME" ]]; then
+    mv "$RUNTIME" "$RUNTIME.old"
+  fi
+  mv "$NEW_RUNTIME" "$RUNTIME"
+  printf '%s\n' "$PACKAGED_ID" > "$MARKER"
+  rm -rf "$RUNTIME.old"
+fi
+
+export TURING_SMART_SCREEN_HOME="$RUNTIME"
+export TURING_SMART_SCREEN_PYTHON="$APPDIR/usr/bin/python3"
+export TURING_APPIMAGE=1
+
+cd "$RUNTIME"
+exec "$APPDIR/usr/bin/python3" "$RUNTIME/configure-gtk.py" "$@"
