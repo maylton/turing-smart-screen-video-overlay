@@ -28,9 +28,26 @@ PAYLOAD="$APPDIR/usr/share/turing-smart-screen"
 DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/turing-smart-screen-appimage"
 RUNTIME="$DATA_ROOT/runtime"
 MARKER="$DATA_ROOT/.appimage-payload-id"
+FLATPAK_RUNTIME="$HOME/.var/app/io.github.turing.SmartScreen/data/turing-smart-screen/runtime"
 PACKAGED_ID="$(cat "$PAYLOAD/.appimage-payload-id" 2>/dev/null || cat "$PAYLOAD/VERSION" 2>/dev/null || printf '%s' unknown)"
 
 mkdir -p "$DATA_ROOT"
+
+copy_user_state() {
+  local source="$1"
+  local destination="$2"
+
+  [[ -d "$source" ]] || return 0
+
+  [[ -f "$source/config.yaml" ]] && cp -a "$source/config.yaml" "$destination/config.yaml"
+
+  for path in res/themes res/video res/videos .gtk-ui-backups .theme-editor-backups; do
+    if [[ -d "$source/$path" ]]; then
+      mkdir -p "$destination/$path"
+      cp -a "$source/$path/." "$destination/$path/"
+    fi
+  done
+}
 
 needs_refresh=0
 if [[ ! -d "$RUNTIME" ]]; then
@@ -50,14 +67,11 @@ if [[ "$needs_refresh" -eq 1 ]]; then
   cp -a "$PAYLOAD/." "$NEW_RUNTIME/"
 
   if [[ -d "$OLD_RUNTIME" ]]; then
-    [[ -f "$OLD_RUNTIME/config.yaml" ]] && cp -a "$OLD_RUNTIME/config.yaml" "$NEW_RUNTIME/config.yaml"
-
-    for path in res/themes res/video res/videos .gtk-ui-backups .theme-editor-backups; do
-      if [[ -d "$OLD_RUNTIME/$path" ]]; then
-        mkdir -p "$NEW_RUNTIME/$path"
-        cp -a "$OLD_RUNTIME/$path/." "$NEW_RUNTIME/$path/"
-      fi
-    done
+    copy_user_state "$OLD_RUNTIME" "$NEW_RUNTIME"
+  elif [[ -d "$FLATPAK_RUNTIME" ]]; then
+    echo "Migrating Turing Smart Screen settings from the previous Flatpak installation..." >&2
+    copy_user_state "$FLATPAK_RUNTIME" "$NEW_RUNTIME"
+    touch "$DATA_ROOT/.migrated-from-flatpak"
   fi
 
   rm -rf "$RUNTIME.old"
