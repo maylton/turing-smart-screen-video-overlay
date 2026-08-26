@@ -145,6 +145,16 @@ configure_hardware_access_once() {
 
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     TURING_INSTALL_USER="$target_user" bash "$helper"
+  elif command -v run0 >/dev/null 2>&1; then
+    # KDE Linux ships run0 as the preferred privilege boundary. Running env as
+    # root keeps the target desktop user explicit while the helper itself sees
+    # EUID=0 and therefore never attempts sudo on the immutable host.
+    if ! run0 /usr/bin/env \
+      TURING_INSTALL_USER="$target_user" \
+      /usr/bin/bash "$helper"; then
+      echo "Hardware-access authorization was cancelled or failed; continuing without changing host permissions." >&2
+      return 0
+    fi
   elif command -v pkexec >/dev/null 2>&1; then
     if ! pkexec /usr/bin/env \
       TURING_INSTALL_USER="$target_user" \
@@ -153,8 +163,8 @@ configure_hardware_access_once() {
       return 0
     fi
   else
-    echo "pkexec is unavailable; hardware access was not configured automatically." >&2
-    echo "Run scripts/configure-hardware-access.sh manually with administrator authorization if the display is inaccessible." >&2
+    echo "No supported privilege helper (run0/pkexec) is available; hardware access was not configured automatically." >&2
+    echo "Run scripts/configure-hardware-access.sh with administrator authorization if the display is inaccessible." >&2
     return 0
   fi
 
