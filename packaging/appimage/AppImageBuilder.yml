@@ -56,11 +56,11 @@ AppDir:
     arch: amd64
     sources:
       - sourceline: deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble main universe
-        key_url: http://archive.ubuntu.com/ubuntu/project/ubuntu-archive-keyring.gpg
+        key_url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
       - sourceline: deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-updates main universe
-        key_url: http://archive.ubuntu.com/ubuntu/project/ubuntu-archive-keyring.gpg
+        key_url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
       - sourceline: deb [arch=amd64] http://security.ubuntu.com/ubuntu noble-security main universe
-        key_url: http://archive.ubuntu.com/ubuntu/project/ubuntu-archive-keyring.gpg
+        key_url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
 
     include:
       - bash
