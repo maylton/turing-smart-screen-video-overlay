@@ -6,6 +6,24 @@ if [[ -z "${APPDIR:-}" ]]; then
   exit 1
 fi
 
+if [[ "${1:-}" == "--appimage-smoke-test" ]]; then
+  exec "$APPDIR/usr/bin/python3" - <<'PY'
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+gi.require_version("WebKit", "6.0")
+
+from gi.repository import Adw, Gtk, WebKit  # noqa: F401
+import PIL
+import serial
+
+print("AppImage Python/GTK/WebKit runtime: OK")
+print("Pillow:", PIL.__version__)
+print("PySerial:", serial.__version__)
+PY
+fi
+
 PAYLOAD="$APPDIR/usr/share/turing-smart-screen"
 DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/turing-smart-screen-appimage"
 RUNTIME="$DATA_ROOT/runtime"
@@ -50,6 +68,59 @@ if [[ "$needs_refresh" -eq 1 ]]; then
   printf '%s\n' "$PACKAGED_ID" > "$MARKER"
   rm -rf "$RUNTIME.old"
 fi
+
+supported_hardware_present() {
+  local device vendor product pair
+  for device in /sys/bus/usb/devices/*; do
+    [[ -r "$device/idVendor" && -r "$device/idProduct" ]] || continue
+    vendor="$(tr '[:upper:]' '[:lower:]' < "$device/idVendor" 2>/dev/null || true)"
+    product="$(tr '[:upper:]' '[:lower:]' < "$device/idProduct" 2>/dev/null || true)"
+    pair="$vendor:$product"
+    case "$pair" in
+      1a86:5722|1a86:ca21|0525:a4a7|1d6b:0121|1d6b:0106|454d:4e41|1a86:fe0c|1cbe:0028|1cbe:0046|1cbe:0050|1cbe:0080|1cbe:0088|1cbe:0092|1cbe:0123)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+configure_hardware_access_once() {
+  local helper rule marker current_hash configured_hash target_user
+
+  helper="$RUNTIME/scripts/configure-hardware-access.sh"
+  rule="$RUNTIME/packaging/70-turing-smart-screen.rules"
+  marker="$DATA_ROOT/.hardware-access-rule"
+
+  [[ -f "$helper" && -f "$rule" ]] || return 0
+  supported_hardware_present || return 0
+
+  current_hash="$(sha256sum "$rule" | awk '{print $1}')"
+  configured_hash="$(cat "$marker" 2>/dev/null || true)"
+  [[ -n "$current_hash" && "$configured_hash" == "$current_hash" ]] && return 0
+
+  target_user="$(id -un)"
+  echo "Turing Smart Screen hardware detected; configuring persistent device access..." >&2
+
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    TURING_INSTALL_USER="$target_user" bash "$helper"
+  elif command -v pkexec >/dev/null 2>&1; then
+    if ! pkexec /usr/bin/env \
+      TURING_INSTALL_USER="$target_user" \
+      /usr/bin/bash "$helper"; then
+      echo "Hardware-access authorization was cancelled or failed; continuing without changing host permissions." >&2
+      return 0
+    fi
+  else
+    echo "pkexec is unavailable; hardware access was not configured automatically." >&2
+    echo "Run scripts/configure-hardware-access.sh manually with administrator authorization if the display is inaccessible." >&2
+    return 0
+  fi
+
+  printf '%s\n' "$current_hash" > "$marker"
+}
+
+configure_hardware_access_once
 
 export TURING_SMART_SCREEN_HOME="$RUNTIME"
 export TURING_SMART_SCREEN_PYTHON="$APPDIR/usr/bin/python3"
