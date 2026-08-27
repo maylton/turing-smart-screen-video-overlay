@@ -79,7 +79,7 @@ jobs:
           ls -lh "$OUTPUT" "${OUTPUT}.sha256"
 
       - name: Upload AppImage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Turing-Smart-Screen-${{ env.APP_VERSION }}-AppImage
           path: |
