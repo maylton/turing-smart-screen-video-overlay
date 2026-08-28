@@ -85,6 +85,14 @@ class RevCNativeVideoHealthTests(unittest.TestCase):
         lcd._usb_reset_and_reopen.assert_called_once_with()
         lcd._finish_hello.assert_called_once_with("chs_5inch.dev1_rom1.88")
 
+    def test_hello_treats_kernel_eio_during_wake_as_transient(self):
+        lcd = self.bare_lcd()
+        lcd.display_width = 480
+        lcd.display_height = 480
+        lcd.serial_flush_input = mock.Mock(side_effect=OSError(5, "Input/output error"))
+
+        self.assertEqual(lcd._hello_exchange(), "")
+
     def test_overlay_transaction_fails_fast_on_empty_status(self):
         lcd = self.bare_lcd()
         lcd.orientation = object()

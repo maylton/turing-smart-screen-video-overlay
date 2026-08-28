@@ -303,7 +303,7 @@ class LcdCommRevC(LcdComm):
                 SERIAL_WRITE_TIMEOUT_SECONDS,
             )
             raise
-        except serial.SerialException:
+        except (serial.SerialException, OSError):
             logger.error(
                 "Rev. C serial write failed; reopening COM port before one retry"
             )
@@ -326,7 +326,7 @@ class LcdCommRevC(LcdComm):
             self.serial_flush_input()
             self._send_command(Command.HELLO, bypass_queue=True)
             payload = self.serial_read(23)
-        except (serial.SerialException, serial.SerialTimeoutException) as exc:
+        except (serial.SerialException, serial.SerialTimeoutException, OSError) as exc:
             logger.warning("Rev. C HELLO exchange failed: %s", exc)
             return ""
         finally:
