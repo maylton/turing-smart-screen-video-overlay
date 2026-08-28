@@ -392,6 +392,26 @@ def _terminate_pid(pid: int, force: bool = False) -> None:
     os.kill(pid, selected_signal)
 
 
+def _dedicated_process_group(pid: int) -> Optional[int]:
+    """Return a monitor-owned POSIX group, never an inherited/shared group."""
+    if os.name == "nt":
+        return None
+    try:
+        group = os.getpgid(pid)
+    except OSError:
+        return None
+    return group if group == pid else None
+
+
+def _force_terminate_monitor_tree(pid: int) -> None:
+    """Force the monitor and every renderer worker in its dedicated group."""
+    group = _dedicated_process_group(pid)
+    if group is not None:
+        os.killpg(group, signal.SIGKILL)
+        return
+    _terminate_pid(pid, force=True)
+
+
 class MonitorController:
     """Start, discover, and stop the monitor without relying on a local Popen."""
 
@@ -496,7 +516,7 @@ class MonitorController:
             return TerminationResult(True, message="Monitor stopped")
 
         try:
-            _terminate_pid(pid, force=True)
+            _force_terminate_monitor_tree(pid)
         except ProcessLookupError:
             return TerminationResult(True, message="Monitor stopped")
         released = self._wait_for_release(pid, kill_timeout)

@@ -1,10 +1,16 @@
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
+import serial
 from PIL import Image
 
-from library.lcd.lcd_comm_rev_c import LcdCommRevC
+from library.lcd.lcd_comm import LcdComm
+from library.lcd.lcd_comm_rev_c import (
+    LcdCommRevC,
+    SERIAL_WRITE_TIMEOUT_SECONDS,
+)
 
 
 class RevCNativeVideoHealthTests(unittest.TestCase):
@@ -31,67 +37,75 @@ class RevCNativeVideoHealthTests(unittest.TestCase):
 
         self.assertEqual(lcd._send_command.call_count, 2)
 
-    def test_overlay_transaction_retries_transient_empty_status(self):
+    def test_every_serial_open_installs_bounded_write_timeout(self):
+        lcd = self.bare_lcd()
+        lcd.lcd_serial = SimpleNamespace(write_timeout=None, close=mock.Mock())
+
+        with mock.patch.object(LcdComm, "openSerial", return_value=None):
+            lcd.openSerial()
+
+        self.assertEqual(
+            lcd.lcd_serial.write_timeout,
+            SERIAL_WRITE_TIMEOUT_SECONDS,
+        )
+
+    def test_close_discards_pending_output_before_closing_tty(self):
+        lcd = self.bare_lcd()
+        events = []
+        lcd.lcd_serial = SimpleNamespace(
+            cancel_write=lambda: events.append("cancel"),
+            reset_output_buffer=lambda: events.append("discard"),
+            close=lambda: events.append("close"),
+        )
+
+        lcd.closeSerial()
+
+        self.assertIsNone(lcd.lcd_serial)
+        self.assertEqual(events, ["cancel", "discard", "close"])
+
+    def test_rev_c_write_timeout_is_not_swallowed(self):
+        lcd = self.bare_lcd()
+        lcd.serial_write = mock.Mock(
+            side_effect=serial.SerialTimeoutException("firmware stopped reading")
+        )
+
+        with self.assertRaises(serial.SerialTimeoutException):
+            lcd.WriteData(bytearray(b"frame"))
+
+    def test_hello_uses_usb_recovery_after_bounded_attempts(self):
+        lcd = self.bare_lcd()
+        lcd._try_hello = mock.Mock(
+            side_effect=["", "chs_5inch.dev1_rom1.88"]
+        )
+        lcd._usb_reset_and_reopen = mock.Mock()
+        lcd._finish_hello = mock.Mock()
+
+        lcd._hello()
+
+        lcd._usb_reset_and_reopen.assert_called_once_with()
+        lcd._finish_hello.assert_called_once_with("chs_5inch.dev1_rom1.88")
+
+    def test_hello_treats_kernel_eio_during_wake_as_transient(self):
+        lcd = self.bare_lcd()
+        lcd.display_width = 480
+        lcd.display_height = 480
+        lcd.serial_flush_input = mock.Mock(side_effect=OSError(5, "Input/output error"))
+
+        self.assertEqual(lcd._hello_exchange(), "")
+
+    def test_overlay_transaction_fails_fast_on_empty_status(self):
         lcd = self.bare_lcd()
         lcd.orientation = object()
         lcd._video_overlay_serial_lock = threading.Lock()
-        lcd.serial_flush_input = mock.Mock()
         lcd._send_full_video_overlay_transaction = mock.Mock(
-            side_effect=[RuntimeError("empty status"), None]
+            side_effect=RuntimeError("empty status")
         )
         frame = Image.new("RGBA", (1, 1), (255, 0, 0, 255))
 
-        with (
-            mock.patch("library.lcd.lcd_comm_rev_c.time.sleep") as sleeper,
-            mock.patch("library.lcd.lcd_comm_rev_c.logger.warning") as warning,
-        ):
+        with self.assertRaisesRegex(RuntimeError, "empty status"):
             lcd._send_full_video_overlay(frame)
 
-        self.assertEqual(lcd._send_full_video_overlay_transaction.call_count, 2)
-        lcd.serial_flush_input.assert_called_once()
-        sleeper.assert_called_once_with(0.15)
-        warning.assert_called_once()
-
-    def test_overlay_transaction_fails_after_bounded_retries(self):
-        lcd = self.bare_lcd()
-        lcd.orientation = object()
-        lcd._video_overlay_serial_lock = threading.Lock()
-        lcd.serial_flush_input = mock.Mock()
-        lcd._send_full_video_overlay_transaction = mock.Mock(
-            side_effect=RuntimeError("status lost")
-        )
-        frame = Image.new("RGBA", (1, 1), (255, 0, 0, 255))
-
-        with (
-            mock.patch("library.lcd.lcd_comm_rev_c.time.sleep"),
-            mock.patch("library.lcd.lcd_comm_rev_c.logger.warning"),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "status lost"):
-                lcd._send_full_video_overlay(frame)
-
-        self.assertEqual(lcd._send_full_video_overlay_transaction.call_count, 3)
-        self.assertEqual(lcd.serial_flush_input.call_count, 2)
-
-    def test_overlay_retry_continues_when_input_flush_temporarily_fails(self):
-        lcd = self.bare_lcd()
-        lcd.orientation = object()
-        lcd._video_overlay_serial_lock = threading.Lock()
-        lcd.serial_flush_input = mock.Mock(
-            side_effect=RuntimeError("device is waking")
-        )
-        lcd._send_full_video_overlay_transaction = mock.Mock(
-            side_effect=[RuntimeError("empty status"), None]
-        )
-        frame = Image.new("RGBA", (1, 1), (255, 0, 0, 255))
-
-        with (
-            mock.patch("library.lcd.lcd_comm_rev_c.time.sleep"),
-            mock.patch("library.lcd.lcd_comm_rev_c.logger.warning"),
-        ):
-            lcd._send_full_video_overlay(frame)
-
-        self.assertEqual(lcd._send_full_video_overlay_transaction.call_count, 2)
-        lcd.serial_flush_input.assert_called_once()
+        lcd._send_full_video_overlay_transaction.assert_called_once_with(frame)
 
     def test_overlay_worker_records_first_transport_error_and_stops(self):
         lcd = self.bare_lcd()

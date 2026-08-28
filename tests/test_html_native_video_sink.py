@@ -56,6 +56,22 @@ class HtmlNativeVideoSinkTests(unittest.TestCase):
         sink.close()
         self.assertEqual(labels.count("close"), 1)
 
+    def test_caps_physical_overlay_updates_at_one_frame_per_second(self):
+        driver = FakeDriver()
+        sink = HtmlNativeVideoSink(
+            self.overlay,
+            self.spec,
+            port="/dev/fake",
+            refresh_interval=0.25,
+            driver_factory=lambda _port: driver,
+        )
+        sink.close()
+
+        self.assertIn(
+            ("start-video", self.spec.device_path, 1.0),
+            driver.events,
+        )
+
     def test_start_failure_always_closes_serial(self):
         driver = FakeDriver(fail_start=True)
         with self.assertRaisesRegex(RuntimeError, "start failed"):

@@ -1864,6 +1864,7 @@ def install_runtime_patches(app):
                     text=True,
                     capture_output=True,
                     check=False,
+                    timeout=30,
                 )
                 returncode = result.returncode
                 stdout = result.stdout
