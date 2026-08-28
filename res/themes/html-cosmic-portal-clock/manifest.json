@@ -1,0 +1,58 @@
+{
+  "engine": "html",
+  "name": "Cosmic Portal Clock",
+  "version": 1,
+  "display": {
+    "width": 480,
+    "height": 480
+  },
+  "refreshRate": 2,
+  "entrypoint": "index.html",
+  "overlayDocument": "overlays.json",
+  "permissions": ["sensors"],
+  "network": false,
+  "nativeVideoOverlay": {
+    "enabled": true,
+    "localPath": "cosmic-portal-background.mp4",
+    "devicePath": "/mnt/SDCARD/video/cosmic-portal-background.mp4",
+    "fps": 24,
+    "duration": 8,
+    "backgroundFrame": 0,
+    "backgroundVideo": {
+      "sourcePath": "assets/cosmic-portal-source.mp4",
+      "fit": "cover",
+      "position": "center",
+      "loop": true,
+      "startTime": 0
+    }
+  },
+  "dataUpdateIntervals": {
+    "default": 5,
+    "$sequence": 5,
+    "$timestamp": 1,
+    "cpu.temperature": 1
+  },
+  "atomicRegions": [
+    {
+      "name": "overlay:date-card",
+      "x": 112,
+      "y": 70,
+      "width": 256,
+      "height": 48
+    },
+    {
+      "name": "overlay:clock",
+      "x": 68,
+      "y": 154,
+      "width": 344,
+      "height": 124
+    },
+    {
+      "name": "overlay:cpu-card",
+      "x": 112,
+      "y": 326,
+      "width": 256,
+      "height": 66
+    }
+  ]
+}

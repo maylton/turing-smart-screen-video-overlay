@@ -5,11 +5,166 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 
 
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
+_THEME_IMPORT_ENTRY_POINTS = {
+    "configure-gtk.py",
+    "theme-gallery-gtk.py",
+    "turing-smart-screen-gtk.py",
+    "turing-smart-screen-main.py",
+}
+_MAIN_APP_ENTRY_POINTS = {
+    "configure-gtk.py",
+    "turing-smart-screen",
+    "turing-smart-screen-gtk.py",
+    "turing-smart-screen-main.py",
+}
+_MAIN_APP_WATCH_STARTED = False
+
+
+def _install_html_editor_background_extension() -> None:
+    """Schedule the optional background page without altering editor internals."""
+    if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
+        return
+    try:
+        from library.html_theme_background_compat import install_background_editor_hook
+
+        install_background_editor_hook()
+    except Exception as exc:
+        print(
+            f"Não foi possível preparar a aba Fundo do editor HTML: {exc}",
+            file=sys.stderr,
+        )
+
+
+def _install_html_editor_style_extension() -> None:
+    """Add outer text outlines and a dedicated visual-presets page."""
+    if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
+        return
+    try:
+        from library.html_theme_style_presets_ui import (
+            install_style_preset_editor_hook,
+        )
+
+        install_style_preset_editor_hook()
+    except Exception as exc:
+        print(
+            f"Não foi possível preparar os presets visuais do editor HTML: {exc}",
+            file=sys.stderr,
+        )
+
+
+def _install_html_editor_color_extension() -> None:
+    """Add color pickers and preview palettes inside Style and Effects."""
+    if Path(sys.argv[0]).name != "html-theme-editor-gtk.py":
+        return
+    try:
+        from library.html_theme_color_tools import install_color_tools_hook
+
+        install_color_tools_hook()
+    except Exception as exc:
+        print(
+            f"Não foi possível preparar os seletores de cor: {exc}",
+            file=sys.stderr,
+        )
+
+
+def _install_native_theme_import_dialog() -> None:
+    """Install the native chooser in GTK entry points that already loaded the gallery."""
+    if Path(sys.argv[0]).name not in _THEME_IMPORT_ENTRY_POINTS:
+        return
+    try:
+        from library.theme_import_file_dialog import install
+
+        install()
+    except Exception as exc:
+        print(
+            f"Não foi possível preparar o seletor de arquivos de temas: {exc}",
+            file=sys.stderr,
+        )
+
+
+def _main_app_module():
+    for module in tuple(sys.modules.values()):
+        module_file = str(getattr(module, "__file__", "") or "")
+        if not module_file:
+            continue
+        try:
+            if Path(module_file).name != "configure_gtk_app.py":
+                continue
+        except (OSError, TypeError, ValueError):
+            continue
+        if (
+            getattr(module, "SmartScreenWindow", None) is not None
+            and getattr(module, "SmartScreenApplication", None) is not None
+        ):
+            return module
+    return None
+
+
+def _install_main_app_extensions() -> None:
+    """Install main-window features after the dynamically loaded GTK app exists."""
+    global _MAIN_APP_WATCH_STARTED
+    if Path(sys.argv[0]).name not in _MAIN_APP_ENTRY_POINTS:
+        return
+    if _MAIN_APP_WATCH_STARTED:
+        return
+    _MAIN_APP_WATCH_STARTED = True
+
+    def wait_for_main_app() -> None:
+        for _attempt in range(400):
+            app_module = _main_app_module()
+            if app_module is None:
+                time.sleep(0.025)
+                continue
+
+            def install() -> bool:
+                try:
+                    from library.html_theme_creator import (
+                        install_main_app_theme_creator,
+                    )
+
+                    install_main_app_theme_creator(app_module)
+                except Exception as exc:
+                    print(
+                        f"Não foi possível preparar a criação de temas HTML: {exc}",
+                        file=sys.stderr,
+                    )
+
+                try:
+                    from library.main_app_shutdown import install_main_app_shutdown
+
+                    install_main_app_shutdown(app_module)
+                except Exception as exc:
+                    print(
+                        f"Não foi possível preparar o desligamento coordenado: {exc}",
+                        file=sys.stderr,
+                    )
+                return False
+
+            glib = getattr(app_module, "GLib", None)
+            idle_add = getattr(glib, "idle_add", None)
+            if callable(idle_add):
+                idle_add(install)
+            else:
+                install()
+            return
+
+        print(
+            "Não foi possível localizar a janela GTK para instalar as extensões principais.",
+            file=sys.stderr,
+        )
+
+    threading.Thread(
+        target=wait_for_main_app,
+        name="turing-main-app-extensions",
+        daemon=True,
+    ).start()
 
 
 def _executable(path: Path) -> bool:
@@ -26,8 +181,8 @@ def resolve_project_python(
     """Prefer project or installed venvs before the current Python.
 
     GTK launchers normally run with the system interpreter so PyGObject is
-    available.  Monitor and editor subprocesses still need the application's
-    pip dependencies, which live in a venv.  Source-tree runs may reuse the
+    available. Monitor and editor subprocesses still need the application's
+    pip dependencies, which live in a venv. Source-tree runs may reuse the
     per-user installation venv when no local development venv exists.
     """
     root = Path(root).expanduser()
@@ -61,3 +216,10 @@ def resolve_project_python(
         if _executable(candidate):
             return str(candidate)
     return current
+
+
+_install_html_editor_background_extension()
+_install_html_editor_style_extension()
+_install_html_editor_color_extension()
+_install_native_theme_import_dialog()
+_install_main_app_extensions()

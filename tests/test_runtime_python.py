@@ -75,6 +75,13 @@ class RuntimePythonTests(unittest.TestCase):
             )
             self.assertEqual(selected, "/usr/bin/python3")
 
+    def test_runtime_does_not_patch_webkit_or_python_classes(self):
+        source = Path("library/runtime_python.py").read_text(encoding="utf-8")
+        self.assertNotIn("__build_class__", source)
+        self.assertNotIn("UserContentManager", source)
+        self.assertNotIn("evaluate_javascript_finish", source)
+        self.assertNotIn("_query_dom_styles", source)
+
 
 if __name__ == "__main__":
     unittest.main()

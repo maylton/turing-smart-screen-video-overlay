@@ -32,19 +32,55 @@ class HtmlWidgetComponent:
     kind: str = "text"
 
 
-HTML_WIDGET_COMPONENTS = (
-    HtmlWidgetComponent("cpu-temperature", "Temperatura da CPU", "cpu.temperature", "temperature", "49°C"),
-    HtmlWidgetComponent("gpu-temperature", "Temperatura da GPU", "gpu.temperature", "temperature", "58°C"),
+_SENSOR_COMPONENTS = (
+    HtmlWidgetComponent(
+        "cpu-temperature",
+        "Temperatura da CPU",
+        "cpu.temperature",
+        "temperature",
+        "49°C",
+    ),
+    HtmlWidgetComponent(
+        "gpu-temperature",
+        "Temperatura da GPU",
+        "gpu.temperature",
+        "temperature",
+        "58°C",
+    ),
     HtmlWidgetComponent("cpu-usage", "Uso da CPU", "cpu.usage", "percent", "62%"),
     HtmlWidgetComponent("gpu-usage", "Uso da GPU", "gpu.usage", "percent", "71%"),
     HtmlWidgetComponent("ram-usage", "Uso da RAM", "memory.usage", "percent", "45%"),
-    HtmlWidgetComponent("ram-used", "Memória utilizada", "memory.used", "gigabytes", "14.5 GB", 140, 38),
+    HtmlWidgetComponent(
+        "ram-used",
+        "Memória utilizada",
+        "memory.used",
+        "gigabytes",
+        "14.5 GB",
+        140,
+        38,
+    ),
     HtmlWidgetComponent("cpu-load", "Carga da CPU", "cpu.load.0", "load", "1.25"),
     HtmlWidgetComponent("disk-usage", "Uso do disco", "disk.usage", "percent", "54%"),
-    HtmlWidgetComponent("weather-temperature", "Temperatura do clima", "weather.temperature", "text", "24.0°C", 140, 38),
-    HtmlWidgetComponent("weather-condition", "Condição do clima", "weather.description", "text", "Parcialmente nublado", 220, 38),
+    HtmlWidgetComponent(
+        "weather-temperature",
+        "Temperatura do clima",
+        "weather.temperature",
+        "text",
+        "24.0°C",
+        140,
+        38,
+    ),
+    HtmlWidgetComponent(
+        "weather-condition",
+        "Condição do clima",
+        "weather.description",
+        "text",
+        "Parcialmente nublado",
+        220,
+        38,
+    ),
     HtmlWidgetComponent("time", "Hora", "system.time", "time", "10:32", 140, 48),
-    HtmlWidgetComponent("date", "Data", "$timestamp", "date", "02/08/2026", 160, 38),
+    HtmlWidgetComponent("date", "Data", "$timestamp", "date", "02/08/2026", 180, 38),
     HtmlWidgetComponent(
         "cpu-usage-bar",
         "Barra · Uso da CPU",
@@ -107,6 +143,79 @@ HTML_WIDGET_COMPONENTS = (
     ),
 )
 
+# Shapes intentionally use the existing generated-widget transport. They have
+# no sensor meaning: the local ``shape`` formatter clears their placeholder
+# content, while the decoration renderer paints the actual geometry.
+_SHAPE_COMPONENTS = (
+    HtmlWidgetComponent(
+        "shape-squircle",
+        "Forma decorativa",
+        "$timestamp",
+        "shape",
+        "shape",
+        120,
+        120,
+    ),
+    HtmlWidgetComponent(
+        "shape-circle",
+        "Círculo",
+        "$timestamp",
+        "shape",
+        "shape",
+        120,
+        120,
+    ),
+    HtmlWidgetComponent(
+        "shape-square",
+        "Quadrado",
+        "$timestamp",
+        "shape",
+        "shape",
+        120,
+        120,
+    ),
+    HtmlWidgetComponent(
+        "shape-rounded-rectangle",
+        "Retângulo arredondado",
+        "$timestamp",
+        "shape",
+        "shape",
+        180,
+        90,
+    ),
+    HtmlWidgetComponent(
+        "shape-pill",
+        "Pill",
+        "$timestamp",
+        "shape",
+        "shape",
+        180,
+        54,
+    ),
+    HtmlWidgetComponent(
+        "shape-line-horizontal",
+        "Linha horizontal",
+        "$timestamp",
+        "shape",
+        "shape",
+        180,
+        4,
+    ),
+    HtmlWidgetComponent(
+        "shape-line-vertical",
+        "Linha vertical",
+        "$timestamp",
+        "shape",
+        "shape",
+        4,
+        180,
+    ),
+)
+
+HTML_WIDGET_COMPONENTS = _SENSOR_COMPONENTS + _SHAPE_COMPONENTS
+# Only the first shape appears in the add-element catalog. The Presets page
+# changes its component type after creation.
+_EDITOR_COMPONENTS = _SENSOR_COMPONENTS + (_SHAPE_COMPONENTS[0],)
 _COMPONENTS_BY_KEY = {component.key: component for component in HTML_WIDGET_COMPONENTS}
 
 _WIDGET_BINDING = re.compile(
@@ -130,7 +239,15 @@ SUPPORTED_WIDGET_FORMATTERS = frozenset(
         "load",
         "time",
         "date",
+        "date-short",
+        "date-long",
+        "date-full",
+        "date-compact",
+        "date-iso",
+        "date-weekday",
+        "date-month-day",
         "bar-percent",
+        "shape",
     }
 )
 _WIDGET_KINDS = {"text", "bar"}
@@ -203,7 +320,7 @@ class HtmlGeneratedWidget:
 
 
 def html_widget_components() -> tuple[HtmlWidgetComponent, ...]:
-    return HTML_WIDGET_COMPONENTS
+    return _EDITOR_COMPONENTS
 
 
 def get_html_widget_component(key: str) -> HtmlWidgetComponent:
@@ -295,6 +412,8 @@ def generated_widget_markup(
                 "aria-valuenow": widget.sample,
             }
         )
+    if widget.formatter == "shape":
+        attributes["aria-hidden"] = "true"
     rendered = " ".join(
         name if value == "" else f'{name}="{html.escape(value, quote=True)}"'
         for name, value in attributes.items()
@@ -416,9 +535,6 @@ def render_widget_runtime_script() -> str:
     element.style.setProperty('--turing-editor-y', `${y}px`, 'important');
     element.style.setProperty('left', `${x}px`, 'important');
     element.style.setProperty('top', `${y}px`, 'important');
-    // A transformed ancestor becomes the containing block even for fixed
-    // descendants. Correct its viewport offset without changing the theme's
-    // surrounding layout.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const rect = element.getBoundingClientRect();
       const dx = x - rect.left;
@@ -441,8 +557,58 @@ def render_widget_runtime_script() -> str:
   };
   window.__turingPositionEditorElement = positionInViewport;
   window.__turingNormalizeEditorLayout = normalizeLayout;
+
+  const cleanDateText = value => String(value || '')
+    .replace(/\./g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const dateFromValue = (value, snapshot) => {
+    const seconds = finite(value) ?? finite(snapshot.timestamp) ?? Date.now() / 1000;
+    return new Date(seconds * 1000);
+  };
+  const formatDate = (date, format) => {
+    if (format === 'date-short') {
+      return date.toLocaleDateString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: '2-digit'
+      });
+    }
+    if (format === 'date-long') {
+      return cleanDateText(date.toLocaleDateString('pt-BR', {
+        day: 'numeric', month: 'long', year: 'numeric'
+      }));
+    }
+    if (format === 'date-full') {
+      return cleanDateText(date.toLocaleDateString('pt-BR', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+      }));
+    }
+    if (format === 'date-compact') {
+      return cleanDateText(date.toLocaleDateString('pt-BR', {
+        day: '2-digit', month: 'short'
+      })).toUpperCase();
+    }
+    if (format === 'date-iso') {
+      const year = String(date.getFullYear()).padStart(4, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    if (format === 'date-weekday') {
+      return cleanDateText(date.toLocaleDateString('pt-BR', {
+        weekday: 'long'
+      })).toUpperCase();
+    }
+    if (format === 'date-month-day') {
+      return cleanDateText(date.toLocaleDateString('pt-BR', {
+        day: 'numeric', month: 'short'
+      })).toUpperCase();
+    }
+    return date.toLocaleDateString('pt-BR');
+  };
+
   const formatted = (value, format, snapshot) => {
     const number = finite(value);
+    if (format === 'shape') return '';
     if (format === 'temperature') return number === null ? '--°C' : `${Math.round(number)}°C`;
     if (format === 'percent') return number === null ? '--%' : `${Math.round(Math.max(0, Math.min(100, number)))}%`;
     if (format === 'gigabytes') return number === null ? '-- GB' : `${number.toFixed(1)} GB`;
@@ -477,11 +643,12 @@ def render_widget_runtime_script() -> str:
       const supplied = String(value || '').trim();
       if (supplied) return supplied.slice(0, 5);
       const date = new Date((finite(snapshot.timestamp) || Date.now() / 1000) * 1000);
-      return date.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit', hour12: false});
+      return date.toLocaleTimeString('pt-BR', {
+        hour: '2-digit', minute: '2-digit', hour12: false
+      });
     }
-    if (format === 'date') {
-      const date = new Date((number || Date.now() / 1000) * 1000);
-      return date.toLocaleDateString('pt-BR');
+    if (format === 'date' || String(format).startsWith('date-')) {
+      return formatDate(dateFromValue(value, snapshot), format);
     }
     const text = String(value === null || value === undefined ? '' : value).trim();
     return text || '--';
