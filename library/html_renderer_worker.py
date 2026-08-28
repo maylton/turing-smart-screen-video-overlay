@@ -265,6 +265,27 @@ def run(theme: Path) -> int:
             engine.update_async(collector.collect(), updated)
             return True
 
+        def check_transport_health(self):
+            """Stop the renderer if the native overlay dies between captures.
+
+            WebKit can stop producing snapshots while its GTK main loop keeps
+            running.  In that state the capture callback never gets a chance
+            to call ``sink.check_health()``, leaving a dead overlay worker and
+            a live-but-frozen renderer.  Poll the transport independently so
+            the supervisor can restart the complete renderer process.
+            """
+            if self.closing:
+                return False
+            if hybrid_spec is None or self.sink is None:
+                return True
+            try:
+                self.sink.check_health()
+            except Exception as exc:
+                print(f"HTML native transport stopped safely: {exc}", file=sys.stderr, flush=True)
+                self.stop()
+                return False
+            return True
+
         def start_updates(self, error=None):
             if error is not None:
                 print(f"HTML layer configuration failed: {error}", file=sys.stderr, flush=True)
@@ -274,6 +295,8 @@ def run(theme: Path) -> int:
             self.update_and_capture()
             source_id = GLib.timeout_add(interval, self.update_and_capture)
             self.source_ids.add(source_id)
+            health_source_id = GLib.timeout_add(1000, self.check_transport_health)
+            self.source_ids.add(health_source_id)
 
         def do_activate(self):
             engine.load(manifest)
