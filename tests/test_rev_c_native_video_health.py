@@ -49,6 +49,20 @@ class RevCNativeVideoHealthTests(unittest.TestCase):
             SERIAL_WRITE_TIMEOUT_SECONDS,
         )
 
+    def test_close_discards_pending_output_before_closing_tty(self):
+        lcd = self.bare_lcd()
+        events = []
+        lcd.lcd_serial = SimpleNamespace(
+            cancel_write=lambda: events.append("cancel"),
+            reset_output_buffer=lambda: events.append("discard"),
+            close=lambda: events.append("close"),
+        )
+
+        lcd.closeSerial()
+
+        self.assertIsNone(lcd.lcd_serial)
+        self.assertEqual(events, ["cancel", "discard", "close"])
+
     def test_rev_c_write_timeout_is_not_swallowed(self):
         lcd = self.bare_lcd()
         lcd.serial_write = mock.Mock(

@@ -150,6 +150,30 @@ class LcdCommRevC(LcdComm):
         if self.lcd_serial is not None:
             self.lcd_serial.write_timeout = SERIAL_WRITE_TIMEOUT_SECONDS
 
+    def closeSerial(self):
+        """Discard a wedged kernel TX queue before closing the Rev. C TTY.
+
+        Linux may wait in ``tty_wait_until_sent`` during ``close(2)`` when the
+        firmware has stopped consuming USB CDC output. Clearing the queued
+        bytes first keeps recovery and shutdown bounded.
+        """
+        serial_port, self.lcd_serial = getattr(self, "lcd_serial", None), None
+        if serial_port is None:
+            return
+        try:
+            cancel_write = getattr(serial_port, "cancel_write", None)
+            if callable(cancel_write):
+                cancel_write()
+        except Exception:
+            pass
+        try:
+            reset_output = getattr(serial_port, "reset_output_buffer", None)
+            if callable(reset_output):
+                reset_output()
+        except Exception:
+            pass
+        serial_port.close()
+
     def __init__(self, com_port: str = "AUTO", display_width: int = 480, display_height: int = 800,
                  update_queue: Optional[queue.Queue] = None):
         logger.debug("HW revision: C")
