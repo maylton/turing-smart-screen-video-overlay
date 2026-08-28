@@ -7,6 +7,7 @@ import argparse
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 
 import yaml
@@ -151,6 +152,7 @@ def run(theme: Path) -> int:
             self.sink = None
             self.planner = None
             self.capture_busy = False
+            self.sensor_update_busy = False
             self.closing = False
             self.source_ids = set()
             self.last_overlay = None
@@ -247,9 +249,14 @@ def run(theme: Path) -> int:
             engine.snapshot_png_bytes(finished)
             return True
 
-        def update_and_capture(self):
-            if self.closing or self.capture_busy:
-                return not self.closing
+        def _apply_sensor_snapshot(self, snapshot, collection_error):
+            self.sensor_update_busy = False
+            if self.closing:
+                return False
+            if collection_error is not None:
+                print(f"HTML sensor collection failed: {collection_error}", file=sys.stderr, flush=True)
+                self.stop()
+                return False
 
             def updated(error):
                 if self.closing:
@@ -258,11 +265,24 @@ def run(theme: Path) -> int:
                     print(f"HTML update failed: {error}", file=sys.stderr, flush=True)
                     self.stop()
                     return
-                # Wait one paint turn after JavaScript has completed before
-                # asking WebKit for a texture.
                 schedule_once(GLib, 12, self.capture, self.source_ids)
 
-            engine.update_async(collector.collect(), updated)
+            engine.update_async(snapshot, updated)
+            return False
+
+        def update_sensors(self):
+            if self.closing or self.sensor_update_busy:
+                return not self.closing
+            self.sensor_update_busy = True
+
+            def collect_sensors():
+                try:
+                    snapshot, error = collector.collect(), None
+                except Exception as exc:
+                    snapshot, error = None, exc
+                GLib.idle_add(self._apply_sensor_snapshot, snapshot, error)
+
+            threading.Thread(target=collect_sensors, name="html-sensor-collector", daemon=True).start()
             return True
 
         def check_transport_health(self):
@@ -292,9 +312,11 @@ def run(theme: Path) -> int:
                 self.stop()
                 return
             interval = max(500, int(round(1000 / manifest.refresh_rate)))
-            self.update_and_capture()
-            source_id = GLib.timeout_add(interval, self.update_and_capture)
-            self.source_ids.add(source_id)
+            self.update_sensors()
+            self.capture()
+            capture_source_id = GLib.timeout_add(interval, self.capture)
+            sensor_source_id = GLib.timeout_add(interval, self.update_sensors)
+            self.source_ids.update({capture_source_id, sensor_source_id})
             health_source_id = GLib.timeout_add(1000, self.check_transport_health)
             self.source_ids.add(health_source_id)
 

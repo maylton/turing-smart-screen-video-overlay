@@ -14,6 +14,7 @@ from library.theme_engine import NativeVideoOverlay, ThemeValidationError
 
 def _default_driver_factory(port: str):
     from library.lcd.lcd_comm_rev_c import LcdCommRevC
+
     return LcdCommRevC(com_port=port, display_width=480, display_height=480)
 
 
