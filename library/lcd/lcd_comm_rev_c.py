@@ -123,12 +123,33 @@ class SubRevision(Enum):
 
 
 WAKE_RETRIES = 15
-VIDEO_OVERLAY_MAX_ATTEMPTS = 3
-VIDEO_OVERLAY_RETRY_DELAYS_SECONDS = (0.15, 0.35)
+HELLO_ATTEMPTS = 3
+POST_RESET_HELLO_ATTEMPTS = 3
+SERIAL_WRITE_TIMEOUT_SECONDS = 2.0
+USB_SETTLE_SECONDS = 1.0
+
+AWAKE_USB_IDS = (
+    (0x1D6B, 0x0121),
+    (0x1D6B, 0x0106),
+    (0x0525, 0xA4A7),
+)
+SLEEPING_USB_IDS = (
+    (0x1A86, 0xCA21),
+)
+
+
+class RevCRecoveryError(RuntimeError):
+    """Raised when a Rev. C display cannot be recovered automatically."""
 
 
 # This class is for Turing Smart Screen 2.1" / 2.8" / 5" / 8" screens
 class LcdCommRevC(LcdComm):
+    def openSerial(self):
+        """Open Rev. C with bounded writes, including every reopen path."""
+        super().openSerial()
+        if self.lcd_serial is not None:
+            self.lcd_serial.write_timeout = SERIAL_WRITE_TIMEOUT_SECONDS
+
     def __init__(self, com_port: str = "AUTO", display_width: int = 480, display_height: int = 800,
                  update_queue: Optional[queue.Queue] = None):
         logger.debug("HW revision: C")
@@ -241,6 +262,32 @@ class LcdCommRevC(LcdComm):
             if readsize:
                 self.update_queue.put((self.ReadData, [readsize]))
 
+    def WriteData(self, byteBuffer: bytearray):
+        """Write one protocol block without swallowing transport timeouts.
+
+        The generic driver treats a write timeout as a pacing warning. For
+        Rev. C that is unsafe: the next status read would make a failed bitmap
+        look successful, and pyserial's default unlimited write wait can wedge
+        the native-overlay worker forever.
+        """
+        line = bytes(byteBuffer)
+        try:
+            self.serial_write(line)
+        except serial.SerialTimeoutException:
+            logger.error(
+                "Rev. C serial write timed out after %.1fs",
+                SERIAL_WRITE_TIMEOUT_SECONDS,
+            )
+            raise
+        except serial.SerialException:
+            logger.error(
+                "Rev. C serial write failed; reopening COM port before one retry"
+            )
+            self.closeSerial()
+            time.sleep(1)
+            self.openSerial()
+            self.serial_write(line)
+
     def _get_sub_revision(self) -> SubRevision:
         dimensions = (self.display_width, self.display_height)
         return {
@@ -249,23 +296,30 @@ class LcdCommRevC(LcdComm):
             (480, 1920): SubRevision.REV_8INCH,
         }.get(dimensions, SubRevision.UNKNOWN)
 
-    def _hello(self):
-        # This command reads LCD answer on serial link, so it bypasses the queue
+    def _hello_exchange(self) -> str:
         self.sub_revision = self._get_sub_revision()
-        self.serial_flush_input()
-        self._send_command(Command.HELLO, bypass_queue=True)
-        response = ''.join(
-            filter(lambda x: x in set(string.printable), str(self.serial_read(23).decode(errors="ignore"))))
-        self.serial_flush_input()
-        logger.debug("Display ID returned: %s" % response)
-        while not response.startswith("chs_"):
-            logger.warning("Display returned invalid or unsupported ID, try again in 1 second")
-            time.sleep(1)
-            self._send_command(Command.HELLO, bypass_queue=True)
-            response = ''.join(
-                filter(lambda x: x in set(string.printable), str(self.serial_read(23).decode(errors="ignore"))))
+        try:
             self.serial_flush_input()
-            logger.debug("Display ID returned: %s" % response)
+            self._send_command(Command.HELLO, bypass_queue=True)
+            payload = self.serial_read(23)
+        except (serial.SerialException, serial.SerialTimeoutException) as exc:
+            logger.warning("Rev. C HELLO exchange failed: %s", exc)
+            return ""
+        finally:
+            try:
+                self.serial_flush_input()
+            except Exception:
+                pass
+
+        response = "".join(
+            character
+            for character in payload.decode(errors="ignore")
+            if character in set(string.printable)
+        )
+        logger.debug("Display ID returned: %s", response)
+        return response
+
+    def _finish_hello(self, response: str) -> None:
 
         # Note: ID returned by display are not reliable for some models e.g. 2.1" displays return "chs_5inch"
         # Rely on width/height for sub-revision detection
@@ -279,11 +333,88 @@ class LcdCommRevC(LcdComm):
             if self.rom_version < 80 or self.rom_version > 100:
                 logger.warning("ROM version %d may be invalid, use default ROM version 87" % self.rom_version)
                 self.rom_version = 87
-        except:
+        except Exception:
             logger.warning("Display returned invalid or unsupported ID, use default ROM version 87")
             self.rom_version = 87
 
         logger.debug("HW sub-revision detected: %s, ROM version: %d" % ((str(self.sub_revision)), self.rom_version))
+
+    def _try_hello(self, attempts: int) -> str:
+        for attempt in range(1, attempts + 1):
+            logger.debug("Rev. C HELLO attempt %d/%d", attempt, attempts)
+            response = self._hello_exchange()
+            if response.startswith("chs_"):
+                return response
+            if attempt < attempts:
+                logger.warning(
+                    "Display returned an empty or invalid ID; retrying in 1 second"
+                )
+                time.sleep(1)
+        return ""
+
+    @staticmethod
+    def _matching_usb_device():
+        try:
+            import usb.core
+        except Exception as exc:
+            raise RevCRecoveryError(
+                "pyusb is required for Rev. C USB recovery"
+            ) from exc
+
+        devices = list(usb.core.find(find_all=True) or [])
+        by_id = {(device.idVendor, device.idProduct): device for device in devices}
+        for identity in AWAKE_USB_IDS + SLEEPING_USB_IDS:
+            device = by_id.get(identity)
+            if device is not None:
+                return device
+        return None
+
+    def _usb_reset_and_reopen(self) -> None:
+        try:
+            self.closeSerial()
+        except Exception:
+            pass
+
+        device = self._matching_usb_device()
+        if device is None:
+            raise RevCRecoveryError("no Rev. C USB endpoint is available for reset")
+
+        identity = (device.idVendor, device.idProduct)
+        logger.warning(
+            "Rev. C handshake is unresponsive; resetting USB endpoint %04x:%04x",
+            identity[0],
+            identity[1],
+        )
+        try:
+            device.reset()
+        except Exception as exc:
+            raise RevCRecoveryError(
+                "USB reset failed; verify raw USB udev permissions"
+            ) from exc
+        finally:
+            try:
+                import usb.util
+                usb.util.dispose_resources(device)
+            except Exception:
+                pass
+
+        time.sleep(USB_SETTLE_SECONDS)
+        self.com_port = "AUTO"
+        self.openSerial()
+
+    def _hello(self):
+        response = self._try_hello(HELLO_ATTEMPTS)
+        if response.startswith("chs_"):
+            self._finish_hello(response)
+            return
+
+        self._usb_reset_and_reopen()
+        response = self._try_hello(POST_RESET_HELLO_ATTEMPTS)
+        if not response.startswith("chs_"):
+            raise RevCRecoveryError(
+                "Rev. C display did not answer HELLO after USB recovery"
+            )
+        self._finish_hello(response)
 
     def InitializeComm(self):
         self._hello()
@@ -735,51 +866,20 @@ class LcdCommRevC(LcdComm):
         self._apply_video_overlay()
 
     def _send_full_video_overlay(self, image: Image.Image):
-        """Send an overlay frame with bounded transient transport recovery.
+        """Send one overlay frame and fail fast on transport loss.
 
         PySerial returns ``b""`` when the one-second read timeout expires; it
         does not raise ``SerialException`` and therefore bypasses the generic
         reopen path. Rev. C firmware can occasionally delay or omit an ACK
         while still remaining usable, especially across host sleep or under
-        load. Retry the complete atomic transaction before surfacing a fatal
-        error to the supervising HTML worker.
+        load. Re-sending another 925 KB bitmap immediately can wedge the
+        firmware harder, so recovery is delegated to the process supervisor.
         """
         with self._video_overlay_serial_lock:
             backup_orientation = self.orientation
             try:
                 self.orientation = Orientation.LANDSCAPE
-                for attempt in range(1, VIDEO_OVERLAY_MAX_ATTEMPTS + 1):
-                    try:
-                        self._send_full_video_overlay_transaction(image)
-                        return
-                    except Exception as exc:
-                        if attempt >= VIDEO_OVERLAY_MAX_ATTEMPTS:
-                            raise
-                        delay = VIDEO_OVERLAY_RETRY_DELAYS_SECONDS[
-                            min(attempt - 1, len(VIDEO_OVERLAY_RETRY_DELAYS_SECONDS) - 1)
-                        ]
-                        logger.warning(
-                            "Native video overlay transaction failed "
-                            "(attempt %d/%d: %s); retrying in %.2fs",
-                            attempt,
-                            VIDEO_OVERLAY_MAX_ATTEMPTS,
-                            exc,
-                            delay,
-                        )
-                        # Drop a late ACK from the failed transaction before
-                        # starting the next complete transaction.
-                        try:
-                            self.serial_flush_input()
-                        except Exception as flush_exc:
-                            # A device waking from suspend may briefly reject
-                            # both reads and buffer resets. The next complete
-                            # transaction is still worth attempting.
-                            logger.warning(
-                                "Could not flush the display input buffer "
-                                "before retry: %s",
-                                flush_exc,
-                            )
-                        time.sleep(delay)
+                self._send_full_video_overlay_transaction(image)
             finally:
                 self.orientation = backup_orientation
 

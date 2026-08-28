@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import multiprocessing
+import signal
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from library.runtime import DeviceBusyError, DeviceLock, get_runtime_state
+from library.runtime import (
+    DeviceBusyError,
+    DeviceLock,
+    _force_terminate_monitor_tree,
+    get_runtime_state,
+)
 
 
 def hold_lock(lock_path: str, ready) -> None:
@@ -16,6 +23,18 @@ def hold_lock(lock_path: str, ready) -> None:
 
 
 class DeviceLockTests(unittest.TestCase):
+    def test_force_termination_kills_dedicated_monitor_group(self):
+        with (
+            mock.patch("library.runtime.os.name", "posix"),
+            mock.patch("library.runtime.os.getpgid", return_value=4321),
+            mock.patch("library.runtime.os.killpg") as kill_group,
+            mock.patch("library.runtime.os.kill") as kill_process,
+        ):
+            _force_terminate_monitor_tree(4321)
+
+        kill_group.assert_called_once_with(4321, signal.SIGKILL)
+        kill_process.assert_not_called()
+
     def test_second_process_sees_owner_and_cannot_acquire(self):
         with tempfile.TemporaryDirectory() as directory:
             lock_path = Path(directory) / "device.lock"

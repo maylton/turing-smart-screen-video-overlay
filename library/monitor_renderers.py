@@ -16,6 +16,8 @@ from library.renderer_lifecycle import RendererSelection
 
 HTML_WORKER_RESTART_DELAYS_SECONDS = (1.0, 2.0, 5.0, 10.0, 30.0)
 HTML_WORKER_STABLE_SECONDS = 60.0
+HTML_WORKER_GRACEFUL_STOP_SECONDS = 5.0
+HTML_WORKER_FORCE_STOP_SECONDS = 2.0
 
 
 class LegacyYamlRunner:
@@ -106,10 +108,10 @@ class HtmlWorkerRunner:
         if process.poll() is None:
             process.terminate()
             try:
-                process.wait(timeout=8)
+                process.wait(timeout=HTML_WORKER_GRACEFUL_STOP_SECONDS)
             except subprocess.TimeoutExpired:
                 process.kill()
-                process.wait(timeout=3)
+                process.wait(timeout=HTML_WORKER_FORCE_STOP_SECONDS)
 
     def wait(self) -> int:
         restart_index = 0

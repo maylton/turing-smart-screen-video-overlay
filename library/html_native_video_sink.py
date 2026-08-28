@@ -21,6 +21,7 @@ class HtmlNativeVideoSink:
     """Open serial once, start native video, and retain only the latest overlay."""
 
     MINIMUM_TRANSPARENT_RATIO = 0.10
+    MINIMUM_PHYSICAL_REFRESH_INTERVAL_SECONDS = 1.0
 
     def __init__(
         self,
@@ -52,7 +53,10 @@ class HtmlNativeVideoSink:
             driver.SetOrientation(Orientation.LANDSCAPE)
             driver.StartVideoOverlay(
                 spec.device_path,
-                refresh_interval=max(0.25, float(refresh_interval)),
+                refresh_interval=max(
+                    self.MINIMUM_PHYSICAL_REFRESH_INTERVAL_SECONDS,
+                    float(refresh_interval),
+                ),
             )
             self.submit(initial_overlay)
         except Exception:

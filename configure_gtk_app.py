@@ -1412,6 +1412,7 @@ class SmartScreenWindow(Adw.ApplicationWindow):
                 text=True,
                 capture_output=True,
                 check=False,
+                timeout=30,
             )
             GLib.idle_add(
                 self.finish_turn_off_display,
