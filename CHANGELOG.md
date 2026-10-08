@@ -10,6 +10,15 @@ and fork releases follow semantic versioning where practical.
 ### Added
 
 - `scripts/install-system-deps.sh` installs native dependencies on Arch (`pacman`), Debian/Ubuntu (`apt-get`) and Fedora (`dnf`) family distributions; `--print` previews the package list.
+- Rev. C partial updates are clipped to the display instead of crashing on offscreen coordinates, in every renderer (previously a runtime patch that the YAML monitor never loaded).
+- The AMD GPU selected in the GPU selection dialog is used by YAML themes too, not only by HTML themes.
+- The adaptive Theme Gallery cards (aspect-correct previews, badges and an actions menu) and the export preflight are active on every distribution; they only loaded on systems without a system `sitecustomize.py`.
+- Ctrl-C in the terminal that launched the GTK app exits quietly.
+
+### Changed
+
+- The GTK application is composed from explicit mixin classes (`library/main_app.py`) instead of runtime method patches installed by `configure-gtk.py`, `sitecustomize.py`, `usercustomize.py`, `runtime_python.py` and seven integration modules. `configure_gtk_app.py` moved to `library/main_app_base.py`.
+- The Theme Gallery imports through the native GTK file chooser and accepts legacy plain-ZIP `.theme` packages.
 
 ### Removed
 
@@ -17,12 +26,16 @@ and fork releases follow semantic versioning where practical.
 - Windows and macOS support inherited from upstream: LibreHardwareMonitor DLLs and sensors, pyadl, PyInstaller specs, the Windows installer and the Windows/macOS/PyInstaller workflows. `HW_SENSORS: LHM` is no longer accepted.
 - The legacy Tk configuration window (`configure.py`) and theme editor (`theme-editor.py`), with their "classic" entries in the GTK app; Tk is no longer a dependency.
 - Unused prototypes and modules: the HTML preview/transport/physical test harnesses, unused theme preset modules, alternative launchers, personal start scripts and obsolete development notes in `docs/`.
+- Features whose hooks never loaded in an installed app: the tray icon appearance controls on the Settings page and the Theme Editor versioned backups (`theme-backups.py`).
+- Code that never ran or was always overridden: the standalone Theme Gallery window, the plain gallery cards, the unbuilt Tools page, the YAML blank-theme dialog replaced by the HTML theme creator, 16 shadowed window methods and the never-imported `embedded_*_runtime.py` modules.
 
 ### Fixed
 
 - Native installs on Debian/Ubuntu (and Arch without `python-cairo`) lacked the PyGObject cairo integration, so every HTML frame capture failed and the display stayed dark while the monitor reported a successful start. The installer now installs it, the installed checkup verifies `gi._gi_cairo`, and the HTML renderer refuses to start with an actionable message when it is missing.
 - HTML renderer failures now exit with a non-zero status, and worker restarts are written to `log.log` instead of only to stderr.
 - WebKitGTK dependencies are installed regardless of the renderer selected in `config.yaml`, since the HTML renderer can be enabled from the GUI later.
+- On Arch, exporting a theme with preflight warnings showed the warning dialog twice.
+- In English, the empty Theme Gallery counter read "No compatible themes para …".
 
 ### Planned
 
