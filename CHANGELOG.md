@@ -14,6 +14,9 @@ and fork releases follow semantic versioning where practical.
 ### Removed
 
 - Flatpak and AppImage packaging (`packaging/flatpak`, the Linux Packages and AppImage workflows). Neither build ever produced a published bundle; the native installer is the supported installation path.
+- Windows and macOS support inherited from upstream: LibreHardwareMonitor DLLs and sensors, pyadl, PyInstaller specs, the Windows installer and the Windows/macOS/PyInstaller workflows. `HW_SENSORS: LHM` is no longer accepted.
+- The legacy Tk configuration window (`configure.py`) and theme editor (`theme-editor.py`), with their "classic" entries in the GTK app; Tk is no longer a dependency.
+- Unused prototypes and modules: the HTML preview/transport/physical test harnesses, unused theme preset modules, alternative launchers, personal start scripts and obsolete development notes in `docs/`.
 
 ### Fixed
 
