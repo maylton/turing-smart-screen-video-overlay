@@ -5,6 +5,7 @@ SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_FILTER="$SOURCE_DIR/packaging/runtime-rsync-filter.txt"
 CORE_FONT_FILTER="$SOURCE_DIR/packaging/core-fonts-rsync-filter.txt"
 HARDWARE_ACCESS_HELPER="$SOURCE_DIR/scripts/configure-hardware-access.sh"
+SYSTEM_DEPS_HELPER="$SOURCE_DIR/scripts/install-system-deps.sh"
 
 APP_ID="io.github.turing.SmartScreen"
 APP_NAME="Turing Smart Screen"
@@ -36,6 +37,10 @@ Default installation:
   Application: ~/.local/share/turing-smart-screen
   Launcher:    ~/.local/bin/turing-smart-screen
   Desktop:     ~/.local/share/applications/io.github.turing.SmartScreen.desktop
+
+System packages are installed by scripts/install-system-deps.sh for Arch,
+Debian/Ubuntu and Fedora family distributions. Preview the package list with:
+  scripts/install-system-deps.sh --print
 EOF
 }
 
@@ -119,20 +124,13 @@ if [[ "$SOURCE_REAL" == "$PREFIX_REAL" ]]; then
 fi
 
 if [[ "$INSTALL_DEPS" -eq 1 ]]; then
-  if command -v pacman >/dev/null 2>&1; then
-    echo "Installing Arch/CachyOS dependencies..."
-    HTML_SYSTEM_DEPS=()
-    if grep -A 3 -E '^renderer:' "$SOURCE_DIR/config.yaml" | grep -q -E '^[[:space:]]+engine:[[:space:]]*html[[:space:]]*$'; then
-      HTML_SYSTEM_DEPS+=(webkitgtk-6.0 webkit2gtk-4.1)
-    fi
-    sudo pacman -S --needed \
-      python python-pip python-virtualenv python-gobject \
-      gtk4 libadwaita ffmpeg rsync git tk python-pillow \
-      python-pyserial python-babel desktop-file-utils xdg-utils acl \
-      "${HTML_SYSTEM_DEPS[@]}"
+  # The HTML renderer can be enabled from the GUI after installation, so its
+  # WebKitGTK and PyGObject cairo dependencies are always installed.
+  if [[ -f "$SYSTEM_DEPS_HELPER" ]]; then
+    bash "$SYSTEM_DEPS_HELPER"
   else
-    echo "Automatic dependency installation currently supports Arch/CachyOS." >&2
-    echo "Required: Python 3, PyGObject, GTK3/GTK4, WebKitGTK 4.1/6.0, Libadwaita, ffmpeg, rsync, Git, Tk, Pillow, pyserial, Babel, desktop-file-utils and xdg-utils." >&2
+    echo "System dependency helper was not found: $SYSTEM_DEPS_HELPER" >&2
+    exit 1
   fi
 fi
 

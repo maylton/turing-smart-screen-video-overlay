@@ -7,6 +7,16 @@ and fork releases follow semantic versioning where practical.
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/install-system-deps.sh` installs native dependencies on Arch (`pacman`), Debian/Ubuntu (`apt-get`) and Fedora (`dnf`) family distributions; `--print` previews the package list.
+
+### Fixed
+
+- Native installs on Debian/Ubuntu (and Arch without `python-cairo`) lacked the PyGObject cairo integration, so every HTML frame capture failed and the display stayed dark while the monitor reported a successful start. The installer now installs it, the installed checkup verifies `gi._gi_cairo`, and the HTML renderer refuses to start with an actionable message when it is missing.
+- HTML renderer failures now exit with a non-zero status, and worker restarts are written to `log.log` instead of only to stderr.
+- WebKitGTK dependencies are installed regardless of the renderer selected in `config.yaml`, since the HTML renderer can be enabled from the GUI later.
+
 ### Planned
 
 - Broader hardware validation across additional Turing/TURZX/XuanFang/Kipye/WeAct profiles.

@@ -134,12 +134,24 @@ class PackagingContractTests(unittest.TestCase):
         )
 
     def test_installer_includes_visible_and_offscreen_webkit_backends(self):
-        text = (ROOT / "install.sh").read_text(encoding="utf-8")
-        self.assertIn("webkitgtk-6.0", text)
-        self.assertIn("webkit2gtk-4.1", text)
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'SYSTEM_DEPS_HELPER="$SOURCE_DIR/scripts/install-system-deps.sh"',
+            installer,
+        )
+        self.assertIn('bash "$SYSTEM_DEPS_HELPER"', installer)
+        helper = (ROOT / "scripts" / "install-system-deps.sh").read_text(encoding="utf-8")
+        for package in (
+            "webkitgtk-6.0", "webkit2gtk-4.1",  # Arch
+            "gir1.2-webkit-6.0", "gir1.2-webkit2-4.1",  # Debian/Ubuntu
+            "webkitgtk6.0", "webkit2gtk4.1",  # Fedora
+        ):
+            with self.subTest(package=package):
+                self.assertIn(package, helper)
         checkup = (ROOT / "gtk-checkup.py").read_text(encoding="utf-8")
         self.assertIn("Background HTML renderer dependencies", checkup)
         self.assertIn("gi.require_version('WebKit2', '4.1')", checkup)
+        self.assertIn("import gi._gi_cairo", checkup)
 
     def test_installer_runs_the_installed_checkup(self):
         text = (ROOT / "install.sh").read_text(encoding="utf-8")

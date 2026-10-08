@@ -211,7 +211,10 @@ def main() -> int:
                     "gi.require_version('Gtk', '3.0'); "
                     "gi.require_version('WebKit2', '4.1'); "
                     "from gi.repository import Gtk, WebKit2; "
-                    "assert hasattr(Gtk, 'OffscreenWindow')"
+                    "assert hasattr(Gtk, 'OffscreenWindow'); "
+                    # WebKitGTK 4.1 snapshots are cairo surfaces; without
+                    # this converter no frame ever reaches the display.
+                    "import gi._gi_cairo"
                 ),
             ],
             text=True,
@@ -219,6 +222,13 @@ def main() -> int:
             check=False,
         )
         offscreen_details = (offscreen.stderr or offscreen.stdout).strip()
+        if offscreen.returncode != 0 and "_gi_cairo" in offscreen_details:
+            offscreen_details = (
+                offscreen_details.splitlines()[-1]
+                + " | Install the PyGObject cairo integration with "
+                "scripts/install-system-deps.sh (python3-gi-cairo on "
+                "Debian/Ubuntu, python3-gobject on Fedora, python-cairo on Arch)."
+            )
         checks.append(result(
             offscreen.returncode == 0,
             "Background HTML renderer dependencies",

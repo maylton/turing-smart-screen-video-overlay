@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from library.log import logger
 from library.renderer_lifecycle import RendererSelection
 
 
@@ -133,11 +134,11 @@ class HtmlWorkerRunner:
                 min(restart_index, len(HTML_WORKER_RESTART_DELAYS_SECONDS) - 1)
             ]
             restart_index += 1
-            print(
+            logger.warning(
                 "HTML renderer worker exited unexpectedly "
-                f"(status {last_code}); restarting in {delay:.1f}s",
-                file=sys.stderr,
-                flush=True,
+                "(status %d); restarting in %.1fs",
+                last_code,
+                delay,
             )
             if self._stopping.wait(delay):
                 return int(last_code)
@@ -147,10 +148,6 @@ class HtmlWorkerRunner:
             except Exception as exc:
                 # Keep the monitor owner alive while USB/devices settle after
                 # resume. The bounded backoff prevents a tight restart loop.
-                print(
-                    f"Could not restart HTML renderer worker: {exc}",
-                    file=sys.stderr,
-                    flush=True,
-                )
+                logger.error("Could not restart HTML renderer worker: %s", exc)
 
         return int(last_code)

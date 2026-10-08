@@ -2,18 +2,23 @@
 
 Turing Smart Screen for Linux supports two installation paths:
 
-1. **Flatpak (recommended for normal users)** — install the stable bundle from
-   GitHub Releases.
-2. **Native/source install (recommended for development)** — clone `main` and
-   use the repository installer.
+1. **Native/source install** — clone `main` and use the repository installer.
+   This is the working path today.
+2. **Flatpak** — build it locally from `packaging/flatpak` (see
+   [Building the Flatpak from source](#building-the-flatpak-from-source)).
 
-The current stable application version is **0.9.0**.
+The current application version is **0.9.0**.
+
+> [!IMPORTANT]
+> No prebuilt bundle is published yet: the Flatpak and AppImage CI builds on
+> `main` are failing and the GitHub Releases page is empty. The bundle
+> instructions below apply once a release is published.
 
 ---
 
-## Recommended: Flatpak 0.9.0
+## Flatpak 0.9.0 bundle
 
-The GitHub release provides:
+A GitHub release is expected to provide:
 
 - `Turing-Smart-Screen-0.9.0-x86_64.flatpak`;
 - `70-turing-smart-screen.rules`;
@@ -147,25 +152,24 @@ git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
 cd turing-smart-screen-video-overlay
 ```
 
-### Readiness check
+### Readiness checks
+
+Preview the detected distribution family, package manager and system packages
+without changing anything:
 
 ```bash
-./install.sh --check-only
+scripts/install-system-deps.sh --print
 ```
 
-This mode is non-destructive. It reports:
+After installing, re-run the installed checkup at any time. It verifies the
+GTK4/Libadwaita imports, the HTML renderer dependencies (WebKitGTK and the
+PyGObject cairo integration) when the HTML renderer is enabled, required files
+and AMD GPU monitoring support:
 
-- source directory and target install paths;
-- detected Linux distribution and package manager;
-- dependency hints for common distro families;
-- required project files;
-- Python/venv readiness;
-- GTK4/Libadwaita imports;
-- Pillow, PyYAML and ruamel.yaml availability;
-- installed virtual-environment health;
-- whether the launcher directory is in `PATH`;
-- connected serial/USB devices;
-- real device owner/group/mode and current-user access.
+```bash
+cd ~/.local/share/turing-smart-screen
+venv/bin/python3 gtk-checkup.py .
+```
 
 ### Per-user install
 
@@ -189,10 +193,40 @@ turing-smart-screen
 
 The native GTK application expects system GTK/PyGObject packages plus normal
 project/runtime tools such as Python, FFmpeg/FFprobe and desktop integration
-utilities. The exact package names vary by distribution; use
-`./install.sh --check-only` for distro-specific hints.
+utilities. The project virtual environment is created with
+`--system-site-packages`, so PyGObject, pycairo and the GTK/WebKit introspection
+data always come from the distribution.
 
-The installer can automate dependencies on supported package-manager paths, but
+`./install.sh` installs them through `scripts/install-system-deps.sh`, which
+detects the distribution family from `/etc/os-release` (falling back to the
+available package manager):
+
+| Family | Examples | Package manager |
+| --- | --- | --- |
+| Arch | Arch Linux, CachyOS, Manjaro, EndeavourOS | `pacman` |
+| Debian | Debian, Ubuntu, Linux Mint, Pop!_OS | `apt-get` |
+| Fedora | Fedora, Nobara, RHEL/Rocky/AlmaLinux | `dnf` |
+
+Preview what would be installed without changing the system:
+
+```bash
+scripts/install-system-deps.sh --print
+```
+
+The HTML renderer needs the PyGObject cairo integration (`gi._gi_cairo`):
+WebKitGTK 4.1 returns frame snapshots as cairo surfaces. Some distributions ship
+it separately (`python3-gi-cairo` on Debian/Ubuntu, `python-cairo` on Arch;
+`python3-gobject` on Fedora). Without it the monitor starts but the display
+stays dark, and the renderer reports
+`Couldn't find foreign struct converter for 'cairo.Surface'`.
+
+Media preparation encodes H.264 with `libx264`. Fedora's default
+`ffmpeg-free` does not include that encoder; enable RPM Fusion and run
+`sudo dnf swap ffmpeg-free ffmpeg --allowerasing`.
+
+On other distributions the helper prints the required components so they can be
+installed manually before running `./install.sh --no-deps`.
+
 Flatpak remains the simpler end-user installation because it carries the
 application runtime/dependencies in a controlled environment.
 
@@ -308,8 +342,21 @@ sudo udevadm trigger
 
 Reconnect the device and retry.
 
-For native installs, `./install.sh --check-only` reports serial-device group and
-permission readiness.
+For native installs, `scripts/configure-hardware-access.sh` re-applies the udev
+rule and adds your user to the serial-device group used by the distribution.
+
+### Monitor starts but the display stays dark (HTML themes)
+
+The HTML renderer runs in a worker process. If it cannot capture frames, the
+monitor stays alive and keeps restarting it, but nothing reaches the display.
+Check `~/.local/share/turing-smart-screen/log.log` and, for desktop launches,
+`journalctl --user -b | grep SmartScreen`.
+
+`Couldn't find foreign struct converter for 'cairo.Surface'` (or a startup error
+mentioning `gi._gi_cairo`) means the PyGObject cairo integration is missing.
+Install it with `scripts/install-system-deps.sh` (`python3-gi-cairo` on
+Debian/Ubuntu, `python-cairo` on Arch, `python3-gobject` on Fedora). The monitor
+picks it up on the next worker restart; no reinstall is needed.
 
 ### Display reported as busy
 
@@ -340,14 +387,27 @@ The stable source-built package should not contain that directory.
 ### `ModuleNotFoundError: No module named gi` in native installs
 
 The native virtual environment uses system site packages so PyGObject can reuse
-distribution-provided GTK bindings. Re-run the current installer and verify GTK
-readiness with:
+distribution-provided GTK bindings. Install the system bindings and re-run the
+installer:
 
 ```bash
-./install.sh --check-only
+scripts/install-system-deps.sh
+./install.sh --no-deps
 ```
 
 ### Keep an existing native installation untouched during testing
 
 Use the isolated packaging test or a separate Git worktree instead of pointing
 test commands at your real `~/.local/share/turing-smart-screen` installation.
+
+### Isolated packaging test
+
+`scripts/test-install.py` runs the native installer twice (install and upgrade)
+inside an empty directory used as `HOME`, with `--no-deps --no-hardware-access`,
+and checks that configuration, custom themes and media survive the upgrade:
+
+```bash
+python3 scripts/test-install.py --root /tmp/turing-install-test
+```
+
+Pass `--reset` to reuse a previous test directory.

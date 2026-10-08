@@ -85,13 +85,16 @@ class HtmlWorkerRunnerTests(unittest.TestCase):
                 (0.0,),
             ),
             mock.patch("library.monitor_renderers.time.monotonic", side_effect=[0.0, 1.0]),
-            mock.patch("builtins.print") as printed,
+            mock.patch("library.monitor_renderers.logger") as logger,
         ):
             result = runner.wait()
 
         self.assertEqual(result, 1)
         self.assertEqual(spawned, [second])
-        printed.assert_called_once()
+        # Logged (not only printed) so the failure reaches log.log.
+        logger.warning.assert_called_once()
+        self.assertIn("exited unexpectedly", logger.warning.call_args.args[0])
+        self.assertEqual(logger.warning.call_args.args[1], 1)
 
     def test_explicit_stop_does_not_restart_worker(self):
         runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))

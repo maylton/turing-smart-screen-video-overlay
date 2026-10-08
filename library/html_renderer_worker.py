@@ -76,6 +76,28 @@ def configured_display_size(config: dict, root: Path = ROOT) -> str:
     return str(display.get("DISPLAY_SIZE") or "").strip()
 
 
+CAIRO_BRIDGE_HINT = (
+    "PyGObject cairo integration (gi._gi_cairo) is missing, so WebKitGTK "
+    "snapshots cannot be captured. Install python3-gi-cairo (Debian/Ubuntu), "
+    "python3-gobject (Fedora) or python-cairo (Arch), or run "
+    "scripts/install-system-deps.sh"
+)
+
+
+def require_cairo_bridge() -> None:
+    """Fail before rendering when snapshots cannot cross into Python.
+
+    WebKitGTK 4.1 returns snapshots as ``cairo.Surface``. Without the
+    ``gi._gi_cairo`` foreign-struct converter every capture fails, and the
+    display would never receive a first frame. ``gi.require_foreign("cairo")``
+    only checks pycairo, so the converter module is imported directly.
+    """
+    try:
+        import gi._gi_cairo  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(CAIRO_BRIDGE_HINT) from exc
+
+
 def _args(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("--theme", type=Path, required=True)
@@ -118,6 +140,7 @@ def run(theme: Path) -> int:
     gi.require_version("Gtk", "3.0")
     gi.require_version("WebKit2", "4.1")
     from gi.repository import Gio, GLib, Gtk, WebKit2
+    require_cairo_bridge()
 
     legacy_config = config.get("config", {})
     legacy_config = legacy_config if isinstance(legacy_config, dict) else {}
@@ -157,8 +180,16 @@ def run(theme: Path) -> int:
             self.source_ids = set()
             self.last_overlay = None
             self.diagnostic_pipeline = FramePipeline(pixel_threshold=4)
+            self.exit_code = 0
             self._application_held = True
             self.hold()
+
+        def fail(self, message):
+            # A non-zero status lets the supervisor tell a failure from a
+            # requested shutdown.
+            print(message, file=sys.stderr, flush=True)
+            self.exit_code = 1
+            self.stop()
 
         def stop(self, *_args):
             if self.closing:
@@ -189,8 +220,7 @@ def run(theme: Path) -> int:
                 if self.closing:
                     return
                 if error is not None or payload is None:
-                    print(f"HTML frame capture failed: {error}", file=sys.stderr, flush=True)
-                    self.stop()
+                    self.fail(f"HTML frame capture failed: {error}")
                     return
                 try:
                     frame = decode_png_frame(payload, (480, 480))
@@ -243,8 +273,7 @@ def run(theme: Path) -> int:
                     if diagnostic_dir and hybrid_spec is None:
                         write_frame_artifacts(Path(diagnostic_dir), frame, plan.analysis if self.planner and 'plan' in locals() else analysis)
                 except Exception as exc:
-                    print(f"HTML renderer stopped safely: {exc}", file=sys.stderr, flush=True)
-                    self.stop()
+                    self.fail(f"HTML renderer stopped safely: {exc}")
 
             engine.snapshot_png_bytes(finished)
             return True
@@ -254,16 +283,14 @@ def run(theme: Path) -> int:
             if self.closing:
                 return False
             if collection_error is not None:
-                print(f"HTML sensor collection failed: {collection_error}", file=sys.stderr, flush=True)
-                self.stop()
+                self.fail(f"HTML sensor collection failed: {collection_error}")
                 return False
 
             def updated(error):
                 if self.closing:
                     return
                 if error is not None:
-                    print(f"HTML update failed: {error}", file=sys.stderr, flush=True)
-                    self.stop()
+                    self.fail(f"HTML update failed: {error}")
                     return
                 schedule_once(GLib, 12, self.capture, self.source_ids)
 
@@ -301,15 +328,13 @@ def run(theme: Path) -> int:
             try:
                 self.sink.check_health()
             except Exception as exc:
-                print(f"HTML native transport stopped safely: {exc}", file=sys.stderr, flush=True)
-                self.stop()
+                self.fail(f"HTML native transport stopped safely: {exc}")
                 return False
             return True
 
         def start_updates(self, error=None):
             if error is not None:
-                print(f"HTML layer configuration failed: {error}", file=sys.stderr, flush=True)
-                self.stop()
+                self.fail(f"HTML layer configuration failed: {error}")
                 return
             interval = max(500, int(round(1000 / manifest.refresh_rate)))
             self.update_sensors()
@@ -336,7 +361,9 @@ def run(theme: Path) -> int:
                 for signum in (signal.SIGINT, signal.SIGTERM):
                     self.source_ids.add(GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self.stop))
 
-    return int(Worker().run([]))
+    worker = Worker()
+    status = int(worker.run([]))
+    return status or worker.exit_code
 
 
 def main(argv=None) -> int:
