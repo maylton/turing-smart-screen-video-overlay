@@ -177,7 +177,8 @@ class PackagingContractTests(unittest.TestCase):
         integrations = (
             ROOT / "library" / "main_app_diagnostics_integration.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("install_main_app_shell_i18n", integrations)
+        composition = (ROOT / "library" / "main_app.py").read_text(encoding="utf-8")
+        self.assertIn("I18nMixin", composition)
         self.assertIn("build_inline_diagnostics_page", integrations)
         self.assertIn("build_inline_theme_editor_page", integrations)
 

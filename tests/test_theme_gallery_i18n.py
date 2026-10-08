@@ -59,10 +59,10 @@ class ThemeGalleryI18nContractTests(unittest.TestCase):
         self.assertEqual(report, "localized")
         localize.assert_called_once()
 
-    def test_main_app_delegates_gallery_i18n_to_dedicated_helper(self):
-        source = Path("library/main_app_i18n.py").read_text(encoding="utf-8")
-        self.assertIn("from library.theme_gallery_i18n import install_theme_gallery_i18n as install", source)
-        self.assertIn("install(app)", source)
+    def test_main_app_installs_the_dialog_translation_hook(self):
+        source = Path("library/main_app.py").read_text(encoding="utf-8")
+        self.assertIn("from library.theme_gallery_i18n import install_theme_gallery_i18n", source)
+        self.assertIn("    install_theme_gallery_i18n()", source)
 
 
 if __name__ == "__main__":

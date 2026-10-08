@@ -7,7 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from library.main_app_shutdown import (
-    install_main_app_shutdown,
+    ShutdownApplicationMixin,
+    ShutdownTrayMenuMixin,
+    ShutdownWindowMixin,
     stop_monitor_process,
 )
 
@@ -59,14 +61,6 @@ class FakeGLib:
         return 1
 
 
-class FakeGioApplicationAPI:
-    current = None
-
-    @classmethod
-    def get_default(cls):
-        return cls.current
-
-
 class FakeController:
     def __init__(self, *, busy=True, monitor_running=True):
         self.runtime_state = SimpleNamespace(
@@ -89,8 +83,8 @@ class FakeController:
         return SimpleNamespace(stopped=True, message="Monitor stopped")
 
 
-def build_fake_module(events):
-    class Window:
+def build_fake_classes(events):
+    class WindowBase:
         def __init__(self, process=None):
             self.monitor_process = process
             self.messages = []
@@ -101,26 +95,18 @@ def build_fake_module(events):
         def refresh_overview(self):
             pass
 
-    class Application:
+    class ApplicationBase:
         def __init__(self, selected_window=None):
             self.props = SimpleNamespace(active_window=None)
             self.window = selected_window
-            self.quit_calls = 0
 
         def get_windows(self):
             return [self.window] if self.window is not None else []
 
-        def do_startup(self):
-            events.append("startup")
-
-        def do_shutdown(self):
-            events.append("shutdown")
-
         def quit(self):
             events.append("quit")
-            self.quit_calls += 1
 
-    class Menu:
+    class MenuBase:
         def __init__(self, application):
             self.app = application
 
@@ -130,26 +116,19 @@ def build_fake_module(events):
         def activate_item(self, item_id):
             events.append(("original-menu", item_id))
 
-    module = SimpleNamespace(
-        SmartScreenWindow=Window,
-        SmartScreenApplication=Application,
-        StatusNotifierMenu=Menu,
-        GLib=FakeGLib,
-        Gio=SimpleNamespace(Application=FakeGioApplicationAPI),
-        ROOT="/tmp/turing",
-        MAIN_PROGRAM="/tmp/turing/main.py",
-        project_python=lambda: "/usr/bin/python3",
-        sys=SimpleNamespace(stderr=None),
-    )
-    return module, Window, Application, Menu
+    class Window(ShutdownWindowMixin, WindowBase):
+        pass
+
+    class Application(ShutdownApplicationMixin, ApplicationBase):
+        pass
+
+    class Menu(ShutdownTrayMenuMixin, MenuBase):
+        pass
+
+    return Window, Application, Menu
 
 
 class MainAppShutdownTests(unittest.TestCase):
-    def setUp(self):
-        FakeGLib.registered = []
-        FakeGLib.removed = []
-        FakeGioApplicationAPI.current = None
-
     def test_parent_gets_graceful_signal_before_process_group(self):
         process = FakeProcess()
         signals = []
@@ -180,38 +159,24 @@ class MainAppShutdownTests(unittest.TestCase):
         self.assertEqual(process.events, ["terminate"])
         self.assertEqual(signals, [(process.pid, signal.SIGKILL)])
 
-    def test_shutdown_stops_persistent_monitor_and_removes_signals(self):
-        events = []
-        module, Window, Application, _Menu = build_fake_module(events)
+    def test_stop_all_monitors_stops_each_window_monitor(self):
+        Window, Application, _Menu = build_fake_classes([])
         window = Window()
         application = Application(window)
         controller = FakeController()
-        FakeGioApplicationAPI.current = application
 
-        with patch(
-            "library.main_app_shutdown._monitor_controller",
-            return_value=controller,
-        ):
-            self.assertTrue(install_main_app_shutdown(module))
-            application.do_startup()
-            application.do_shutdown()
+        with patch("library.main_app_shutdown._monitor_controller", return_value=controller):
+            self.assertTrue(application.stop_all_monitors(notify=False))
 
         self.assertEqual(controller.terminate_calls, [(8, 2)])
         self.assertIsNone(window.monitor_process)
-        self.assertGreaterEqual(len(FakeGLib.registered), 2)
-        self.assertEqual(
-            sorted(FakeGLib.removed),
-            sorted(item[-1] for item in FakeGLib.registered),
-        )
-        self.assertEqual(events, ["startup", "shutdown"])
 
     def test_tray_quit_stops_monitor_before_quitting(self):
         events = []
-        module, Window, Application, Menu = build_fake_module(events)
+        Window, Application, Menu = build_fake_classes(events)
         window = Window()
         application = Application(window)
         controller = FakeController()
-        FakeGioApplicationAPI.current = application
 
         def terminate(timeout, kill_timeout):
             events.append("stop-monitor")
@@ -225,11 +190,10 @@ class MainAppShutdownTests(unittest.TestCase):
 
         controller.terminate_monitor = terminate
 
-        with patch(
-            "library.main_app_shutdown._monitor_controller",
-            return_value=controller,
+        with (
+            patch("library.main_app_shutdown._monitor_controller", return_value=controller),
+            patch("library.main_app_shutdown.GLib", FakeGLib),
         ):
-            self.assertTrue(install_main_app_shutdown(module))
             Menu(application).activate_item(6)
 
         self.assertEqual(events, ["stop-monitor", "quit"])
@@ -237,14 +201,13 @@ class MainAppShutdownTests(unittest.TestCase):
 
     def test_non_quit_tray_action_uses_original_handler(self):
         events = []
-        module, _Window, Application, Menu = build_fake_module(events)
+        _Window, Application, Menu = build_fake_classes(events)
         application = Application()
 
         with patch(
             "library.main_app_shutdown._monitor_controller",
             return_value=FakeController(busy=False, monitor_running=False),
         ):
-            self.assertTrue(install_main_app_shutdown(module))
             Menu(application).activate_item(2)
 
         self.assertEqual(events, [("original-menu", 2)])

@@ -72,7 +72,6 @@
 
 # Main application and supported fallback/diagnostic entrypoints.
 + /configure-gtk.py
-+ /configure_gtk_app.py
 + /diagnostics-gtk.py
 + /diagnostics.py
 + /display-detection.py

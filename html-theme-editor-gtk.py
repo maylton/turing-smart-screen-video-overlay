@@ -1971,7 +1971,21 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"Erro do editor HTML: {exc}", file=sys.stderr)
         return 2
+    install_editor_extensions()
     return HtmlThemeEditorApplication(manifest).run([])
+
+
+def install_editor_extensions() -> None:
+    """Background page, visual presets and color tools for this editor."""
+    from library.html_theme_background_compat import install_background_editor_hook
+    from library.html_theme_color_tools import install_color_tools_hook
+    from library.html_theme_style_presets_ui import install_style_preset_editor_hook
+
+    for install in (install_background_editor_hook, install_style_preset_editor_hook, install_color_tools_hook):
+        try:
+            install()
+        except Exception as exc:
+            print(f"Could not install HTML editor extension {install.__name__}: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

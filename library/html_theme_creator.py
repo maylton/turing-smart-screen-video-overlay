@@ -245,28 +245,16 @@ def _find_gallery_record(window: Any, folder_name: str):
     )
 
 
-def install_main_app_theme_creator(app: Any) -> bool:
-    """Replace the legacy YAML blank-theme flow in the main GTK application."""
-    window_class = getattr(app, "SmartScreenWindow", None)
-    if window_class is None:
-        return False
-    if getattr(window_class, "_html_theme_creator_installed", False):
-        return False
+class ThemeCreatorMixin:
+    """Create blank HTML themes from the main window."""
 
-    Gtk = app.Gtk
-    Adw = app.Adw
-    GLib = app.GLib
+    def create_empty_theme(self, display_name: str, _display_size: str = "") -> str | None:
+        from gi.repository import GLib
 
-    def create_empty_theme(
-        self,
-        display_name: str,
-        _display_size: str = "",
-    ) -> str | None:
+        from library import main_app_base as app
+
         try:
-            folder_name = create_blank_html_theme(
-                display_name,
-                app.THEMES_DIR,
-            )
+            folder_name = create_blank_html_theme(display_name, app.THEMES_DIR)
         except Exception as exc:
             self.toast(f"Could not create theme: {exc}")
             return None
@@ -283,35 +271,26 @@ def install_main_app_theme_creator(app: Any) -> bool:
             launcher = getattr(self, "launch_script", None)
             editor = app.ROOT / "html-theme-editor-gtk.py"
             if callable(launcher) and editor.is_file():
-                launcher(
-                    editor,
-                    folder_name,
-                    use_system_python=True,
-                )
+                launcher(editor, folder_name, use_system_python=True)
             return False
 
         GLib.idle_add(open_created_theme)
         return folder_name
 
     def show_create_empty_theme_dialog(self) -> None:
-        display_size = ""
-        detector = getattr(app, "selected_display_size", None)
-        if callable(detector):
-            try:
-                display_size = str(detector() or "")
-            except Exception:
-                display_size = ""
+        from gi.repository import Adw, Gtk
 
-        name_entry = Adw.EntryRow(
-            title="Theme name",
-            text="My HTML Theme",
-        )
+        from library import main_app_base as app
+
+        try:
+            display_size = str(app.selected_display_size() or "")
+        except Exception:
+            display_size = ""
+
+        name_entry = Adw.EntryRow(title="Theme name", text="My HTML Theme")
         name_entry.set_activates_default(True)
 
-        extra = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=10,
-        )
+        extra = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         extra.append(name_entry)
         note = Gtk.Label(
             label=(
@@ -327,20 +306,14 @@ def install_main_app_theme_creator(app: Any) -> bool:
         detected = f' Detected display: {display_size}".' if display_size else ""
         dialog = Adw.AlertDialog(
             heading="Create new HTML theme",
-            body=(
-                "The new theme is created as a separate folder and does not "
-                "replace any installed theme." + detected
-            ),
+            body="The new theme is created as a separate folder and does not replace any installed theme." + detected,
         )
         dialog.set_extra_child(extra)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("create", "Create and Edit")
         dialog.set_default_response("create")
         dialog.set_close_response("cancel")
-        dialog.set_response_appearance(
-            "create",
-            Adw.ResponseAppearance.SUGGESTED,
-        )
+        dialog.set_response_appearance("create", Adw.ResponseAppearance.SUGGESTED)
 
         def on_response(_dialog, response_id: str) -> None:
             if response_id == "create":
@@ -348,8 +321,3 @@ def install_main_app_theme_creator(app: Any) -> bool:
 
         dialog.connect("response", on_response)
         dialog.present(self)
-
-    window_class.create_empty_theme = create_empty_theme
-    window_class.show_create_empty_theme_dialog = show_create_empty_theme_dialog
-    window_class._html_theme_creator_installed = True
-    return True

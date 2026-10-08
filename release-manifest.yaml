@@ -61,7 +61,7 @@ protocols:
   - Rev. C 2.1-inch ROM 88
 entrypoints:
 - main.py
-- configure_gtk_app.py
+- library/main_app.py
 - video_manager_gtk_app.py
 - media-preparation.py
 - media_preparation_gtk_app.py

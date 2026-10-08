@@ -24,7 +24,7 @@ REQUIRED_PROJECT_FILES = (
     "VERSION",
     "main.py",
     "configure-gtk.py",
-    "configure_gtk_app.py",
+    "library/main_app.py",
     "gtk-checkup.py",
     "library/i18n.py",
     "library/release_info.py",

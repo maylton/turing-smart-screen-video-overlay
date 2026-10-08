@@ -8,7 +8,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -28,6 +27,7 @@ from library.html_theme_authoring import (
 from library.html_theme_visual_editor import load_visual_styles
 from library.i18n import active_language
 from library.theme_export_preflight import inspect_theme_export
+from library.theme_import_file_dialog import SUPPORTED_PATTERNS, normalize_theme_import_path
 from library.theme_gallery_i18n import (
     localize_report,
     t,
@@ -523,7 +523,7 @@ def copy_imported_theme(source_dir: Path, preferred_name: str = "") -> str:
     return target_name
 
 
-def import_theme(source_path_text: str) -> str:
+def _import_theme_source(source_path_text: str) -> str:
     source_path = Path(source_path_text).expanduser()
     if not source_path.exists():
         raise FileNotFoundError(source_path)
@@ -545,6 +545,43 @@ def import_theme(source_path_text: str) -> str:
             return copy_imported_theme(resolve_import_theme_source(tmp_path))
 
     raise RuntimeError("Import expects a theme folder, .theme package, or .zip archive.")
+
+
+def _import_legacy_theme_archive(source: Path) -> str:
+    """Import old ``.theme`` files that are plain validated ZIP archives."""
+    with tempfile.TemporaryDirectory(prefix="turing-theme-import-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        with zipfile.ZipFile(source) as archive:
+            validate_zip_members(archive)
+            archive.extractall(tmp_path)
+
+        theme_source = resolve_import_theme_source(tmp_path)
+        preferred_name = source.stem
+        manifest_path = theme_source / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                preferred_name = ThemeManifest.load(theme_source).name
+            except ThemeValidationError:
+                # resolve_import_theme_source() already rejects invalid themes.
+                pass
+        elif theme_source != tmp_path:
+            preferred_name = theme_source.name
+        return copy_imported_theme(theme_source, preferred_name)
+
+
+def import_theme(source_path_text: str) -> str:
+    source = normalize_theme_import_path(source_path_text)
+    if source.is_file() and source.suffix.casefold() == PACKAGE_EXTENSION:
+        with zipfile.ZipFile(source) as archive:
+            validate_zip_members(archive)
+            root_members = {
+                name.rstrip("/")
+                for name in archive.namelist()
+                if name and "/" not in name.rstrip("/")
+            }
+        if PACKAGE_FILENAME not in root_members:
+            return _import_legacy_theme_archive(source)
+    return _import_theme_source(str(source))
 
 
 def should_skip_export_path(path: Path) -> bool:
@@ -799,23 +836,6 @@ def build_theme_gallery_diagnostics_report(
     return localize_report("\n".join(lines))
 
 
-def launch_theme_editor(record: ThemeRecord, theme_editor: Path = THEME_EDITOR) -> None:
-    if not record.editable:
-        raise RuntimeError(
-            f"{record.name} cannot be opened because it has no theme.yaml/theme.yml."
-        )
-    if not theme_editor.is_file():
-        raise FileNotFoundError(f"Could not find {theme_editor}")
-
-    subprocess.Popen(
-        [sys.executable, str(theme_editor), record.name],
-        cwd=str(ROOT),
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
 def open_path_with_default_app(path: Path) -> None:
     if not path.exists():
         raise FileNotFoundError(path)
@@ -872,12 +892,6 @@ def open_path_with_default_app(path: Path) -> None:
         except Exception as exc:
             errors.append(f"{' '.join(command)} failed: {exc}")
     raise RuntimeError("Could not open folder. " + " | ".join(errors))
-
-
-def open_theme_folder(record: ThemeRecord) -> None:
-    if not record.directory.is_dir():
-        raise FileNotFoundError(record.directory)
-    open_path_with_default_app(record.directory)
 
 
 def show_theme_gallery_diagnostics_dialog(
@@ -1027,32 +1041,6 @@ def show_delete_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm
             error.present(parent)
             return
         on_confirm(record)
-
-    dialog.connect("response", on_response)
-    dialog.present(parent)
-
-
-def show_import_theme_dialog(parent: Gtk.Widget, on_confirm: ImportThemeCallback) -> None:
-    entry = Gtk.Entry()
-    entry.set_placeholder_text("/path/to/theme.theme, theme.zip, or theme-folder")
-    entry.set_activates_default(True)
-    entry.set_margin_top(6)
-    entry.set_margin_bottom(6)
-
-    dialog = Adw.AlertDialog(
-        heading="Import Theme",
-        body="Import a theme from a .theme package, folder, or legacy .zip archive. Existing themes are never overwritten.",
-    )
-    dialog.set_extra_child(entry)
-    dialog.add_response("cancel", "Cancel")
-    dialog.add_response("import", "Import")
-    dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
-    dialog.set_default_response("import")
-    dialog.set_close_response("cancel")
-
-    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
-        if response == "import":
-            on_confirm(entry.get_text())
 
     dialog.connect("response", on_response)
     dialog.present(parent)
@@ -1727,9 +1715,6 @@ class ThemeGalleryPane(Gtk.Box):
         card.append(actions)
         return card
 
-    def current_theme_record(self) -> ThemeRecord | None:
-        return next((record for record in self.records if record.current), None)
-
     def root_widget(self) -> Gtk.Widget:
         root = self.get_root()
         return root if isinstance(root, Gtk.Widget) else self
@@ -1782,7 +1767,52 @@ class ThemeGalleryPane(Gtk.Box):
         self.reload_themes()
 
     def confirm_import_theme(self) -> None:
-        show_import_theme_dialog(self.root_widget(), self.on_import_theme)
+        existing = getattr(self, "_theme_import_chooser", None)
+        if existing is not None:
+            existing.show()
+            return
+
+        root = self.root_widget()
+        parent = root if isinstance(root, Gtk.Window) else None
+        chooser = Gtk.FileChooserNative.new(
+            "Import Theme",
+            parent,
+            Gtk.FileChooserAction.OPEN,
+            "_Import",
+            "_Cancel",
+        )
+        chooser.set_modal(True)
+
+        supported = Gtk.FileFilter()
+        supported.set_name("Theme packages and definitions")
+        for pattern in SUPPORTED_PATTERNS:
+            supported.add_pattern(pattern)
+        chooser.add_filter(supported)
+        chooser.set_filter(supported)
+
+        all_files = Gtk.FileFilter()
+        all_files.set_name("All files")
+        all_files.add_pattern("*")
+        chooser.add_filter(all_files)
+
+        def on_response(dialog, response) -> None:
+            try:
+                if response != Gtk.ResponseType.ACCEPT:
+                    return
+                selected = dialog.get_file()
+                path = selected.get_path() if selected is not None else None
+                if not path:
+                    self.show_error_dialog("Could not import theme", "Only local theme files can be imported.")
+                    return
+                self.on_import_theme(str(normalize_theme_import_path(path)))
+            finally:
+                if getattr(self, "_theme_import_chooser", None) is dialog:
+                    self._theme_import_chooser = None
+                dialog.destroy()
+
+        chooser.connect("response", on_response)
+        self._theme_import_chooser = chooser
+        chooser.show()
 
     def apply_import_theme(self, source_path_text: str) -> None:
         try:

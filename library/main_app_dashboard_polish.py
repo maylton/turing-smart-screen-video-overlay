@@ -1,10 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Dashboard-style Overview polish for the GTK app shell.
-
-This module is intentionally optional.  The stable launcher loads it through
-``sitecustomize.py`` when ``configure-gtk.py`` imports ``configure_gtk_app.py``.
-It keeps the visual polish separated from the runtime/video-safety code.
-"""
+"""Dashboard-style Overview page for the main window."""
 
 from __future__ import annotations
 
@@ -13,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from gi.repository import Pango
+
+from library import main_app_base as app
 
 
 def _set_label(widget: Any, value: str) -> None:
@@ -108,7 +105,24 @@ def _open_themes_page(window: Any) -> None:
                 sidebar.select_row(row)
 
 
-def _apply_current_theme_sync_and_start_factory(app: Any):
+def _make_title(app: Any, title_text: str, subtitle_text: str) -> Any:
+    Gtk = app.Gtk
+    title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    title_box.set_hexpand(True)
+
+    title = Gtk.Label(label=title_text, xalign=0)
+    _add_classes(title, "title-1")
+    title_box.append(title)
+
+    subtitle = Gtk.Label(label=subtitle_text, xalign=0, wrap=True)
+    _add_classes(subtitle, "dim-label")
+    title_box.append(subtitle)
+    return title_box
+
+
+class DashboardMixin:
+    """Dashboard-style Overview page."""
+
     def apply_current_theme_sync_and_start(self) -> None:
         current = app.read_current_theme()
         if not current:
@@ -147,81 +161,6 @@ def _apply_current_theme_sync_and_start_factory(app: Any):
         self.toast("Apply + Sync is available from the Themes page")
         _open_themes_page(self)
 
-    return apply_current_theme_sync_and_start
-
-
-def _make_title(app: Any, title_text: str, subtitle_text: str) -> Any:
-    Gtk = app.Gtk
-    title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-    title_box.set_hexpand(True)
-
-    title = Gtk.Label(label=title_text, xalign=0)
-    _add_classes(title, "title-1")
-    title_box.append(title)
-
-    subtitle = Gtk.Label(label=subtitle_text, xalign=0, wrap=True)
-    _add_classes(subtitle, "dim-label")
-    title_box.append(subtitle)
-    return title_box
-
-
-def _make_status_card(app: Any, title: str, icon_name: str) -> tuple[Any, Any, Any]:
-    Gtk = app.Gtk
-    card = Gtk.Box(
-        orientation=Gtk.Orientation.VERTICAL,
-        spacing=0,
-        margin_top=10,
-        margin_bottom=10,
-        margin_start=10,
-        margin_end=10,
-    )
-    card.set_hexpand(True)
-    card.set_valign(Gtk.Align.FILL)
-    card.set_size_request(-1, 132)
-    _add_classes(card, "card")
-
-    inner = Gtk.Box(
-        orientation=Gtk.Orientation.VERTICAL,
-        spacing=12,
-        margin_top=18,
-        margin_bottom=18,
-        margin_start=20,
-        margin_end=20,
-    )
-    card.append(inner)
-
-    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-    icon = Gtk.Image.new_from_icon_name(icon_name)
-    row.append(icon)
-    title_label = Gtk.Label(label=title, xalign=0)
-    title_label.set_hexpand(True)
-    _add_classes(title_label, "caption", "dim-label")
-    row.append(title_label)
-    inner.append(row)
-
-    value = Gtk.Label(label="—", xalign=0, wrap=True)
-    value.set_ellipsize(Pango.EllipsizeMode.END)
-    _add_classes(value, "title-3")
-    inner.append(value)
-
-    subtitle = Gtk.Label(label="", xalign=0, wrap=True)
-    _add_classes(subtitle, "caption", "dim-label")
-    inner.append(subtitle)
-    return card, value, subtitle
-
-
-def _make_badge(app: Any, label: str) -> Any:
-    Gtk = app.Gtk
-    badge = Gtk.Label(label=label)
-    badge.set_margin_top(2)
-    badge.set_margin_bottom(2)
-    badge.set_margin_start(8)
-    badge.set_margin_end(8)
-    _add_classes(badge, "caption", "accent")
-    return badge
-
-
-def _build_overview_page_factory(app: Any):
     def build_overview_page(self) -> Any:
         Gtk = app.Gtk
         Adw = app.Adw
@@ -454,9 +393,6 @@ def _build_overview_page_factory(app: Any):
 
         return scrolled
 
-    return build_overview_page
-
-def _refresh_overview_factory(app: Any):
     def refresh_overview(self) -> None:
         current = app.read_current_theme()
         self.current_theme = current
@@ -538,20 +474,3 @@ def _refresh_overview_factory(app: Any):
             animator.show_theme(current)
         except Exception:
             pass
-
-    return refresh_overview
-
-
-def install_main_app_dashboard_polish(app: Any) -> None:
-    """Install dashboard widgets before the main GTK window is constructed."""
-    window_class = getattr(app, "SmartScreenWindow", None)
-    if window_class is None or getattr(window_class, "_dashboard_polish_installed", False):
-        return
-
-    window_class.build_overview_page = _build_overview_page_factory(app)
-    window_class.refresh_overview = _refresh_overview_factory(app)
-
-    if not hasattr(window_class, "apply_current_theme_sync_and_start"):
-        window_class.apply_current_theme_sync_and_start = _apply_current_theme_sync_and_start_factory(app)
-
-    window_class._dashboard_polish_installed = True
