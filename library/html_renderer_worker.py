@@ -164,9 +164,8 @@ def run(theme: Path) -> int:
 
     class Worker(Gtk.Application):
         def __init__(self):
-            # This is an internal renderer process, not a user-facing
-            # single-instance application. Avoid D-Bus name ownership entirely
-            # so Flatpak's session-bus proxy is not part of renderer startup.
+            # Internal renderer process: no D-Bus name ownership, so it never
+            # collides with the user-facing single-instance application.
             super().__init__(
                 application_id=None,
                 flags=Gio.ApplicationFlags.NON_UNIQUE,

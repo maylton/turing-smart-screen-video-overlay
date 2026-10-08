@@ -1,149 +1,11 @@
 # Installation, update, and validation
 
-Turing Smart Screen for Linux supports two installation paths:
-
-1. **Native/source install** — clone `main` and use the repository installer.
-   This is the working path today.
-2. **Flatpak** — build it locally from `packaging/flatpak` (see
-   [Building the Flatpak from source](#building-the-flatpak-from-source)).
-
-The current application version is **0.9.0**.
-
-> [!IMPORTANT]
-> No prebuilt bundle is published yet: the Flatpak and AppImage CI builds on
-> `main` are failing and the GitHub Releases page is empty. The bundle
-> instructions below apply once a release is published.
+Turing Smart Screen for Linux is installed natively from the `main` branch with
+the repository installer. The current application version is **0.9.0**.
 
 ---
 
-## Flatpak 0.9.0 bundle
-
-A GitHub release is expected to provide:
-
-- `Turing-Smart-Screen-0.9.0-x86_64.flatpak`;
-- `70-turing-smart-screen.rules`;
-- `SHA256SUMS`.
-
-Download them from:
-
-<https://github.com/maylton/turing-smart-screen-video-overlay/releases>
-
-### 1. Install the host udev rule
-
-Flatpak can expose serial and raw USB devices to the sandbox, but it cannot
-install host udev rules. Install the supplied rule before testing hardware:
-
-```bash
-sudo install -Dm0644 \
-  70-turing-smart-screen.rules \
-  /etc/udev/rules.d/70-turing-smart-screen.rules
-
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
-Reconnect the display afterwards.
-
-The rule covers the serial/raw USB identities used by currently supported and
-validated Turing/TURZX workflows. It grants access through `uaccess` rather than
-requiring a project-specific privileged daemon.
-
-### 2. Make Flathub available
-
-The bundle uses `org.gnome.Platform//50` as its runtime. Add Flathub if it is not
-already configured for your user:
-
-```bash
-flatpak remote-add --user --if-not-exists \
-  flathub \
-  https://flathub.org/repo/flathub.flatpakrepo
-```
-
-### 3. Install the bundle
-
-```bash
-flatpak install --user ./Turing-Smart-Screen-0.9.0-x86_64.flatpak
-```
-
-### 4. Launch
-
-```bash
-flatpak run io.github.turing.SmartScreen
-```
-
-The application should also appear in the desktop launcher/menu.
-
-### Flatpak application data
-
-The application payload under `/app` is read-only. The launcher keeps a writable
-runtime copy under the Flatpak private XDG data directory and preserves mutable
-state across package updates.
-
-Typical location:
-
-```text
-~/.var/app/io.github.turing.SmartScreen/data/turing-smart-screen/runtime
-```
-
-Preserved user data includes `config.yaml`, installed/custom themes, local video
-assets and application backup directories.
-
-### Updating the Flatpak
-
-For a newer GitHub release, download the new `.flatpak` bundle and install it over
-the existing app:
-
-```bash
-flatpak install --user ./Turing-Smart-Screen-<version>-x86_64.flatpak
-```
-
-The private runtime is refreshed when packaged application code changes while
-preserving mutable user data.
-
-### Removing the Flatpak
-
-```bash
-flatpak uninstall --user io.github.turing.SmartScreen
-```
-
-Flatpak may offer to keep or remove application data separately. Keep the data if
-you plan to reinstall and want to preserve configuration/themes.
-
----
-
-## Hardware access notes
-
-Supported displays use more than one transport:
-
-- `/dev/ttyUSB*` and `/dev/ttyACM*` serial endpoints;
-- raw USB on newer TURZX/Rev. C workflows.
-
-The Flatpak currently uses device access broad enough to cover both classes; host
-permissions are still enforced by udev/ACLs.
-
-The physically validated fork-specific profile is a **Turing Smart Screen Rev. C
-2.1-inch (ROM 88)**. Other devices may work through inherited upstream support,
-but native storage/video-writing operations are not guaranteed on unvalidated
-hardware.
-
----
-
-## AMD GPU telemetry in Flatpak
-
-Version 0.9.0 bundles libdrm 2.4.134 and builds `pyamdgpuinfo` from source against
-the app-local libdrm libraries. This is intentional: prebuilt manylinux wheels
-for `pyamdgpuinfo` can include private libdrm copies that look for
-`/usr/share/libdrm/amdgpu.ids` inside the sandbox.
-
-The release build smoke-check verifies that the private `pyamdgpuinfo.libs`
-directory is not present.
-
----
-
-## Native/source installation
-
-Use this path for development, debugging or distributions/environments where you
-prefer a normal per-user installation.
+## Install
 
 Clone the canonical `main` branch:
 
@@ -189,9 +51,11 @@ Launch with:
 turing-smart-screen
 ```
 
-### Native dependencies
+The application should also appear in the desktop launcher/menu.
 
-The native GTK application expects system GTK/PyGObject packages plus normal
+### System dependencies
+
+The GTK application expects system GTK/PyGObject packages plus normal
 project/runtime tools such as Python, FFmpeg/FFprobe and desktop integration
 utilities. The project virtual environment is created with
 `--system-site-packages`, so PyGObject, pycairo and the GTK/WebKit introspection
@@ -207,12 +71,6 @@ available package manager):
 | Debian | Debian, Ubuntu, Linux Mint, Pop!_OS | `apt-get` |
 | Fedora | Fedora, Nobara, RHEL/Rocky/AlmaLinux | `dnf` |
 
-Preview what would be installed without changing the system:
-
-```bash
-scripts/install-system-deps.sh --print
-```
-
 The HTML renderer needs the PyGObject cairo integration (`gi._gi_cairo`):
 WebKitGTK 4.1 returns frame snapshots as cairo surfaces. Some distributions ship
 it separately (`python3-gi-cairo` on Debian/Ubuntu, `python-cairo` on Arch;
@@ -227,16 +85,43 @@ Media preparation encodes H.264 with `libx264`. Fedora's default
 On other distributions the helper prints the required components so they can be
 installed manually before running `./install.sh --no-deps`.
 
-Flatpak remains the simpler end-user installation because it carries the
-application runtime/dependencies in a controlled environment.
+### Hardware access
 
-### Updating a native install
+Unless `--no-hardware-access` is given, the installer runs
+`scripts/configure-hardware-access.sh`, which installs
+`/etc/udev/rules.d/70-turing-smart-screen.rules` and adds your user to the
+serial-device group used by the distribution (`uucp` on Arch, `dialout`
+elsewhere). The rule grants access through `uaccess` rather than requiring a
+project-specific privileged daemon.
+
+Supported displays use more than one transport:
+
+- `/dev/ttyUSB*` and `/dev/ttyACM*` serial endpoints;
+- raw USB on newer TURZX/Rev. C workflows, also used to reset a wedged Rev. C
+  display.
+
+The physically validated fork-specific profile is a **Turing Smart Screen Rev. C
+2.1-inch (ROM 88)**. Other devices may work through inherited upstream support,
+but native storage/video-writing operations are not guaranteed on unvalidated
+hardware.
+
+### AMD GPU telemetry
+
+The installed checkup detects AMD GPUs and installs
+`requirements-gpu-amd.txt` (`pyamdgpuinfo`) into the project virtual
+environment only when one is present.
+
+---
+
+## Updating
 
 ```bash
 git switch main
 git pull --ff-only
 ./install.sh --no-deps
 ```
+
+Stop the monitor first: the installer recreates the virtual environment.
 
 Updates preserve by default:
 
@@ -250,8 +135,8 @@ Use `./install.sh --fresh` only when replacing user-managed data is intentional.
 
 ### Full font catalog
 
-The default native installation includes the core font profile used by bundled
-themes. To install the complete optional font catalog:
+The default installation includes the core font profile used by bundled themes.
+To install the complete optional font catalog:
 
 ```bash
 ./install.sh --full-fonts
@@ -266,66 +151,50 @@ themes. To install the complete optional font catalog:
 Application autostart and automatic monitor startup are separate settings. The
 GTK settings page controls whether the monitor itself starts automatically.
 
-### System-wide native install
+### System-wide install
 
 ```bash
 ./install.sh --system
 ```
 
 This installs under `/opt/turing-smart-screen` with a launcher under
-`/usr/local/bin`. Prefer Flatpak or the per-user native install unless a
-system-wide deployment is specifically required.
+`/usr/local/bin`. Prefer the per-user install unless a system-wide deployment is
+specifically required.
 
----
-
-## Building the Flatpak from source
-
-For packaging/development work:
+### Uninstall
 
 ```bash
-flatpak remote-add --user --if-not-exists \
-  flathub \
-  https://flathub.org/repo/flathub.flatpakrepo
-
-flatpak install --user -y \
-  flathub \
-  org.gnome.Platform//50 \
-  org.gnome.Sdk//50
-
-rm -rf build-flatpak
-
-flatpak-builder \
-  build-flatpak \
-  --user \
-  --install-deps-from=flathub \
-  --force-clean \
-  --install \
-  packaging/flatpak/io.github.turing.SmartScreen.yml
+./uninstall.sh            # per-user install
+./uninstall.sh --system   # system-wide install
 ```
 
-Run the local build with:
-
-```bash
-flatpak run io.github.turing.SmartScreen
-```
-
-To build a single-file bundle, see
-[`../packaging/flatpak/README.md`](../packaging/flatpak/README.md).
+This deletes the whole application directory, including `config.yaml`, custom
+themes and local media. Back them up first if you want to keep them. The udev
+rule and serial-group membership are left in place.
 
 ---
 
 ## Validation
 
-Before a release or packaging change:
+Before publishing changes:
 
 ```bash
 ./scripts/verify-release-readiness.sh
 ```
 
-The GitHub Flatpak workflow additionally builds the Flatpak repository,
-smoke-checks exported application files, confirms the AMD Python extension is not
-using bundled manylinux libdrm copies, creates the single-file bundle and
-publishes release assets from `main`.
+### Isolated packaging test
+
+`scripts/test-install.py` runs the installer twice (install and upgrade) inside
+an empty directory used as `HOME`, with `--no-deps --no-hardware-access`, and
+checks that configuration, custom themes and media survive the upgrade:
+
+```bash
+python3 scripts/test-install.py --root /tmp/turing-install-test
+```
+
+Pass `--reset` to reuse a previous test directory. Use it, or a separate Git
+worktree, instead of pointing test commands at your real
+`~/.local/share/turing-smart-screen` installation.
 
 ---
 
@@ -333,17 +202,13 @@ publishes release assets from `main`.
 
 ### Display exists but cannot be opened
 
-First confirm that the release udev rule is installed and reload the rules:
+Re-apply the udev rule and serial-group access, then reconnect the device:
 
 ```bash
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+scripts/configure-hardware-access.sh
 ```
 
-Reconnect the device and retry.
-
-For native installs, `scripts/configure-hardware-access.sh` re-applies the udev
-rule and adds your user to the serial-device group used by the distribution.
+A newly added serial group only takes effect after logging out and back in.
 
 ### Monitor starts but the display stays dark (HTML themes)
 
@@ -364,29 +229,9 @@ Only one process should own the physical display at a time. The GTK application
 reports runtime owner/PID information. Stop the existing monitor normally before
 starting another instance.
 
-For Flatpak, to terminate all processes belonging to the application sandbox:
+### `ModuleNotFoundError: No module named gi`
 
-```bash
-flatpak kill io.github.turing.SmartScreen
-```
-
-### Flatpak AMD GPU warning about `amdgpu.ids`
-
-The stable 0.9.0 build should not repeatedly print
-`/usr/share/libdrm/amdgpu.ids: No such file or directory`. If it does, confirm
-you are running the current release and report the output of:
-
-```bash
-flatpak run --command=sh io.github.turing.SmartScreen -c '
-find /app/lib/python3.13/site-packages -maxdepth 1 -name "pyamdgpuinfo.libs" -print
-'
-```
-
-The stable source-built package should not contain that directory.
-
-### `ModuleNotFoundError: No module named gi` in native installs
-
-The native virtual environment uses system site packages so PyGObject can reuse
+The virtual environment uses system site packages so PyGObject can reuse
 distribution-provided GTK bindings. Install the system bindings and re-run the
 installer:
 
@@ -394,20 +239,3 @@ installer:
 scripts/install-system-deps.sh
 ./install.sh --no-deps
 ```
-
-### Keep an existing native installation untouched during testing
-
-Use the isolated packaging test or a separate Git worktree instead of pointing
-test commands at your real `~/.local/share/turing-smart-screen` installation.
-
-### Isolated packaging test
-
-`scripts/test-install.py` runs the native installer twice (install and upgrade)
-inside an empty directory used as `HOME`, with `--no-deps --no-hardware-access`,
-and checks that configuration, custom themes and media survive the upgrade:
-
-```bash
-python3 scripts/test-install.py --root /tmp/turing-install-test
-```
-
-Pass `--reset` to reuse a previous test directory.

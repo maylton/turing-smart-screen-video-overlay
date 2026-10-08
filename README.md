@@ -8,7 +8,6 @@
 <p align="center">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-focused-FCC624?style=for-the-badge&logo=linux&logoColor=black" />
   <img alt="Version" src="https://img.shields.io/badge/version-0.9.0-2ea44f?style=for-the-badge" />
-  <img alt="Flatpak" src="https://img.shields.io/badge/Flatpak-x86__64-4A86CF?style=for-the-badge&logo=flatpak&logoColor=white" />
   <img alt="GTK4" src="https://img.shields.io/badge/GTK4%20%2B%20Libadwaita-desktop%20UI-4A86CF?style=for-the-badge" />
 </p>
 
@@ -56,18 +55,10 @@ upstream project.
 
 ---
 
-## Current status: 0.9.0
+## Installation
 
-The application version is **0.9.0** and `main` is the canonical branch.
-
-> [!IMPORTANT]
-> No prebuilt package is published yet. The Flatpak and AppImage CI builds on
-> `main` are currently failing, so the
-> [Releases page](https://github.com/maylton/turing-smart-screen-video-overlay/releases)
-> has no downloadable bundle. Use the native installer below, or build the
-> Flatpak locally from [`packaging/flatpak`](packaging/flatpak/README.md).
-
-### Native install
+The application version is **0.9.0** and `main` is the canonical branch. It is
+installed natively from source; no prebuilt packages are distributed.
 
 ```bash
 git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
@@ -119,13 +110,11 @@ physical validation scope.
 | --- | --- |
 | Linux GTK4/Libadwaita app | Stable in 0.9.0 |
 | Native installer | Arch, Debian/Ubuntu and Fedora families |
-| Flatpak x86_64 packaging | Manifest available; CI build failing, no published bundle |
-| AppImage packaging | CI job present; build failing, no published AppImage |
 | Theme Gallery / Theme Manager | Implemented |
 | Embedded Theme Editor | Implemented |
 | HTML themes / overlays | Implemented |
 | System tray control | Implemented |
-| AMD GPU telemetry in Flatpak | Validated with app-local libdrm |
+| AMD GPU telemetry | Implemented (`pyamdgpuinfo`, installed when an AMD GPU is detected) |
 | Native Rev. C video/storage | Physically validated on one 2.1-inch profile |
 | Broad hardware-family validation | Ongoing |
 | Flathub distribution | Not submitted yet |
@@ -137,7 +126,7 @@ physical validation scope.
 | Turing Smart Screen Rev. C 2.1-inch, ROM 88 | Physically validated |
 | Native video playback/storage management | Validated on the profile above |
 | HTML theme + native video overlay | Validated on the profile above |
-| Raw USB reset/recovery permissions in Flatpak | Validated with host udev rules |
+| Raw USB reset/recovery permissions | Validated with the installed udev rule |
 | Other Turing/TURZX revisions and sizes | Monitor support may work; media operations are not guaranteed |
 | XuanFang / Kipye / WeAct / other devices | Inherited support may work; fork-specific media operations are not guaranteed |
 
@@ -189,12 +178,12 @@ The media workflow can inspect source media with FFprobe, prepare device-sized
 outputs, preview framing, and manage compatible native video storage. Hardware-
 writing operations remain intentionally limited to validated profiles.
 
-### AMD GPU telemetry in Flatpak
+### AMD GPU telemetry
 
-The Flatpak manifest bundles a current libdrm and builds `pyamdgpuinfo` from
-source against the app-local libraries. This avoids the private manylinux libdrm copies
-that previously looked for a missing `/usr/share/libdrm/amdgpu.ids` inside the
-sandbox.
+AMD GPUs are read through `pyamdgpuinfo`, which the installed checkup adds to the
+virtual environment only when an AMD GPU is detected. When several AMD adapters
+are present, the monitored one can be selected (see
+[`docs/GPU_SELECTION.md`](docs/GPU_SELECTION.md)).
 
 ---
 
@@ -209,12 +198,6 @@ unit tests):
 
 `scripts/test-install.py --root <empty-dir>` exercises the native installer in an
 isolated `HOME` without touching your real installation.
-
-For Flatpak work, the repository also contains
-[`packaging/flatpak/README.md`](packaging/flatpak/README.md) and a GitHub Actions
-workflow that builds the repository, smoke-checks the exported app, creates a
-single-file bundle and validates that `pyamdgpuinfo` is not using its bundled
-manylinux `libdrm` copies.
 
 ---
 
@@ -275,7 +258,7 @@ contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and use this
 repository's [issue tracker](https://github.com/maylton/turing-smart-screen-video-overlay/issues).
 
 When reporting hardware issues, include the display model/revision, USB IDs,
-Linux distribution, installation type (Flatpak/native), and relevant logs.
+Linux distribution, installation type (per-user or `--system`), and relevant logs.
 
 ---
 

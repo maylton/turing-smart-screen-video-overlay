@@ -11,6 +11,10 @@ and fork releases follow semantic versioning where practical.
 
 - `scripts/install-system-deps.sh` installs native dependencies on Arch (`pacman`), Debian/Ubuntu (`apt-get`) and Fedora (`dnf`) family distributions; `--print` previews the package list.
 
+### Removed
+
+- Flatpak and AppImage packaging (`packaging/flatpak`, the Linux Packages and AppImage workflows). Neither build ever produced a published bundle; the native installer is the supported installation path.
+
 ### Fixed
 
 - Native installs on Debian/Ubuntu (and Arch without `python-cairo`) lacked the PyGObject cairo integration, so every HTML frame capture failed and the display stayed dark while the monitor reported a successful start. The installer now installs it, the installed checkup verifies `gi._gi_cairo`, and the HTML renderer refuses to start with an actionable message when it is missing.
@@ -20,7 +24,6 @@ and fork releases follow semantic versioning where practical.
 ### Planned
 
 - Broader hardware validation across additional Turing/TURZX/XuanFang/Kipye/WeAct profiles.
-- Flathub submission work and further Flatpak permission tightening where possible.
 - Additional packaging/offline-build cleanup.
 
 ## [0.9.0] - 2026-08-24

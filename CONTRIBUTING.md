@@ -4,7 +4,7 @@ Thanks for your interest in improving this Linux-focused fork.
 
 This repository builds on
 [`mathoudebine/turing-smart-screen-python`](https://github.com/mathoudebine/turing-smart-screen-python),
-but issues and pull requests about the GTK application, Flatpak packaging,
+but issues and pull requests about the GTK application, the native installer,
 fork-specific themes/media workflows and hardware findings should be opened **in
 this repository** unless the change is explicitly being prepared for upstream.
 
@@ -13,7 +13,7 @@ this repository** unless the change is explicitly being prepared for upstream.
 Please read:
 
 - [`README.md`](README.md) for current scope and hardware validation;
-- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for Flatpak/native setup;
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for installation and troubleshooting;
 - [`CHANGELOG.md`](CHANGELOG.md) for current release status;
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
@@ -38,14 +38,15 @@ For hardware/runtime bugs, include:
 - ROM/firmware information when known;
 - USB vendor/product IDs when relevant;
 - Linux distribution and desktop environment;
-- installation type: Flatpak or native/source;
+- installation type: per-user or `--system`;
 - application version/commit;
 - whether the problem occurs from the GTK UI, system tray or direct `main.py` execution;
 - serial/raw USB device paths involved;
 - exact error output.
 
-For Flatpak device-access problems, also mention whether
-`70-turing-smart-screen.rules` is installed on the host.
+For device-access problems, also mention whether
+`/etc/udev/rules.d/70-turing-smart-screen.rules` is installed and which groups
+your user belongs to (`id`).
 
 ## Suggesting enhancements
 
@@ -67,11 +68,12 @@ Prefer focused proposals over large unrelated feature bundles.
 git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
 cd turing-smart-screen-video-overlay
 
-./install.sh --check-only
+scripts/install-system-deps.sh --print
+./install.sh
 ```
 
-For normal end-user use, Flatpak is recommended. For development, a native/source
-checkout is usually easier because project files remain directly editable.
+Use `python3 scripts/test-install.py --root <empty-dir>` to exercise installer
+changes without touching your real installation.
 
 ### Create a branch
 
@@ -92,22 +94,6 @@ Run the checks relevant to your change. Before release-facing changes, run:
 ./scripts/verify-release-readiness.sh
 ```
 
-For Flatpak changes, build from the manifest:
-
-```bash
-flatpak-builder \
-  build-flatpak \
-  --user \
-  --install-deps-from=flathub \
-  --force-clean \
-  --install \
-  packaging/flatpak/io.github.turing.SmartScreen.yml
-```
-
-The GitHub Actions Flatpak workflow also performs export smoke checks and verifies
-that the AMD Python extension does not regress to a wheel containing private
-`pyamdgpuinfo.libs` libdrm copies.
-
 ### Hardware-sensitive changes
 
 Changes involving these areas require extra care:
@@ -121,7 +107,7 @@ Changes involving these areas require extra care:
 
 Do not broaden or replace working hardware-recovery logic solely to work around a
 packaging or permissions problem. Prefer first identifying whether the failure is
-caused by host udev permissions, Flatpak device exposure, process ownership or the
+caused by udev permissions, serial-group membership, process ownership or the
 actual device protocol.
 
 When possible, document physical validation and the exact tested profile in the
@@ -133,7 +119,6 @@ Documentation fixes are welcome, especially for:
 
 - new hardware validation;
 - Linux distribution differences;
-- Flatpak permissions/runtime behavior;
 - theme authoring;
 - installation/troubleshooting;
 - reproducible bug findings.
@@ -153,7 +138,7 @@ project, for example:
 - documentation corrections;
 - small test improvements.
 
-Large GTK application, Flatpak or fork-specific workflow changes generally belong
+Large GTK application or fork-specific workflow changes generally belong
 here unless upstream maintainers explicitly indicate otherwise.
 
 ## Development process disclosure
