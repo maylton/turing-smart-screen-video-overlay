@@ -154,7 +154,6 @@ class MainAppShutdownTests(unittest.TestCase):
         process = FakeProcess()
         signals = []
         with (
-            patch("library.main_app_shutdown.os.name", "posix"),
             patch("library.main_app_shutdown.os.getpgid", return_value=process.pid),
             patch(
                 "library.main_app_shutdown.os.killpg",
@@ -170,7 +169,6 @@ class MainAppShutdownTests(unittest.TestCase):
         process = FakeProcess(time_out=True)
         signals = []
         with (
-            patch("library.main_app_shutdown.os.name", "posix"),
             patch("library.main_app_shutdown.os.getpgid", return_value=process.pid),
             patch(
                 "library.main_app_shutdown.os.killpg",

@@ -17,8 +17,6 @@ FORCE_MONITOR_TIMEOUT_SECONDS = 2
 
 def _monitor_process_group(process: subprocess.Popen) -> int | None:
     """Return a safe dedicated process group, never the caller's own group."""
-    if os.name != "posix":
-        return None
     try:
         group = os.getpgid(process.pid)
     except OSError:
