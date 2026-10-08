@@ -212,13 +212,16 @@ class _ProductionCapture:
 
         self.clear()
         driver = self.driver
-        image_data, header = driver._generate_update_image(
+        update = driver._generate_update_image(
             frame,
             int(x),
             int(y),
             int(update_count),
             Command.UPDATE_BITMAP,
         )
+        if update is None:
+            raise ValueError(f"Partial update at ({x}, {y}) is outside the display")
+        image_data, header = update
         driver._send_command(Command.SEND_PAYLOAD, payload=header)
         driver._send_command(Command.SEND_PAYLOAD, payload=image_data)
         driver._send_command(Command.QUERY_STATUS, readsize=1024)

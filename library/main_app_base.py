@@ -37,7 +37,7 @@ APP_ID = "io.github.turing.SmartScreen"
 APP_NAME = "Turing Smart Screen"
 TRAY_OBJECT_PATH = "/StatusNotifierItem"
 DBUSMENU_OBJECT_PATH = "/StatusNotifierItem/Menu"
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILE = ROOT / "config.yaml"
 THEMES_DIR = ROOT / "res" / "themes"
 ICON_FILE = ROOT / "res" / "icons" / "monitor-icon-17865" / "64.png"
@@ -517,433 +517,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
             if row.page_name == "themes":
                 self.refresh_theme_list()
 
-    def build_overview_page(self) -> Gtk.Widget:
-        clamp = Adw.Clamp(maximum_size=900, tightening_threshold=700)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_child(clamp)
-
-        content = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=18,
-            margin_top=28,
-            margin_bottom=28,
-            margin_start=24,
-            margin_end=24,
-        )
-        clamp.set_child(content)
-
-        heading = Gtk.Label(
-            label="Overview",
-            xalign=0,
-        )
-        heading.add_css_class("title-1")
-        content.append(heading)
-
-        subtitle = Gtk.Label(
-            label="Manage your display, active theme, videos, and monitor process.",
-            xalign=0,
-            wrap=True,
-        )
-        subtitle.add_css_class("dim-label")
-        content.append(subtitle)
-
-        hero = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=24,
-        )
-        hero.add_css_class("card")
-        hero.set_margin_top(6)
-        hero.set_margin_bottom(6)
-        hero.set_margin_start(0)
-        hero.set_margin_end(0)
-
-        preview_frame = Gtk.AspectFrame(
-            ratio=1.0,
-            obey_child=False,
-            xalign=0.5,
-            yalign=0.5,
-            margin_top=20,
-            margin_bottom=20,
-            margin_start=20,
-        )
-        preview_frame.set_size_request(330, 330)
-
-        self.overview_picture = Gtk.Picture()
-        self.overview_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-        self.overview_picture.add_css_class("display-preview")
-        preview_frame.set_child(self.overview_picture)
-        hero.append(preview_frame)
-
-        info = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=14,
-            margin_top=28,
-            margin_bottom=28,
-            margin_start=4,
-            margin_end=28,
-        )
-        info.set_hexpand(True)
-        hero.append(info)
-
-        self.theme_title = Gtk.Label(xalign=0)
-        self.theme_title.add_css_class("title-2")
-        info.append(self.theme_title)
-
-        self.theme_path_label = Gtk.Label(xalign=0, wrap=True)
-        self.theme_path_label.add_css_class("dim-label")
-        info.append(self.theme_path_label)
-
-        status_group = Adw.PreferencesGroup(title="Status")
-        self.theme_status_row = Adw.ActionRow(
-            title="Active theme",
-            icon_name="applications-graphics-symbolic",
-        )
-        self.process_status_row = Adw.ActionRow(
-            title="Monitor process",
-            icon_name="media-playback-start-symbolic",
-        )
-        self.detection_status_row = Adw.ActionRow(
-            title="Connected display",
-            subtitle="Detection has not run yet",
-            icon_name="video-display-symbolic",
-        )
-        self.detection_status_row.add_suffix(
-            Gtk.Button(
-                label="Detect now",
-                valign=Gtk.Align.CENTER,
-                action_name="win.detect-display",
-            )
-        )
-        status_group.add(self.theme_status_row)
-        status_group.add(self.process_status_row)
-        status_group.add(self.detection_status_row)
-        info.append(status_group)
-
-        button_box = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=10,
-            margin_top=6,
-        )
-
-        edit_button = Gtk.Button(
-            label="Edit theme",
-            action_name="win.open-editor",
-        )
-        edit_button.add_css_class("suggested-action")
-
-        apply_button = Gtk.Button(label="Refresh")
-        apply_button.connect("clicked", lambda *_: self.refresh_all())
-
-        power_button = Gtk.Button(
-            label="Turn off display",
-            icon_name="system-shutdown-symbolic",
-            tooltip_text="Stop the monitor process and switch off the LCD backlight",
-        )
-        power_button.add_css_class("destructive-action")
-        power_button.connect(
-            "clicked",
-            lambda *_: self.turn_off_display(),
-        )
-
-        button_box.append(edit_button)
-        button_box.append(apply_button)
-        button_box.append(power_button)
-        info.append(button_box)
-
-        content.append(hero)
-
-        quick_group = Adw.PreferencesGroup(title="Quick actions")
-        for title, subtitle_text, icon, action in (
-            (
-                "Theme editor",
-                "Edit the active theme layout and components.",
-                "document-edit-symbolic",
-                "win.open-editor",
-            ),
-            (
-                "Video manager",
-                "Upload, delete, and play native videos.",
-                "video-x-generic-symbolic",
-                "win.open-videos",
-            ),
-            (
-                "Start monitor",
-                "Run main.py using the project environment.",
-                "media-playback-start-symbolic",
-                "win.start-monitor",
-            ),
-            (
-                "Stop monitor",
-                "Stop the process started from this window.",
-                "media-playback-stop-symbolic",
-                "win.stop-monitor",
-            ),
-            (
-                "Turn off display",
-                "Stop the monitor and switch off the screen instead of leaving a frozen image.",
-                "system-shutdown-symbolic",
-                "win.turn-off-display",
-            ),
-        ):
-            row = Adw.ActionRow(
-                title=title,
-                subtitle=subtitle_text,
-                activatable=True,
-                icon_name=icon,
-            )
-            row.set_action_name(action)
-            arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
-            row.add_suffix(arrow)
-            quick_group.add(row)
-
-        content.append(quick_group)
-        return scrolled
-
-    def build_themes_page(self) -> Gtk.Widget:
-        split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        split.set_position(430)
-        split.set_shrink_start_child(False)
-        split.set_shrink_end_child(False)
-
-        left_box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=8,
-            margin_top=18,
-            margin_bottom=18,
-            margin_start=18,
-            margin_end=18,
-        )
-        left_box.set_size_request(390, -1)
-
-        list_header = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
-        )
-        list_title = Gtk.Label(label="Installed themes", xalign=0)
-        list_title.add_css_class("heading")
-        list_title.set_hexpand(True)
-        list_header.append(list_title)
-
-        create_button = Gtk.Button(
-            icon_name="list-add-symbolic",
-            tooltip_text="Create an empty theme for the selected display",
-        )
-        create_button.connect(
-            "clicked",
-            lambda *_: self.show_create_empty_theme_dialog(),
-        )
-        list_header.append(create_button)
-
-        refresh_button = Gtk.Button(
-            icon_name="view-refresh-symbolic",
-            tooltip_text="Refresh compatible theme list",
-        )
-        refresh_button.connect("clicked", lambda *_: self.refresh_theme_list())
-        list_header.append(refresh_button)
-        left_box.append(list_header)
-
-        self.compatibility_label = Gtk.Label(
-            label="",
-            xalign=0,
-            wrap=True,
-        )
-        self.compatibility_label.add_css_class("dim-label")
-        left_box.append(self.compatibility_label)
-
-        self.theme_path_hint = Gtk.Label(
-            label=str(THEMES_DIR),
-            xalign=0,
-            wrap=True,
-        )
-        self.theme_path_hint.add_css_class("dim-label")
-        left_box.append(self.theme_path_hint)
-
-        left_scroll = Gtk.ScrolledWindow()
-        left_scroll.set_vexpand(True)
-
-        self.theme_list = Gtk.ListBox(
-            selection_mode=Gtk.SelectionMode.SINGLE,
-        )
-        self.theme_list.set_vexpand(True)
-        self.theme_list.add_css_class("boxed-list")
-        self.theme_list.connect("row-selected", self.on_theme_selected)
-        left_scroll.set_child(self.theme_list)
-        left_box.append(left_scroll)
-
-        split.set_start_child(left_box)
-
-        right_clamp = Adw.Clamp(maximum_size=720)
-        right_box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=18,
-            margin_top=28,
-            margin_bottom=28,
-            margin_start=28,
-            margin_end=28,
-        )
-        right_clamp.set_child(right_box)
-
-        title = Gtk.Label(label="Theme preview", xalign=0)
-        title.add_css_class("title-1")
-        right_box.append(title)
-
-        self.theme_page_picture = Gtk.Picture()
-        self.theme_page_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-        self.theme_page_picture.set_size_request(460, 460)
-        self.theme_page_picture.add_css_class("display-preview")
-        right_box.append(self.theme_page_picture)
-
-        self.selected_theme_label = Gtk.Label(xalign=0)
-        self.selected_theme_label.add_css_class("title-2")
-        right_box.append(self.selected_theme_label)
-
-        buttons = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=10,
-        )
-
-        self.activate_theme_button = Gtk.Button(label="Set active theme")
-        self.activate_theme_button.add_css_class("suggested-action")
-        self.activate_theme_button.connect("clicked", self.activate_selected_theme)
-
-        editor_button = Gtk.Button(
-            label="Open editor",
-            action_name="win.open-editor",
-        )
-
-        buttons.append(self.activate_theme_button)
-        buttons.append(editor_button)
-        right_box.append(buttons)
-
-        split.set_end_child(right_clamp)
-        return split
-
-    def build_tools_page(self) -> Gtk.Widget:
-        clamp = Adw.Clamp(maximum_size=860)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_child(clamp)
-
-        box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=18,
-            margin_top=28,
-            margin_bottom=28,
-            margin_start=24,
-            margin_end=24,
-        )
-        clamp.set_child(box)
-
-        title = Gtk.Label(label="Tools", xalign=0)
-        title.add_css_class("title-1")
-        box.append(title)
-
-        group = Adw.PreferencesGroup(
-            title="Available tools",
-        )
-
-        for title_text, subtitle, icon, action in (
-            (
-                "Theme editor",
-                "Edit components, backgrounds, positions, and sensor templates.",
-                "document-edit-symbolic",
-                "win.open-editor",
-            ),
-            (
-                "Native video manager",
-                "Manage videos stored on the Turing Smart Screen.",
-                "video-x-generic-symbolic",
-                "win.open-videos",
-            ),
-        ):
-            row = Adw.ActionRow(
-                title=title_text,
-                subtitle=subtitle,
-                icon_name=icon,
-                activatable=True,
-            )
-            row.set_action_name(action)
-            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-            group.add(row)
-
-        box.append(group)
-        return scrolled
-
-    def build_settings_page(self) -> Gtk.Widget:
-        clamp = Adw.Clamp(maximum_size=860)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_child(clamp)
-
-        box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=18,
-            margin_top=28,
-            margin_bottom=28,
-            margin_start=24,
-            margin_end=24,
-        )
-        clamp.set_child(box)
-
-        title = Gtk.Label(label="Settings", xalign=0)
-        title.add_css_class("title-1")
-        box.append(title)
-
-        appearance = Adw.PreferencesGroup(
-            title="Appearance",
-            description="Choose the application appearance. The selection is saved for the next session.",
-        )
-        self.style_row = Adw.ComboRow(title="Color scheme")
-        style_model = Gtk.StringList.new(["Follow system", "Light", "Dark"])
-        self.style_row.set_model(style_model)
-
-        saved_indices = {
-            "system": 0,
-            "light": 1,
-            "dark": 2,
-        }
-        self.style_row.set_selected(
-            saved_indices.get(self.saved_color_scheme, 0)
-        )
-        self.style_row.connect(
-            "notify::selected",
-            self.on_color_scheme_changed,
-        )
-        appearance.add(self.style_row)
-
-        self.start_minimized_row = Adw.SwitchRow(
-            title="Start minimized to tray",
-            subtitle=(
-                "Open in the background and keep only the system tray icon "
-                "visible"
-            ),
-        )
-        self.start_minimized_row.set_active(load_start_minimized())
-        self.start_minimized_row.connect(
-            "notify::active",
-            self.on_start_minimized_changed,
-        )
-        appearance.add(self.start_minimized_row)
-
-        box.append(appearance)
-
-        maintenance = Adw.PreferencesGroup(
-            title="Maintenance",
-            description="Verify GTK, Python dependencies, project files, and theme YAML files.",
-        )
-        checkup_row = Adw.ActionRow(
-            title="Program check",
-            subtitle="Verify dependencies, project files, themes, and Python syntax",
-            icon_name="emblem-ok-symbolic",
-            activatable=True,
-        )
-        checkup_row.connect("activated", lambda *_: self.run_checkup())
-        checkup_row.add_suffix(
-            Gtk.Image.new_from_icon_name("go-next-symbolic")
-        )
-        maintenance.add(checkup_row)
-        box.append(maintenance)
-
-        return scrolled
-
     def on_color_scheme_changed(self, row, _param):
         values = ("system", "light", "dark")
         selected = row.get_selected()
@@ -1027,99 +600,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         dialog.present(self)
         return False
 
-    def show_create_empty_theme_dialog(self):
-        display_size = selected_display_size()
-        if not display_size:
-            self.toast(
-                "Select or configure a display before creating an empty theme"
-            )
-            return
-
-        name_entry = Adw.EntryRow(
-            title="Theme name",
-            text=f"Blank {display_size}-inch",
-        )
-
-        extra = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=10,
-        )
-        extra.append(name_entry)
-
-        dialog = Adw.AlertDialog(
-            heading="Create empty theme",
-            body=(
-                f'A clean theme will be created for the selected '
-                f'{display_size}" display.'
-            ),
-        )
-        dialog.set_extra_child(extra)
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("create", "Create")
-        dialog.set_default_response("create")
-        dialog.set_close_response("cancel")
-        dialog.set_response_appearance(
-            "create",
-            Adw.ResponseAppearance.SUGGESTED,
-        )
-
-        def on_response(_dialog, response_id):
-            if response_id != "create":
-                return
-            self.create_empty_theme(name_entry.get_text(), display_size)
-
-        dialog.connect("response", on_response)
-        dialog.present(self)
-
-    def create_empty_theme(self, display_name: str, display_size: str):
-        folder_name = sanitize_theme_folder_name(display_name)
-        if not folder_name:
-            self.toast("Enter a valid theme name")
-            return
-
-        theme_dir = THEMES_DIR / folder_name
-        if theme_dir.exists():
-            self.toast(f"A theme named {folder_name} already exists")
-            return
-
-        content = (
-            'author: "@user"\n\n'
-            'display:\n'
-            f'  DISPLAY_SIZE: {display_size}"\n'
-            '  DISPLAY_ORIENTATION: landscape\n\n'
-            'STATS: {}\n'
-            'static_text: {}\n'
-            'static_images: {}\n'
-        )
-
-        try:
-            theme_dir.mkdir(parents=True, exist_ok=False)
-            temporary = theme_dir / "theme.yaml.tmp"
-            temporary.write_text(content, encoding="utf-8")
-            os.replace(temporary, theme_dir / "theme.yaml")
-        except Exception as exc:
-            try:
-                if theme_dir.exists() and not any(theme_dir.iterdir()):
-                    theme_dir.rmdir()
-            except OSError:
-                pass
-            self.toast(f"Could not create empty theme: {exc}")
-            return
-
-        self.refresh_theme_list()
-
-        index = 0
-        while True:
-            row = self.theme_list.get_row_at_index(index)
-            if row is None:
-                break
-            if getattr(row, "theme_name", None) == folder_name:
-                self.theme_list.select_row(row)
-                break
-            index += 1
-
-        self.toast(f"Empty theme created: {folder_name}")
-
     def refresh_theme_list(self):
         while True:
             row = self.theme_list.get_row_at_index(0)
@@ -1199,43 +679,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         self.selected_theme_label.set_label(row.theme_name)
         self.set_picture(self.theme_page_picture, theme_preview_path(row.theme_name))
 
-    def activate_selected_theme(self, _button):
-        row = self.theme_list.get_selected_row()
-        if row is None or not hasattr(row, "theme_name"):
-            self.toast("Select a theme first")
-            return
-
-        try:
-            write_current_theme(row.theme_name)
-        except Exception as exc:
-            self.toast(f"Could not update config.yaml: {exc}")
-            return
-
-        self.current_theme = row.theme_name
-        self.toast(f"Active theme changed to {row.theme_name}")
-        self.refresh_all()
-
-    def refresh_overview(self):
-        self.current_theme = read_current_theme()
-        title = self.current_theme or "No active theme"
-        self.theme_title.set_label(title)
-        self.theme_status_row.set_subtitle(title)
-        self.theme_path_label.set_label(str(THEMES_DIR / title) if title else "")
-
-        process_running = (
-            self.monitor_process is not None
-            and self.monitor_process.poll() is None
-        )
-        self.process_status_row.set_subtitle(
-            "Running" if process_running else "Stopped"
-        )
-        # Adw.ActionRow.set_icon_name() is deprecated in recent libadwaita.
-        # The subtitle communicates the state without emitting a warning.
-        self.set_picture(
-            self.overview_picture,
-            theme_preview_path(self.current_theme),
-        )
-
     def refresh_all(self):
         self.refresh_overview()
         self.refresh_theme_list()
@@ -1285,17 +728,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
             self.toast(f"Could not open {path.name}: {exc}")
             return None
 
-    def open_theme_editor(self, *_args):
-        theme = read_current_theme()
-        if not theme:
-            self.toast("No active theme configured")
-            return
-        self.launch_script(
-            THEME_EDITOR,
-            theme,
-            use_system_python=True,
-        )
-
     def open_video_manager(self, *_args):
         # PyGObject/GTK is installed by the system package manager on
         # Arch/CachyOS, so the GTK video manager must run with system Python.
@@ -1303,114 +735,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
             VIDEO_MANAGER,
             use_system_python=True,
         )
-
-    def auto_apply_last_theme(self):
-        """Start main.py once using the theme already stored in config.yaml."""
-        theme = read_current_theme()
-        if not theme:
-            self.toast("No saved theme to apply automatically")
-            return False
-
-        if self.monitor_process and self.monitor_process.poll() is None:
-            return False
-
-        if not MAIN_PROGRAM.is_file():
-            self.toast("main.py was not found")
-            return False
-
-        try:
-            self.current_theme = theme
-            monitor_env = os.environ.copy()
-            monitor_env["TURING_DISABLE_PYSTRAY"] = "1"
-            self.monitor_process = subprocess.Popen(
-                [project_python(), str(MAIN_PROGRAM)],
-                cwd=str(ROOT),
-                env=monitor_env,
-                start_new_session=True,
-            )
-            self.refresh_overview()
-        except Exception as exc:
-            self.toast(f"Could not apply saved theme: {exc}")
-
-        return False
-
-    def start_monitor(self, *_args):
-        if self.monitor_process and self.monitor_process.poll() is None:
-            self.toast("Monitor is already running")
-            return
-
-        if not MAIN_PROGRAM.is_file():
-            self.toast("main.py was not found")
-            return
-
-        try:
-            monitor_env = os.environ.copy()
-            monitor_env["TURING_DISABLE_PYSTRAY"] = "1"
-            self.monitor_process = subprocess.Popen(
-                [project_python(), str(MAIN_PROGRAM)],
-                cwd=str(ROOT),
-                env=monitor_env,
-                start_new_session=True,
-            )
-            self.toast("Monitor started")
-            self.refresh_overview()
-        except Exception as exc:
-            self.toast(f"Could not start monitor: {exc}")
-
-    def stop_monitor(self, *_args):
-        if not self.monitor_process or self.monitor_process.poll() is not None:
-            self.toast("No monitor process started from this window")
-            return
-
-        # main.py handles SIGTERM with clean_stop(), which turns the display
-        # off and waits for the USB queue before exiting.
-        self.monitor_process.terminate()
-        try:
-            self.monitor_process.wait(timeout=8)
-        except subprocess.TimeoutExpired:
-            self.monitor_process.kill()
-            self.monitor_process.wait(timeout=2)
-
-        self.toast("Monitor stopped")
-        self.refresh_overview()
-
-    def turn_off_display(self, *_args):
-        if not SCREEN_CONTROL.is_file():
-            self.toast("screen-control.py was not found")
-            return
-
-        self.toast("Turning off display…")
-
-        def worker():
-            # First stop the running monitor gracefully so it releases USB.
-            if self.monitor_process and self.monitor_process.poll() is None:
-                self.monitor_process.terminate()
-                try:
-                    self.monitor_process.wait(timeout=8)
-                except subprocess.TimeoutExpired:
-                    self.monitor_process.kill()
-                    try:
-                        self.monitor_process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        pass
-
-            result = subprocess.run(
-                [project_python(), str(SCREEN_CONTROL), "off"],
-                cwd=str(ROOT),
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=30,
-            )
-            GLib.idle_add(
-                self.finish_turn_off_display,
-                result.returncode,
-                result.stdout,
-                result.stderr,
-            )
-
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
 
     def finish_turn_off_display(self, returncode, stdout, stderr):
         self.refresh_overview()
@@ -1584,17 +908,6 @@ class StatusNotifierMenu:
     def window_visible(self) -> bool:
         window = self.app.props.active_window
         return bool(window is not None and window.get_visible())
-
-    def menu_label(self, action: str) -> str:
-        labels = {
-            "show-hide-window": "Ocultar janela" if self.window_visible() else "Mostrar janela",
-            "start-screen": "Iniciar tela",
-            "turn-off-screen": "Desligar tela",
-            "open-theme-editor": "Abrir editor de tema",
-            "open-video-manager": "Abrir gerenciador de vídeos",
-            "quit": "Sair",
-        }
-        return labels.get(action, action)
 
     def action_for_id(self, item_id: int) -> str | None:
         for candidate_id, action in self.MENU_ITEMS:
@@ -1808,15 +1121,18 @@ class StatusNotifierMenu:
 class StatusNotifierItem:
     """Minimal StatusNotifierItem understood by Noctalia and other SNI trays."""
 
+    menu_class = StatusNotifierMenu
+    introspection_xml = STATUS_NOTIFIER_XML
+
     def __init__(self, app: "SmartScreenApplication"):
         self.app = app
         self.connection = None
         self.registration_id = 0
         self.name_owner_id = 0
         self.bus_name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
-        self.node_info = Gio.DBusNodeInfo.new_for_xml(STATUS_NOTIFIER_XML)
+        self.node_info = Gio.DBusNodeInfo.new_for_xml(self.introspection_xml)
         self.interface_info = self.node_info.interfaces[0]
-        self.menu = StatusNotifierMenu(app)
+        self.menu = self.menu_class(app)
 
     def start(self):
         Gio.bus_get(
@@ -1942,40 +1258,10 @@ class StatusNotifierItem:
 
         invocation.return_value(None)
 
-    def _on_get_property(
-        self,
-        _connection,
-        _sender,
-        _object_path,
-        _interface_name,
-        property_name,
-    ):
-        values = {
-            "Category": GLib.Variant("s", "Hardware"),
-            "Id": GLib.Variant("s", APP_ID),
-            "Title": GLib.Variant("s", APP_NAME),
-            "Status": GLib.Variant("s", "Active"),
-            "WindowId": GLib.Variant("u", 0),
-            "IconName": GLib.Variant("s", APP_ID),
-            "IconThemePath": GLib.Variant("s", ""),
-            "OverlayIconName": GLib.Variant("s", ""),
-            "AttentionIconName": GLib.Variant("s", ""),
-            "ToolTip": GLib.Variant(
-                "(sa(iiay)ss)",
-                (
-                    APP_ID,
-                    [],
-                    APP_NAME,
-                    f"Theme: {read_current_theme() or 'not selected'}",
-                ),
-            ),
-            "ItemIsMenu": GLib.Variant("b", False),
-            "Menu": GLib.Variant("o", DBUSMENU_OBJECT_PATH),
-        }
-        return values.get(property_name)
-
-
 class SmartScreenApplication(Adw.Application):
+    window_class = SmartScreenWindow
+    tray_item_class = StatusNotifierItem
+
     def __init__(self):
         super().__init__(
             application_id=APP_ID,
@@ -2004,7 +1290,7 @@ class SmartScreenApplication(Adw.Application):
 
         GLib.set_application_name(APP_NAME)
         GLib.set_prgname(APP_ID)
-        self.tray_item = StatusNotifierItem(self)
+        self.tray_item = self.tray_item_class(self)
 
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self.show_about)
@@ -2050,7 +1336,7 @@ class SmartScreenApplication(Adw.Application):
         first_activation = window is None
 
         if window is None:
-            window = SmartScreenWindow(self)
+            window = self.window_class(self)
 
         should_minimize = (
             self.force_minimized_once
@@ -2085,12 +1371,3 @@ class SmartScreenApplication(Adw.Application):
             license_type=Gtk.License.GPL_3_0,
         )
         about.present(window)
-
-
-def main() -> int:
-    app = SmartScreenApplication()
-    return app.run(sys.argv)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

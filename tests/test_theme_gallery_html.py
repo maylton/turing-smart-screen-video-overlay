@@ -4,6 +4,8 @@ import json
 import shutil
 import tempfile
 import unittest
+
+from library import theme_gallery
 import zipfile
 from pathlib import Path
 from unittest import mock
@@ -229,7 +231,10 @@ class HtmlThemeGalleryTests(unittest.TestCase):
 
             with mock.patch("library.theme_gallery.THEMES_DIR", themes):
                 with self.assertRaisesRegex(ThemePackageError, PACKAGE_FILENAME):
-                    import_theme(str(archive_path))
+                    theme_gallery._import_theme_source(str(archive_path))
+                # The gallery import accepts it as a legacy plain-ZIP package.
+                imported = import_theme(str(archive_path))
+            self.assertTrue((themes / imported / "theme.yaml").is_file())
 
     def test_theme_package_rejects_invalid_declared_overlay_document(self):
         with tempfile.TemporaryDirectory(prefix="turing-invalid-overlays-") as temporary:

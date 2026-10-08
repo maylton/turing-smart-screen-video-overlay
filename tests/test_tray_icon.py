@@ -206,25 +206,30 @@ class TrayIconTests(unittest.TestCase):
                 self.assertTrue(icon.is_file())
                 self.assertIn(f"{size}x{size}/status", text)
 
+    def notifier(self, root):
+        class Notifier(tray_icon_runtime.TrayIconMixin, FakeNotifier):
+            pass
+
+        patches = (
+            mock.patch.object(tray_icon_runtime, "ROOT", root),
+            mock.patch.object(tray_icon_runtime, "GLib", types.SimpleNamespace(Variant=FakeVariant)),
+            mock.patch.object(tray_icon_runtime, "Adw", types.SimpleNamespace(StyleManager=FakeStyleManager)),
+        )
+        return Notifier(), patches
+
     def test_caelestia_symbolic_mode_forces_icon_pixmap(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "project"
             config = Path(temporary) / "config"
             self.create_project_icon(root)
-            module = self.fake_module(root)
+            notifier, patches = self.notifier(root)
 
-            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}), patches[0], patches[1], patches[2]:
                 save_tray_icon_mode(MODE_DARK_THEME)
-                tray_icon_runtime.install_status_notifier_tray_icon(module)
-                notifier = module.StatusNotifierItem()
-                icon_name = notifier._on_get_property(
-                    None, None, None, None, "IconName"
-                )
-                icon_pixmap = notifier._on_get_property(
-                    None, None, None, None, "IconPixmap"
-                )
+                icon_name = notifier._on_get_property(None, None, None, None, "IconName")
+                icon_pixmap = notifier._on_get_property(None, None, None, None, "IconPixmap")
 
-        self.assertIn("IconPixmap", module.STATUS_NOTIFIER_XML)
+        self.assertIn("IconPixmap", tray_icon_runtime.TrayIconMixin.introspection_xml)
         self.assertEqual(icon_name.value, "")
         self.assertEqual(icon_pixmap.signature, "a(iiay)")
         self.assertTrue(icon_pixmap.value)
@@ -234,56 +239,13 @@ class TrayIconTests(unittest.TestCase):
             root = Path(temporary) / "project"
             config = Path(temporary) / "config"
             self.create_project_icon(root)
-            module = self.fake_module(root)
+            notifier, patches = self.notifier(root)
 
-            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}), patches[0], patches[1], patches[2]:
                 save_tray_icon_mode(MODE_COLOR)
-                tray_icon_runtime.install_status_notifier_tray_icon(module)
-                notifier = module.StatusNotifierItem()
-                icon_name = notifier._on_get_property(
-                    None, None, None, None, "IconName"
-                )
+                icon_name = notifier._on_get_property(None, None, None, None, "IconName")
 
-        self.assertEqual(icon_name.value, module.APP_ID)
-
-    def test_runtime_patch_repairs_later_property_override(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "project"
-            config = Path(temporary) / "config"
-            self.create_project_icon(root)
-            module = self.fake_module(root)
-
-            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
-                save_tray_icon_mode(MODE_DARK_THEME)
-                tray_icon_runtime.install_status_notifier_tray_icon(module)
-
-                def translated_override(self, *_args):
-                    return FakeVariant("s", module.APP_ID)
-
-                module.StatusNotifierItem._on_get_property = translated_override
-                tray_icon_runtime.install_status_notifier_tray_icon(module)
-                notifier = module.StatusNotifierItem()
-                icon_name = notifier._on_get_property(
-                    None, None, None, None, "IconName"
-                )
-
-        self.assertEqual(icon_name.value, "")
-
-    def test_refresh_emits_new_icon_and_tooltip(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "project"
-            self.create_project_icon(root)
-            module = self.fake_module(root)
-            notifier = module.StatusNotifierItem()
-            refreshed = tray_icon_runtime.refresh_status_notifier_icon(
-                module,
-                notifier,
-            )
-
-        self.assertTrue(refreshed)
-        names = [signal[3] for signal in notifier.connection.signals]
-        self.assertEqual(names, ["NewIcon", "NewToolTip"])
-
+        self.assertEqual(icon_name.value, tray_icon_runtime.APP_ID)
 
 if __name__ == "__main__":
     unittest.main()

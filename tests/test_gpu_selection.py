@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from library import gpu_selection_runtime
 from library.gpu_diagnostics import collect_gpu_diagnostics
 from library.gpu_selection import (
     GpuPreference,
@@ -141,35 +140,31 @@ class GpuSelectionTests(unittest.TestCase):
         self.assertEqual(metrics["vram_percent"], 50.0)
         self.assertEqual(metrics["clock_mhz"], 2500.0)
 
-    def test_runtime_hook_applies_persistent_index(self):
+    def test_sensor_backend_applies_persistent_index(self):
         from library.sensors import sensors_python
 
-        original_selector = sensors_python.GpuAmd.preferred_linux_gpu_index
-        original_api = sensors_python.pyamdgpuinfo
-        original_index = sensors_python.GpuAmd.selected_index
-        original_installed = gpu_selection_runtime._INSTALLED
-        try:
-            sensors_python.pyamdgpuinfo = self.api
-            sensors_python.GpuAmd.selected_index = 1
-            gpu_selection_runtime._INSTALLED = False
-            with mock.patch(
-                "library.gpu_selection_runtime.load_preference",
+        with (
+            mock.patch.object(sensors_python, "pyamdgpuinfo", self.api),
+            mock.patch.object(
+                sensors_python,
+                "load_preference",
                 return_value=GpuPreference(mode="index", amd_index=0),
-            ):
-                gpu_selection_runtime.install()
-                self.assertEqual(
-                    sensors_python.GpuAmd.preferred_linux_gpu_index(),
-                    0,
-                )
-                self.assertEqual(sensors_python.GpuAmd.selected_index, -1)
-        finally:
-            sensors_python.GpuAmd.preferred_linux_gpu_index = staticmethod(
-                original_selector
-            )
-            sensors_python.GpuAmd.selected_index = original_index
-            sensors_python.pyamdgpuinfo = original_api
-            gpu_selection_runtime._INSTALLED = original_installed
+            ),
+        ):
+            self.assertEqual(sensors_python.GpuAmd.preferred_linux_gpu_index(), 0)
 
+    def test_sensor_backend_defaults_to_largest_vram(self):
+        from library.sensors import sensors_python
+
+        with (
+            mock.patch.object(sensors_python, "pyamdgpuinfo", self.api),
+            mock.patch.object(sensors_python, "load_preference", return_value=GpuPreference()),
+        ):
+            expected = max(
+                range(self.api.detect_gpus()),
+                key=lambda index: self.api.get_gpu(index).memory_info["vram_size"],
+            )
+            self.assertEqual(sensors_python.GpuAmd.preferred_linux_gpu_index(), expected)
 
 if __name__ == "__main__":
     unittest.main()

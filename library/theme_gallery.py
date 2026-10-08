@@ -8,7 +8,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -19,13 +18,23 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk, Pango
+from gi.repository import Adw, Gio, Gtk, Pango
 from library.html_theme_authoring import (
     discover_overlay_candidates,
     inspect_native_video_artifact,
     save_html_theme_authoring,
 )
 from library.html_theme_visual_editor import load_visual_styles
+from library.i18n import active_language
+from library.theme_export_preflight import inspect_theme_export
+from library.theme_import_file_dialog import SUPPORTED_PATTERNS, normalize_theme_import_path
+from library.theme_gallery_i18n import (
+    localize_report,
+    t,
+    translate_dynamic,
+    translate_widget_tree,
+    translated_widget,
+)
 from library.theme_engine import ThemeManifest, ThemeValidationError
 from library.theme_package import (
     PACKAGE_EXTENSION,
@@ -109,25 +118,14 @@ class ThemeRecord:
     @property
     def status_label(self) -> str:
         if self.issue:
-            return self.issue
-        if self.engine == "html" and self.native_video_status:
-            labels = {
-                "ready": "Video ready",
-                "missing": "Video not built",
-                "stale": "Video needs rebuild",
-                "error": "Video build state error",
-            }
-            state = labels.get(self.native_video_status, "HTML theme ready")
-            return f"Current theme · {state}" if self.current else state
+            return t(self.issue)
         if self.current:
-            return "Current theme"
-        return "Ready"
+            return t("Current theme")
+        return t("Ready")
 
     @property
     def display_label(self) -> str:
-        if self.resolution is not None:
-            return f"{self.resolution[0]}×{self.resolution[1]} · {self.engine.upper()}"
-        return f'{self.display_size}" display' if self.display_size else "Unknown display size"
+        return f'{self.display_size}" {t("display")}' if self.display_size else t("Unknown display size")
 
     def search_text(self) -> str:
         parts = [
@@ -525,7 +523,7 @@ def copy_imported_theme(source_dir: Path, preferred_name: str = "") -> str:
     return target_name
 
 
-def import_theme(source_path_text: str) -> str:
+def _import_theme_source(source_path_text: str) -> str:
     source_path = Path(source_path_text).expanduser()
     if not source_path.exists():
         raise FileNotFoundError(source_path)
@@ -547,6 +545,43 @@ def import_theme(source_path_text: str) -> str:
             return copy_imported_theme(resolve_import_theme_source(tmp_path))
 
     raise RuntimeError("Import expects a theme folder, .theme package, or .zip archive.")
+
+
+def _import_legacy_theme_archive(source: Path) -> str:
+    """Import old ``.theme`` files that are plain validated ZIP archives."""
+    with tempfile.TemporaryDirectory(prefix="turing-theme-import-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        with zipfile.ZipFile(source) as archive:
+            validate_zip_members(archive)
+            archive.extractall(tmp_path)
+
+        theme_source = resolve_import_theme_source(tmp_path)
+        preferred_name = source.stem
+        manifest_path = theme_source / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                preferred_name = ThemeManifest.load(theme_source).name
+            except ThemeValidationError:
+                # resolve_import_theme_source() already rejects invalid themes.
+                pass
+        elif theme_source != tmp_path:
+            preferred_name = theme_source.name
+        return copy_imported_theme(theme_source, preferred_name)
+
+
+def import_theme(source_path_text: str) -> str:
+    source = normalize_theme_import_path(source_path_text)
+    if source.is_file() and source.suffix.casefold() == PACKAGE_EXTENSION:
+        with zipfile.ZipFile(source) as archive:
+            validate_zip_members(archive)
+            root_members = {
+                name.rstrip("/")
+                for name in archive.namelist()
+                if name and "/" not in name.rstrip("/")
+            }
+        if PACKAGE_FILENAME not in root_members:
+            return _import_legacy_theme_archive(source)
+    return _import_theme_source(str(source))
 
 
 def should_skip_export_path(path: Path) -> bool:
@@ -798,24 +833,7 @@ def build_theme_gallery_diagnostics_report(
     )
     if record.issue:
         lines.append(f"- Blocking issue: {record.issue}")
-    return "\n".join(lines)
-
-
-def launch_theme_editor(record: ThemeRecord, theme_editor: Path = THEME_EDITOR) -> None:
-    if not record.editable:
-        raise RuntimeError(
-            f"{record.name} cannot be opened because it has no theme.yaml/theme.yml."
-        )
-    if not theme_editor.is_file():
-        raise FileNotFoundError(f"Could not find {theme_editor}")
-
-    subprocess.Popen(
-        [sys.executable, str(theme_editor), record.name],
-        cwd=str(ROOT),
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    return localize_report("\n".join(lines))
 
 
 def open_path_with_default_app(path: Path) -> None:
@@ -874,12 +892,6 @@ def open_path_with_default_app(path: Path) -> None:
         except Exception as exc:
             errors.append(f"{' '.join(command)} failed: {exc}")
     raise RuntimeError("Could not open folder. " + " | ".join(errors))
-
-
-def open_theme_folder(record: ThemeRecord) -> None:
-    if not record.directory.is_dir():
-        raise FileNotFoundError(record.directory)
-    open_path_with_default_app(record.directory)
 
 
 def show_theme_gallery_diagnostics_dialog(
@@ -1029,32 +1041,6 @@ def show_delete_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm
             error.present(parent)
             return
         on_confirm(record)
-
-    dialog.connect("response", on_response)
-    dialog.present(parent)
-
-
-def show_import_theme_dialog(parent: Gtk.Widget, on_confirm: ImportThemeCallback) -> None:
-    entry = Gtk.Entry()
-    entry.set_placeholder_text("/path/to/theme.theme, theme.zip, or theme-folder")
-    entry.set_activates_default(True)
-    entry.set_margin_top(6)
-    entry.set_margin_bottom(6)
-
-    dialog = Adw.AlertDialog(
-        heading="Import Theme",
-        body="Import a theme from a .theme package, folder, or legacy .zip archive. Existing themes are never overwritten.",
-    )
-    dialog.set_extra_child(entry)
-    dialog.add_response("cancel", "Cancel")
-    dialog.add_response("import", "Import")
-    dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
-    dialog.set_default_response("import")
-    dialog.set_close_response("cancel")
-
-    def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
-        if response == "import":
-            on_confirm(entry.get_text())
 
     dialog.connect("response", on_response)
     dialog.present(parent)
@@ -1272,6 +1258,109 @@ def show_html_theme_authoring_dialog(
     dialog.present(parent)
 
 
+def _theme_yaml_text(record: ThemeRecord) -> str:
+    candidates = []
+    yaml_file = getattr(record, "yaml_file", None)
+    if yaml_file is not None:
+        candidates.append(Path(yaml_file))
+    candidates.extend([record.directory / "theme.yaml", record.directory / "theme.yml"])
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate.read_text(encoding="utf-8")
+        except OSError:
+            pass
+    return ""
+
+
+def _theme_has_video(record: ThemeRecord) -> bool:
+    if record.engine == "html":
+        return record.can_build_native_video
+    match = re.search(r"(?ms)^video:\s*(.*?)(?:\n\S|\Z)", _theme_yaml_text(record))
+    if match is None:
+        return False
+    block = match.group(1)
+    enabled = re.search(r"(?mi)^\s*(ENABLED|SHOW)\s*:\s*(true|yes|on|1)", block)
+    pathish = re.search(r"(?mi)^\s*(LOCAL_PATH|PATH)\s*:\s*\S+", block)
+    return bool(enabled and pathish)
+
+
+def _theme_has_turzx(record: ThemeRecord) -> bool:
+    return (
+        "WINDOWS_THEME_HINTS" in _theme_yaml_text(record)
+        or (record.directory / "assets" / "windows-theme-hints.json").is_file()
+    )
+
+
+def _preview_geometry(record: ThemeRecord) -> tuple[float, int, int]:
+    """Aspect ratio and size for square, landscape and portrait previews."""
+    width = 256
+    ratio = 1.0
+    if record.preview_file.is_file():
+        try:
+            from PIL import Image
+
+            with Image.open(record.preview_file) as image:
+                image_width, image_height = image.size
+            if image_width > 0 and image_height > 0:
+                ratio = image_width / image_height
+        except Exception:
+            ratio = 1.0
+    # Keep cards from becoming absurdly short or tall.
+    ratio = max(0.55, min(2.4, ratio))
+    height = max(132, min(310, int(round(width / ratio))))
+    return ratio, width, height
+
+
+def _badge(label: str) -> Gtk.Label:
+    item = Gtk.Label(label=label)
+    item.add_css_class("caption")
+    item.add_css_class("accent")
+    item.set_margin_top(2)
+    item.set_margin_bottom(2)
+    item.set_margin_start(6)
+    item.set_margin_end(6)
+    return item
+
+
+def _badges_for(record: ThemeRecord) -> Gtk.Widget:
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    row.set_margin_top(2)
+    row.set_margin_bottom(2)
+    display = str(getattr(record, "display_label", "") or "").replace(" display", "").strip()
+    if record.current:
+        row.append(_badge("Current"))
+    if display:
+        row.append(_badge(display))
+    if record.engine == "html":
+        row.append(_badge("HTML"))
+    if _theme_has_video(record):
+        row.append(_badge({
+            "ready": "Video ready",
+            "missing": "Build video",
+            "stale": "Rebuild video",
+            "error": "Video error",
+        }.get(record.native_video_status, "Video")))
+    if _theme_has_turzx(record):
+        row.append(_badge("TURZX"))
+    return row
+
+
+def _preflight_report_widget(report) -> Gtk.Widget:
+    text_view = Gtk.TextView()
+    text_view.set_editable(False)
+    text_view.set_cursor_visible(False)
+    text_view.set_monospace(True)
+    text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+    text_view.get_buffer().set_text(report.to_text())
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_min_content_width(560)
+    scrolled.set_min_content_height(360)
+    scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    scrolled.set_child(text_view)
+    return scrolled
+
+
 class ThemeGalleryPane(Gtk.Box):
     """Reusable gallery surface for app shell and developer window."""
 
@@ -1362,6 +1451,7 @@ class ThemeGalleryPane(Gtk.Box):
         self.scrolled.set_child(self.flow_box)
 
         self.reload_themes(show_toast=False)
+        translate_widget_tree(self)
 
     def clear_flow_box(self) -> None:
         child = self.flow_box.get_first_child()
@@ -1390,15 +1480,21 @@ class ThemeGalleryPane(Gtk.Box):
     def update_result_label(self) -> None:
         total = len(self.records)
         visible = len(self.filtered_records)
+        portuguese = active_language() == "pt_BR"
         if not total:
-            display = f' for {self.target_display_size}"' if self.target_display_size else ""
-            self.result_label.set_text(f"No compatible themes{display}")
+            preposition = "para" if portuguese else "for"
+            display = f' {preposition} {self.target_display_size}"' if self.target_display_size else ""
+            self.result_label.set_text(f"{t('No compatible themes')}{display}")
             return
         if self.filter_query:
-            self.result_label.set_text(f"{visible} of {total}")
+            self.result_label.set_text(f"{visible} de {total}" if portuguese else f"{visible} of {total}")
             return
         display = f' · {self.target_display_size}"' if self.target_display_size else ""
-        self.result_label.set_text(f"{total} compatible theme{'s' if total != 1 else ''}{display}")
+        if portuguese:
+            noun = t("compatible theme") if total == 1 else t("compatible themes")
+            self.result_label.set_text(f"{total} {noun}{display}")
+        else:
+            self.result_label.set_text(f"{total} compatible theme{'s' if total != 1 else ''}{display}")
 
     def set_record_operation(self, theme_name: str, message: str = "") -> None:
         if message:
@@ -1418,6 +1514,7 @@ class ThemeGalleryPane(Gtk.Box):
         for record in records:
             self.flow_box.append(self.theme_card(record))
 
+    @translated_widget
     def empty_state(self) -> Gtk.Widget:
         box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -1451,170 +1548,179 @@ class ThemeGalleryPane(Gtk.Box):
         box.append(subtitle)
         return box
 
+    @translated_widget
     def preview_widget(self, record: ThemeRecord) -> Gtk.Widget:
+        ratio, width, height = _preview_geometry(record)
+        frame = Gtk.AspectFrame(ratio=ratio, obey_child=False, xalign=0.5, yalign=0.5)
+        frame.set_size_request(width, height)
+
         if record.preview_file.is_file():
             picture = Gtk.Picture.new_for_filename(str(record.preview_file))
-            picture.set_size_request(256, 144)
+            picture.set_hexpand(True)
+            picture.set_vexpand(True)
             picture.set_can_shrink(True)
             if hasattr(picture, "set_content_fit"):
                 picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-            return picture
+            frame.set_child(picture)
+            return frame
 
         placeholder = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=8,
-            halign=Gtk.Align.FILL,
+            halign=Gtk.Align.CENTER,
             valign=Gtk.Align.CENTER,
         )
-        placeholder.set_size_request(256, 144)
+        placeholder.set_hexpand(True)
+        placeholder.set_vexpand(True)
         icon = Gtk.Image.new_from_icon_name("image-missing-symbolic")
-        icon.set_pixel_size(48)
+        icon.set_pixel_size(42)
         placeholder.append(icon)
         label = Gtk.Label(label="No preview")
         label.add_css_class("dim-label")
         placeholder.append(label)
-        return placeholder
+        frame.set_child(placeholder)
+        return frame
 
+    def _menu_action_button(
+        self,
+        label: str,
+        callback: Callable[[], None],
+        *,
+        sensitive: bool = True,
+        destructive: bool = False,
+        popover: Gtk.Popover | None = None,
+    ) -> Gtk.Button:
+        button = Gtk.Button(label=label)
+        button.set_halign(Gtk.Align.FILL)
+        button.set_hexpand(True)
+        button.add_css_class("flat")
+        button.set_sensitive(sensitive)
+        if destructive:
+            button.add_css_class("destructive-action")
+
+        def on_clicked(_button: Gtk.Button) -> None:
+            if popover is not None:
+                popover.popdown()
+            callback()
+
+        button.connect("clicked", on_clicked)
+        return button
+
+    @translated_widget
+    def theme_actions_popover(self, record: ThemeRecord) -> Gtk.Popover:
+        popover = Gtk.Popover()
+        popover.set_has_arrow(True)
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=4,
+            margin_top=8,
+            margin_bottom=8,
+            margin_start=8,
+            margin_end=8,
+        )
+        box.set_size_request(220, -1)
+
+        def add(label, callback, *, sensitive=True, destructive=False):
+            box.append(self._menu_action_button(
+                label,
+                callback,
+                sensitive=sensitive,
+                destructive=destructive,
+                popover=popover,
+            ))
+
+        if self.on_build_theme_video is not None and record.can_build_native_video:
+            add(
+                "Rebuild video" if record.native_video_status == "ready" else "Build video",
+                lambda: self.on_build_theme_video(record),
+            )
+        if self.on_sync_theme_video is not None and _theme_has_video(record):
+            add("Sync video", lambda: self.on_sync_theme_video(record), sensitive=record.video_syncable)
+        add("Open folder", lambda: self.on_open_folder(record))
+        if self.on_theme_diagnostics is not None:
+            add("Diagnostics", lambda: self.on_theme_diagnostics(record))
+        add("Duplicate", lambda: self.confirm_duplicate_theme(record), sensitive=record.manageable)
+        add("Rename", lambda: self.confirm_rename_theme(record))
+        add("Export", lambda: self.confirm_export_theme(record), sensitive=record.manageable)
+        if not record.current:
+            add("Delete", lambda: self.confirm_delete_theme(record), destructive=True)
+
+        popover.set_child(box)
+        return popover
+
+    @translated_widget
     def theme_card(self, record: ThemeRecord) -> Gtk.Widget:
         card = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
-            spacing=10,
+            spacing=12,
             margin_top=12,
             margin_bottom=12,
             margin_start=12,
             margin_end=12,
         )
         card.add_css_class("card")
-        card.set_size_request(292, 280)
+        card.set_size_request(292, -1)
         card.set_valign(Gtk.Align.START)
 
         preview_frame = Gtk.Frame()
-        preview_frame.set_size_request(256, 144)
+        preview_frame.set_hexpand(True)
         preview_frame.set_child(self.preview_widget(record))
         card.append(preview_frame)
 
-        name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.set_hexpand(True)
         name = Gtk.Label(label=record.name, xalign=0)
         name.set_ellipsize(Pango.EllipsizeMode.END)
         name.add_css_class("heading")
         name.set_hexpand(True)
-        name_row.append(name)
-        if record.current:
-            badge = Gtk.Label(label="Current")
-            badge.add_css_class("accent")
-            name_row.append(badge)
-        card.append(name_row)
+        header.append(name)
+        card.append(header)
+        card.append(_badges_for(record))
 
-        status = Gtk.Label(label=self.record_status_label(record), xalign=0, wrap=True)
+        meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        meta.set_hexpand(True)
+        status = Gtk.Label(label=self.record_status_label(record), xalign=0)
+        status.set_ellipsize(Pango.EllipsizeMode.END)
         status.add_css_class("dim-label")
-        card.append(status)
-
-        display = Gtk.Label(label=record.display_label, xalign=0)
-        display.add_css_class("caption")
-        display.add_css_class("dim-label")
-        card.append(display)
-
+        meta.append(status)
         path = Gtk.Label(label=relative_path_label(record.directory), xalign=0)
-        path.set_ellipsize(Pango.EllipsizeMode.END)
+        path.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        path.set_lines(1)
         path.add_css_class("caption")
         path.add_css_class("dim-label")
-        card.append(path)
+        meta.append(path)
+        card.append(meta)
 
-        primary_actions = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
-            margin_top=4,
-        )
-
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, margin_top=4)
+        actions.set_hexpand(True)
         if self.on_set_current_theme is not None and not record.current:
             use_button = Gtk.Button(label="Use")
             use_button.set_sensitive(record.selectable)
             use_button.set_tooltip_text("Set this theme as current")
-            use_button.connect("clicked", lambda *_args: self.on_set_current_theme(record))
-            primary_actions.append(use_button)
+            use_button.connect("clicked", lambda *_: self.on_set_current_theme(record))
+            actions.append(use_button)
 
         edit_button = Gtk.Button(label="Edit")
         edit_button.add_css_class("suggested-action")
         edit_button.set_hexpand(True)
         edit_button.set_sensitive(record.authorable)
-        edit_button.connect("clicked", lambda *_args: self.on_open_theme(record))
-        primary_actions.append(edit_button)
+        edit_button.connect("clicked", lambda *_: self.on_open_theme(record))
+        actions.append(edit_button)
 
-        if self.on_sync_theme_video is not None:
-            sync_button = Gtk.Button(label="Sync video")
-            sync_button.set_sensitive(record.video_syncable)
-            sync_button.set_tooltip_text("Sync this theme video to the display")
-            sync_button.connect("clicked", lambda *_args: self.on_sync_theme_video(record))
-            primary_actions.append(sync_button)
-
-        card.append(primary_actions)
-
-        secondary_actions = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
-            margin_top=2,
-        )
-
-        if self.on_build_theme_video is not None and record.can_build_native_video:
-            build_button = Gtk.Button(icon_name="media-record-symbolic")
-            build_button.set_tooltip_text(
-                "Rebuild native video"
-                if record.native_video_status == "ready"
-                else "Build native video"
-            )
-            build_button.connect(
-                "clicked",
-                lambda *_args: self.on_build_theme_video(record),
-            )
-            secondary_actions.append(build_button)
-
-        duplicate_button = Gtk.Button(icon_name="edit-copy-symbolic")
-        duplicate_button.set_sensitive(record.manageable)
-        duplicate_button.set_tooltip_text("Duplicate theme")
-        duplicate_button.connect("clicked", lambda *_args: self.confirm_duplicate_theme(record))
-        secondary_actions.append(duplicate_button)
-
-        rename_button = Gtk.Button(icon_name="document-edit-symbolic")
-        rename_button.set_tooltip_text("Rename theme")
-        rename_button.connect("clicked", lambda *_args: self.confirm_rename_theme(record))
-        secondary_actions.append(rename_button)
-
-        export_button = Gtk.Button(icon_name="document-save-symbolic")
-        export_button.set_sensitive(record.manageable)
-        export_button.set_tooltip_text("Export theme")
-        export_button.connect("clicked", lambda *_args: self.confirm_export_theme(record))
-        secondary_actions.append(export_button)
-
-        if not record.current:
-            delete_button = Gtk.Button(icon_name="user-trash-symbolic")
-            delete_button.add_css_class("destructive-action")
-            delete_button.set_tooltip_text("Delete theme")
-            delete_button.connect("clicked", lambda *_args: self.confirm_delete_theme(record))
-            secondary_actions.append(delete_button)
-
-        if self.on_theme_diagnostics is not None:
-            diagnostics_button = Gtk.Button(icon_name="dialog-information-symbolic")
-            diagnostics_button.set_tooltip_text("Show theme diagnostics")
-            diagnostics_button.connect("clicked", lambda *_args: self.on_theme_diagnostics(record))
-            secondary_actions.append(diagnostics_button)
-
-        folder_button = Gtk.Button(icon_name="folder-open-symbolic")
-        folder_button.set_tooltip_text("Open theme folder")
-        folder_button.connect("clicked", lambda *_args: self.on_open_folder(record))
-        secondary_actions.append(folder_button)
-
-        card.append(secondary_actions)
+        more_button = Gtk.MenuButton()
+        more_button.set_icon_name("view-more-symbolic")
+        more_button.set_tooltip_text("More actions")
+        more_button.set_popover(self.theme_actions_popover(record))
+        actions.append(more_button)
+        card.append(actions)
         return card
-
-    def current_theme_record(self) -> ThemeRecord | None:
-        return next((record for record in self.records if record.current), None)
 
     def root_widget(self) -> Gtk.Widget:
         root = self.get_root()
         return root if isinstance(root, Gtk.Widget) else self
 
     def show_error_dialog(self, heading: str, body: str) -> None:
-        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog = Adw.AlertDialog(heading=translate_dynamic(str(heading)), body=translate_dynamic(str(body)))
         dialog.add_response("ok", "OK")
         dialog.set_close_response("ok")
         dialog.set_default_response("ok")
@@ -1661,7 +1767,52 @@ class ThemeGalleryPane(Gtk.Box):
         self.reload_themes()
 
     def confirm_import_theme(self) -> None:
-        show_import_theme_dialog(self.root_widget(), self.on_import_theme)
+        existing = getattr(self, "_theme_import_chooser", None)
+        if existing is not None:
+            existing.show()
+            return
+
+        root = self.root_widget()
+        parent = root if isinstance(root, Gtk.Window) else None
+        chooser = Gtk.FileChooserNative.new(
+            "Import Theme",
+            parent,
+            Gtk.FileChooserAction.OPEN,
+            "_Import",
+            "_Cancel",
+        )
+        chooser.set_modal(True)
+
+        supported = Gtk.FileFilter()
+        supported.set_name("Theme packages and definitions")
+        for pattern in SUPPORTED_PATTERNS:
+            supported.add_pattern(pattern)
+        chooser.add_filter(supported)
+        chooser.set_filter(supported)
+
+        all_files = Gtk.FileFilter()
+        all_files.set_name("All files")
+        all_files.add_pattern("*")
+        chooser.add_filter(all_files)
+
+        def on_response(dialog, response) -> None:
+            try:
+                if response != Gtk.ResponseType.ACCEPT:
+                    return
+                selected = dialog.get_file()
+                path = selected.get_path() if selected is not None else None
+                if not path:
+                    self.show_error_dialog("Could not import theme", "Only local theme files can be imported.")
+                    return
+                self.on_import_theme(str(normalize_theme_import_path(path)))
+            finally:
+                if getattr(self, "_theme_import_chooser", None) is dialog:
+                    self._theme_import_chooser = None
+                dialog.destroy()
+
+        chooser.connect("response", on_response)
+        self._theme_import_chooser = chooser
+        chooser.show()
 
     def apply_import_theme(self, source_path_text: str) -> None:
         try:
@@ -1675,149 +1826,54 @@ class ThemeGalleryPane(Gtk.Box):
         show_export_theme_dialog(self.root_widget(), record, self.on_export_theme)
 
     def apply_export_theme(self, record: ThemeRecord, destination_text: str) -> None:
+        """Export after a preflight of referenced assets (YAML themes only)."""
+        if record.engine == "html":
+            self._export_theme(record, destination_text)
+            return
+        try:
+            report = inspect_theme_export(record.directory)
+        except Exception as exc:
+            self.show_error_dialog("Could not inspect theme export", str(exc))
+            return
+
+        if report.blocking:
+            dialog = Adw.AlertDialog(
+                heading=f"Cannot export {record.name}",
+                body="The export preflight found blocking issues. Review the report below before trying again.",
+            )
+            dialog.set_extra_child(_preflight_report_widget(report))
+            dialog.add_response("ok", "OK")
+            dialog.set_default_response("ok")
+            dialog.set_close_response("ok")
+            dialog.present(self.root_widget())
+            return
+
+        if report.warnings:
+            dialog = Adw.AlertDialog(
+                heading=f"Export {record.name} with warnings?",
+                body="Some referenced assets may not be included or may need attention. Review the report before continuing.",
+            )
+            dialog.set_extra_child(_preflight_report_widget(report))
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("export", "Export Anyway")
+            dialog.set_response_appearance("export", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("cancel")
+            dialog.set_close_response("cancel")
+
+            def on_response(_dialog: Adw.AlertDialog, response: str) -> None:
+                if response == "export":
+                    self._export_theme(record, destination_text)
+
+            dialog.connect("response", on_response)
+            dialog.present(self.root_widget())
+            return
+
+        self._export_theme(record, destination_text)
+
+    def _export_theme(self, record: ThemeRecord, destination_text: str) -> None:
         try:
             destination = export_theme(record, destination_text)
         except Exception as exc:
             self.show_error_dialog("Could not export theme", str(exc))
             return
         self.show_info_dialog("Theme exported", str(destination))
-
-
-class ThemeGalleryWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application):
-        super().__init__(application=app, title="Theme Gallery", default_width=1180, default_height=760)
-        self.set_size_request(860, 560)
-
-        self.toast_overlay = Adw.ToastOverlay()
-        self.set_content(self.toast_overlay)
-
-        toolbar = Adw.ToolbarView()
-        self.toast_overlay.set_child(toolbar)
-
-        header = Adw.HeaderBar()
-        self.window_title = Adw.WindowTitle(title="Theme Gallery", subtitle="Browse compatible themes")
-        header.set_title_widget(self.window_title)
-        toolbar.add_top_bar(header)
-
-        refresh_button = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Reload the theme list")
-        refresh_button.connect("clicked", lambda *_: self.reload_themes())
-        header.pack_end(refresh_button)
-
-        self.open_current_button = Gtk.Button(
-            label="Open Current",
-            tooltip_text="Open the current theme in the GTK Theme Editor",
-        )
-        self.open_current_button.add_css_class("suggested-action")
-        self.open_current_button.connect("clicked", lambda *_: self.open_current_theme())
-        header.pack_end(self.open_current_button)
-
-        self.gallery = ThemeGalleryPane(
-            on_open_theme=self.open_theme_editor,
-            on_open_folder=self.open_theme_folder,
-            on_theme_diagnostics=self.show_theme_diagnostics,
-            on_set_current_theme=self.confirm_set_current_theme,
-            on_records_changed=self.update_records_state,
-        )
-        toolbar.set_content(self.gallery)
-
-    def toast(self, message: str) -> None:
-        self.toast_overlay.add_toast(Adw.Toast(title=message))
-
-    def error_dialog(self, heading: str, body: str) -> None:
-        dialog = Adw.AlertDialog(heading=heading, body=body)
-        dialog.add_response("ok", "OK")
-        dialog.set_close_response("ok")
-        dialog.set_default_response("ok")
-        dialog.present(self)
-
-    def update_records_state(self, records: list[ThemeRecord]) -> None:
-        target = self.gallery.target_display_size
-        if records and target:
-            subtitle = f'{len(records)} compatible theme{"s" if len(records) != 1 else ""} · {target}" display'
-        elif records:
-            subtitle = f'{len(records)} compatible theme{"s" if len(records) != 1 else ""}'
-        elif target:
-            subtitle = f'No compatible themes · {target}" display'
-        else:
-            subtitle = "No compatible themes found"
-        self.window_title.set_subtitle(subtitle)
-        self.open_current_button.set_sensitive(any(record.current for record in records))
-
-    def reload_themes(self) -> None:
-        self.gallery.reload_themes()
-        self.toast("Theme list refreshed")
-
-    def open_current_theme(self) -> None:
-        record = self.gallery.current_theme_record()
-        if record is None:
-            self.error_dialog(
-                "No current theme",
-                "config.yaml does not point to a compatible theme that exists in res/themes.",
-            )
-            return
-        self.open_theme_editor(record)
-
-    def open_theme_editor(self, record: ThemeRecord) -> None:
-        if record.engine == "html":
-            show_html_theme_authoring_dialog(
-                self,
-                record,
-                on_saved=lambda _updated: (
-                    self.gallery.reload_themes(),
-                    self.toast(f"HTML settings saved for {record.name}"),
-                ),
-                on_error=lambda message: self.error_dialog(
-                    "Could not edit HTML theme",
-                    message,
-                ),
-            )
-            return
-        try:
-            launch_theme_editor(record)
-        except Exception as exc:
-            self.error_dialog("Could not open theme editor", str(exc))
-            return
-        self.toast(f"Opening {record.name}")
-
-    def open_theme_folder(self, record: ThemeRecord) -> None:
-        try:
-            open_theme_folder(record)
-        except Exception as exc:
-            self.error_dialog("Could not open theme folder", str(exc))
-            return
-        self.toast(f"Opening folder for {record.name}")
-
-    def show_theme_diagnostics(self, record: ThemeRecord) -> None:
-        show_theme_gallery_diagnostics_dialog(self, record, self.toast, self.gallery.target_display_size)
-
-    def confirm_set_current_theme(self, record: ThemeRecord) -> None:
-        show_set_current_theme_dialog(self, record, self.apply_set_current_theme)
-
-    def apply_set_current_theme(self, record: ThemeRecord) -> None:
-        try:
-            old_theme, new_theme = set_current_theme(record)
-        except Exception as exc:
-            self.error_dialog("Could not set current theme", str(exc))
-            return
-        self.gallery.reload_themes()
-        if old_theme and old_theme != new_theme:
-            self.toast(f"Current theme changed: {old_theme} → {new_theme}")
-        else:
-            self.toast(f"Current theme set to {new_theme}")
-
-
-class ThemeGalleryApplication(Adw.Application):
-    def __init__(self, application_id: str = "io.github.turing.SmartScreen.ThemeGallery"):
-        super().__init__(application_id=application_id)
-        GLib.set_application_name("Theme Gallery")
-
-    def do_activate(self):
-        window = self.props.active_window
-        if window is None:
-            window = ThemeGalleryWindow(self)
-        window.present()
-
-
-def main(argv: list[str] | None = None) -> int:
-    app = ThemeGalleryApplication()
-    return app.run(argv or sys.argv)

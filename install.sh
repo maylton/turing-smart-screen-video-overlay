@@ -330,7 +330,9 @@ print("Project venv GTK, Pillow, pyserial, Babel and ruamel.yaml imports OK")
 
 PYTHON_ENTRYPOINTS=(
   configure-gtk.py
-  configure_gtk_app.py
+  library/main_app.py
+  library/main_app_base.py
+  library/main_app_runtime.py
   main.py
   screen-control.py
   theme-editor-gtk.py
