@@ -14,6 +14,7 @@
 
 ---
 
+<!-- MAYLTON_FORK_OVERVIEW -->
 ## What is this?
 
 This repository is a Linux-focused fork of
@@ -55,60 +56,56 @@ upstream project.
 
 ---
 
-## Latest stable release: 0.9.0
+## Current status: 0.9.0
 
-Version **0.9.0** is the first stable GitHub-distributed Flatpak build of this
-fork. The `main` branch is now the canonical source for the application.
+The application version is **0.9.0** and `main` is the canonical branch.
 
-The release includes:
+> [!IMPORTANT]
+> No prebuilt package is published yet. The Flatpak and AppImage CI builds on
+> `main` are currently failing, so the
+> [Releases page](https://github.com/maylton/turing-smart-screen-video-overlay/releases)
+> has no downloadable bundle. Use the native installer below, or build the
+> Flatpak locally from [`packaging/flatpak`](packaging/flatpak/README.md).
 
-- `Turing-Smart-Screen-0.9.0-x86_64.flatpak` — installable Flatpak bundle;
-- `70-turing-smart-screen.rules` — host udev permissions for supported USB/serial hardware;
-- `SHA256SUMS` — checksums for the release assets.
-
-See the [GitHub Releases page](https://github.com/maylton/turing-smart-screen-video-overlay/releases).
-
-### Quick Flatpak install
-
-Download the `.flatpak` bundle and `70-turing-smart-screen.rules` from the
-release, then install the host hardware rule:
+### Native install
 
 ```bash
-sudo install -Dm0644 \
-  70-turing-smart-screen.rules \
-  /etc/udev/rules.d/70-turing-smart-screen.rules
+git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
+cd turing-smart-screen-video-overlay
 
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+./install.sh
+
+turing-smart-screen
 ```
 
-Reconnect the display after installing the rule.
+The installer:
 
-Make sure Flathub is available for the GNOME runtime dependency, then install the
-bundle:
+- installs system packages for **Arch** (`pacman`), **Debian/Ubuntu** (`apt-get`)
+  and **Fedora** (`dnf`) family distributions, including derivatives such as
+  CachyOS, Manjaro, Linux Mint, Pop!_OS and Nobara;
+- installs the udev rule and serial-group access for the display;
+- creates a per-user application under `~/.local/share/turing-smart-screen`
+  with a virtual environment that reuses the system PyGObject/GTK/WebKit
+  bindings;
+- runs an installed checkup, including the HTML renderer dependencies.
+
+Preview the system packages for your distribution without installing anything:
 
 ```bash
-flatpak remote-add --user --if-not-exists \
-  flathub \
-  https://flathub.org/repo/flathub.flatpakrepo
-
-flatpak install --user ./Turing-Smart-Screen-0.9.0-x86_64.flatpak
+scripts/install-system-deps.sh --print
 ```
 
-Launch it with:
+Updates (`git pull --ff-only && ./install.sh --no-deps`) preserve
+`config.yaml`, custom themes and local media. See
+[`docs/INSTALLATION.md`](docs/INSTALLATION.md) for the full workflow, the
+system-wide mode and troubleshooting.
 
-```bash
-flatpak run io.github.turing.SmartScreen
-```
-
-> [!NOTE]
-> The Flatpak sandbox can expose the device, but it cannot install udev rules on
-> the host. The host rule is therefore a separate release asset and remains
-> necessary on systems where the device does not already receive suitable
-> `uaccess` permissions.
-
-For source/native installation and troubleshooting, see
-[`docs/INSTALLATION.md`](docs/INSTALLATION.md).
+> [!TIP]
+> If the monitor reports a successful start but an HTML theme leaves the display
+> dark, check `~/.local/share/turing-smart-screen/log.log` for
+> `Couldn't find foreign struct converter for 'cairo.Surface'`. That means the
+> PyGObject cairo integration is missing (`python3-gi-cairo` on Debian/Ubuntu);
+> re-run `scripts/install-system-deps.sh`.
 
 ---
 
@@ -121,7 +118,9 @@ physical validation scope.
 | Area | Current status |
 | --- | --- |
 | Linux GTK4/Libadwaita app | Stable in 0.9.0 |
-| Flatpak x86_64 packaging | Stable GitHub release |
+| Native installer | Arch, Debian/Ubuntu and Fedora families |
+| Flatpak x86_64 packaging | Manifest available; CI build failing, no published bundle |
+| AppImage packaging | CI job present; build failing, no published AppImage |
 | Theme Gallery / Theme Manager | Implemented |
 | Embedded Theme Editor | Implemented |
 | HTML themes / overlays | Implemented |
@@ -176,8 +175,11 @@ workflows:
 
 ### HTML themes and overlays
 
-HTML themes run through the embedded WebKit renderer and can be combined with
-native video on supported hardware. Authoring details live in
+HTML themes run through an offscreen WebKitGTK renderer in a separate worker
+process and can be combined with native video on supported hardware. The
+monitor restarts the worker with backoff if it stops, and the Rev. C transport
+recovers from serial write stalls and transient kernel I/O errors. Renderer
+failures are recorded in `log.log`. Authoring details live in
 [`docs/HTML_THEME_AUTHORING_GUIDE.md`](docs/HTML_THEME_AUTHORING_GUIDE.md) and
 [`docs/HTML_OVERLAY_DOCUMENT.md`](docs/HTML_OVERLAY_DOCUMENT.md).
 
@@ -189,41 +191,24 @@ writing operations remain intentionally limited to validated profiles.
 
 ### AMD GPU telemetry in Flatpak
 
-The 0.9.0 Flatpak bundles a current libdrm and builds `pyamdgpuinfo` from source
-against the app-local libraries. This avoids the private manylinux libdrm copies
+The Flatpak manifest bundles a current libdrm and builds `pyamdgpuinfo` from
+source against the app-local libraries. This avoids the private manylinux libdrm copies
 that previously looked for a missing `/usr/share/libdrm/amdgpu.ids` inside the
 sandbox.
 
 ---
 
-## Source installation
-
-Flatpak is the recommended installation method for normal users. Developers and
-users who prefer a native per-user installation can still clone `main`:
-
-```bash
-git clone https://github.com/maylton/turing-smart-screen-video-overlay.git
-cd turing-smart-screen-video-overlay
-
-./install.sh --check-only
-./install.sh
-
-turing-smart-screen
-```
-
-The native installer preserves user configuration, custom themes and local media
-on updates by default. See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for the
-full workflow.
-
----
-
 ## Development and validation
 
-Before publishing changes, run the release-readiness helper:
+Before publishing changes, run the release-readiness helper (it includes the
+unit tests):
 
 ```bash
 ./scripts/verify-release-readiness.sh
 ```
+
+`scripts/test-install.py --root <empty-dir>` exercises the native installer in an
+isolated `HOME` without touching your real installation.
 
 For Flatpak work, the repository also contains
 [`packaging/flatpak/README.md`](packaging/flatpak/README.md) and a GitHub Actions
