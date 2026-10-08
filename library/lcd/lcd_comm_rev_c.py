@@ -921,37 +921,33 @@ class LcdCommRevC(LcdComm):
             image_width: int = 0,
             image_height: int = 0
     ):
-        # If the image height/width isn't provided, use the native image size
         if not image_height:
             image_height = image.size[1]
         if not image_width:
             image_width = image.size[0]
 
-        # If our image is bigger than our display, crop it to fit our screen
-        if image.size[1] > self.get_height():
-            image_height = self.get_height()
-        if image.size[0] > self.get_width():
-            image_width = self.get_width()
-
-        if image_width != image.size[0] or image_height != image.size[1]:
+        # Only honour an explicit smaller size here. Images larger than the
+        # display are positioned first and clipped afterwards: themes rely on
+        # negative coordinates for centering, and pre-cropping would change the
+        # visible region compared with the editor preview.
+        if image_width < image.size[0] or image_height < image.size[1]:
             image = image.crop((0, 0, image_width, image_height))
 
-        assert x <= self.get_width(), 'Image X coordinate must be <= display width'
-        assert y <= self.get_height(), 'Image Y coordinate must be <= display height'
-        assert image_height > 0, 'Image height must be > 0'
-        assert image_width > 0, 'Image width must be > 0'
+        if image.size[0] <= 0 or image.size[1] <= 0:
+            logger.warning("Skipping Rev. C bitmap with invalid size %sx%s", image_width, image_height)
+            return
 
         if self.video_overlay_enabled:
             self.DisplayPILImageOnVideoOverlay(
                 image=image,
                 x=x,
                 y=y,
-                image_width=image_width,
-                image_height=image_height,
+                image_width=image.width,
+                image_height=image.height,
             )
             return
 
-        if x == 0 and y == 0 and image_width == self.get_width() and image_height == self.get_height():
+        if x == 0 and y == 0 and image.width == self.get_width() and image.height == self.get_height():
             with self.update_queue_mutex:
                 self._send_command(Command.PRE_UPDATE_BITMAP)
                 self._send_command(
@@ -977,15 +973,19 @@ class LcdCommRevC(LcdComm):
                     readsize=1024,
                 )
                 self._send_command(Command.QUERY_STATUS, readsize=1024)
-        else:
-            with self.update_queue_mutex:
-                img, pyd = self._generate_update_image(
-                    image, x, y, Count.Start, Command.UPDATE_BITMAP
-                )
-                self._send_command(Command.SEND_PAYLOAD, payload=pyd)
-                self._send_command(Command.SEND_PAYLOAD, payload=img)
-                self._send_command(Command.QUERY_STATUS, readsize=1024)
-            Count.Start += 1
+            return
+
+        with self.update_queue_mutex:
+            result = self._generate_update_image(
+                image, x, y, Count.Start, Command.UPDATE_BITMAP
+            )
+            if result is None:
+                return
+            img, pyd = result
+            self._send_command(Command.SEND_PAYLOAD, payload=pyd)
+            self._send_command(Command.SEND_PAYLOAD, payload=img)
+            self._send_command(Command.QUERY_STATUS, readsize=1024)
+        Count.Start += 1
 
     def _generate_full_image(self, image: Image.Image) -> bytes:
         if self.sub_revision == SubRevision.REV_8INCH:
@@ -1010,10 +1010,14 @@ class LcdCommRevC(LcdComm):
 
         return b'\x00'.join(chunked(bgra_data, 249))
 
-    def _generate_update_image(
-            self, image: Image.Image, x: int, y: int, count: int, cmd: Optional[Command] = None
-    ) -> Tuple[bytearray, bytearray]:
-        x0, y0 = x, y
+    def _display_bounds(self) -> Tuple[int, int, int]:
+        """Return row limit, column limit and row pitch for Rev. C packets."""
+        if self.sub_revision == SubRevision.REV_8INCH:
+            return self.display_height, self.display_width, self.display_width
+        return self.display_width, self.display_height, self.display_height
+
+    def _transform_for_orientation(self, image: Image.Image, x: int, y: int) -> Tuple[Image.Image, int, int]:
+        x0, y0 = int(x), int(y)
         if self.sub_revision == SubRevision.REV_8INCH:
             # Switch landscape/portrait mode for 8"
             if self.orientation == Orientation.LANDSCAPE:
@@ -1043,33 +1047,70 @@ class LcdCommRevC(LcdComm):
             elif self.orientation == Orientation.LANDSCAPE:
                 x0 = y
                 y0 = x
+        return image, int(x0), int(y0)
 
-        img_raw_data = bytearray()
+    def _clip_update_image(
+            self, image: Image.Image, x0: int, y0: int, original_x: int, original_y: int
+    ) -> Optional[Tuple[Image.Image, int, int]]:
+        """Clip a positioned, orientation-transformed bitmap to the display.
+
+        Encoding an offscreen part would produce a negative packet address
+        (OverflowError). Returns None when nothing is visible.
+        """
+        row_limit, column_limit, _pitch = self._display_bounds()
+        crop_left = max(0, -y0)
+        crop_top = max(0, -x0)
+        crop_right = min(image.width, column_limit - y0)
+        crop_bottom = min(image.height, row_limit - x0)
+
+        if crop_right <= crop_left or crop_bottom <= crop_top:
+            logger.warning(
+                "Skipping Rev. C bitmap outside display bounds: original=(%s,%s) "
+                "transformed=(%s,%s,%sx%s) bounds=%sx%s",
+                original_x, original_y, x0, y0, image.width, image.height, column_limit, row_limit,
+            )
+            return None
+
+        if (crop_left, crop_top, crop_right, crop_bottom) != (0, 0, image.width, image.height):
+            logger.warning(
+                "Clipping Rev. C bitmap to display bounds: original=(%s,%s) "
+                "transformed=(%s,%s,%sx%s) crop=(%s,%s,%s,%s) bounds=%sx%s",
+                original_x, original_y, x0, y0, image.width, image.height,
+                crop_left, crop_top, crop_right, crop_bottom, column_limit, row_limit,
+            )
+            image = image.crop((crop_left, crop_top, crop_right, crop_bottom))
+            x0 += crop_top
+            y0 += crop_left
+
+        return image, x0, y0
+
+    def _generate_update_image(
+            self, image: Image.Image, x: int, y: int, count: int, cmd: Optional[Command] = None
+    ) -> Optional[Tuple[bytearray, bytearray]]:
+        image, x0, y0 = self._transform_for_orientation(image, x, y)
+        clipped = self._clip_update_image(image, x0, y0, x, y)
+        if clipped is None:
+            return None
+        image, x0, y0 = clipped
 
         # Some screens require different RGBA encoding
         if self.sub_revision != SubRevision.REV_2INCH and self.rom_version > 88:
             # BGRA mode on 4 bytes : [B, G, R, A]
             img_data, pixel_size = image_to_BGRA(image)
         else:
-            # BGRA mode on 3 bytes: [6-bit B + 2-bit A, 6-bit G + 2-bit A, 8-bit R]
-            # img_data, pixel_size = image_to_compressed_BGRA(image)
-            # For now use simple BGR that is more optimized, because this program does not support transparent background
+            # Simple BGR: this program does not support transparent backgrounds
             img_data, pixel_size = image_to_BGR(image)
 
+        _row_limit, _column_limit, pitch = self._display_bounds()
+        img_raw_data = bytearray()
         for h, line in enumerate(chunked(img_data, image.width * pixel_size)):
-            if self.sub_revision == SubRevision.REV_8INCH:
-                # Switch landscape/portrait mode for 8"
-                img_raw_data += int(((x0 + h) * self.display_width) + y0).to_bytes(3, "big")
-            else:
-                img_raw_data += int(((x0 + h) * self.display_height) + y0).to_bytes(3, "big")
+            img_raw_data += int(((x0 + h) * pitch) + y0).to_bytes(3, "big")
             img_raw_data += int(image.width).to_bytes(2, "big")
             img_raw_data += line
 
         image_size = int(len(img_raw_data) + 2).to_bytes(3, "big")  # The +2 is for the "ef69" that will be added later.
 
-        # logger.debug("Render Count: {}".format(count))
         payload = bytearray()
-
         if cmd:
             payload.extend(cmd.value)
         payload.extend(image_size)

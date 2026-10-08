@@ -432,28 +432,12 @@ def _install_theme_gallery_card_polish() -> None:
     ThemeGalleryPane.apply_export_theme = export_theme_with_preflight
 
 
-def _install_monitor_runtime_guards() -> None:
-    from library.runtime_rev_c_image_guard import install_rev_c_image_bounds_guard
-
-    install_rev_c_image_bounds_guard()
-
-
 if _should_patch_dashboard():
     try:
         _install_dashboard_import_hook()
     except Exception as exc:
         print(
             f"[dashboard] could not install import hook: {exc}",
-            file=sys.stderr,
-            flush=True,
-        )
-
-if _should_patch_monitor_runtime():
-    try:
-        _install_monitor_runtime_guards()
-    except Exception as exc:
-        print(
-            f"[runtime] could not install monitor safety guards: {exc}",
             file=sys.stderr,
             flush=True,
         )

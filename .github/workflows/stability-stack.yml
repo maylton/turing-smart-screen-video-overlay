@@ -93,7 +93,6 @@ jobs:
             library/theme_editor_backup_runtime.py \
             library/display_lifecycle.py \
             library/gpu_selection.py \
-            library/gpu_selection_runtime.py \
             library/gpu_diagnostics.py \
             library/tray_icon.py \
             library/tray_icon_preferences.py \

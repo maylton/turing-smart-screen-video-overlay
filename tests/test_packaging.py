@@ -213,7 +213,6 @@ class PackagingContractTests(unittest.TestCase):
             "theme-backups.py",
             "library/display_lifecycle.py",
             "library/gpu_selection.py",
-            "library/gpu_selection_runtime.py",
             "library/gpu_diagnostics.py",
             "gpu-selection.py",
             "gpu-selection-gtk.py",
