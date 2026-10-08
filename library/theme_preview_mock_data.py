@@ -11,8 +11,6 @@ editor preview.
 from __future__ import annotations
 
 import datetime
-import locale
-import platform
 from typing import Any, Mapping
 
 try:
@@ -179,9 +177,7 @@ def format_preview_time(format_name: Any = "medium") -> str:
 
 def _lc_time_locale() -> str:
     try:
-        if platform.system() == "Windows":
-            lc_time = locale.getdefaultlocale()[0]
-        elif babel is not None:
+        if babel is not None:
             lc_time = babel.dates.LC_TIME
         else:
             lc_time = None

@@ -26,7 +26,6 @@ from gi.repository import Adw, Gio, GLib, Gtk, WebKit
 
 from library.html_theme_authoring import discover_overlay_candidates
 from library.html_theme_components import (
-    get_html_widget_component,
     html_widget_components,
     next_widget_id,
     render_widget_runtime_script,

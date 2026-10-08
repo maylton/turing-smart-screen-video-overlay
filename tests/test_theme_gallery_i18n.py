@@ -45,15 +45,6 @@ class ThemeGalleryI18nContractTests(unittest.TestCase):
         self.assertIn("from library.theme_gallery_i18n import install_theme_gallery_i18n as install", source)
         self.assertIn("install(app)", source)
 
-    def test_standalone_gallery_launcher_loads_i18n(self):
-        source = Path("theme-gallery-gtk.py").read_text(encoding="utf-8")
-        self.assertIn("from library.theme_gallery_i18n import install_theme_gallery_i18n", source)
-        self.assertIn("install_theme_gallery_i18n()", source)
-        self.assertLess(
-            source.index("install_theme_gallery_i18n()"),
-            source.index("main(sys.argv)"),
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

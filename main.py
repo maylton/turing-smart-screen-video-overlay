@@ -15,7 +15,6 @@ import sys
 try:
     import atexit
     import locale
-    import platform
     import signal
     import subprocess
     import threading
@@ -23,11 +22,6 @@ try:
     from pathlib import Path
 
     import yaml
-
-    if platform.system() == "Windows":
-        import win32api
-        import win32con
-        import win32gui
 
     from library.display_shutdown import power_off_and_close_display
     from library.log import logger
@@ -37,12 +31,8 @@ try:
 except Exception as exc:
     print(
         "Import error: %s\n"
-        "Please follow the start guide to install required packages: "
-        "https://github.com/mathoudebine/turing-smart-screen-python/wiki/"
-        "System-monitor-:-how-to-start\n"
-        "Or the troubleshooting page: "
-        "https://github.com/mathoudebine/turing-smart-screen-python/wiki/"
-        "Troubleshooting#all-os-tkinter-dependency-not-installed" % exc,
+        "Install the dependencies with scripts/install-system-deps.sh and "
+        "re-run ./install.sh (see docs/INSTALLATION.md)." % exc,
         file=sys.stderr,
     )
     raise SystemExit(1)
@@ -157,15 +147,7 @@ def on_clean_exit(*_args) -> None:
 
 def on_configure_tray(tray_icon, _item) -> None:
     logger.info("Configure from tray icon")
-    try:
-        configure_file = next(MAIN_DIRECTORY.glob("configure.py"))
-        subprocess.Popen([sys.executable, str(configure_file)])
-    except Exception:
-        configure_file = next(MAIN_DIRECTORY.glob("configure*"))
-        if platform.system() == "Windows":
-            subprocess.Popen([str(configure_file)], shell=True)
-        else:
-            subprocess.Popen([str(configure_file)])
+    subprocess.Popen([sys.executable, str(MAIN_DIRECTORY / "configure-gtk.py")])
 
     perform_cleanup(tray_icon)
     os.kill(os.getpid(), signal.SIGTERM)
@@ -191,8 +173,7 @@ def install_signal_handlers() -> None:
     atexit.register(on_clean_exit)
     signal.signal(signal.SIGINT, on_signal_caught)
     signal.signal(signal.SIGTERM, on_signal_caught)
-    if os.name == "posix":
-        signal.signal(signal.SIGQUIT, on_signal_caught)
+    signal.signal(signal.SIGQUIT, on_signal_caught)
 
 
 def create_tray_icon(renderer_label="YAML"):
@@ -220,9 +201,8 @@ def create_tray_icon(renderer_label="YAML"):
                 pystray.MenuItem(text="Exit", action=on_exit_tray),
             ),
         )
-        if platform.system() != "Darwin":
-            icon.run_detached()
-            logger.info("Grayscale tray icon has been displayed")
+        icon.run_detached()
+        logger.info("Grayscale tray icon has been displayed")
         return icon
     except Exception as exc:
         logger.warning("Tray icon is not supported on your platform: %s", exc)
@@ -250,78 +230,9 @@ def start_schedulers() -> None:
     scheduler.PingStats(); time.sleep(0.25)
 
 
-def run_windows_message_loop() -> None:
-    def on_win32_ctrl_event(event):
-        if event in (
-            win32con.CTRL_C_EVENT,
-            win32con.CTRL_BREAK_EVENT,
-            win32con.CTRL_CLOSE_EVENT,
-        ):
-            logger.debug("Caught Windows control event %s, exiting", event)
-            perform_cleanup()
-        return 0
-
-    def on_win32_wm_event(_hWnd, msg, wParam, _lParam):
-        logger.debug("Caught Windows window message event %s", msg)
-        if msg == win32con.WM_POWERBROADCAST and _DISPLAY is not None:
-            if wParam == win32con.PBT_APMSUSPEND:
-                logger.info("Computer is going to sleep, display will turn off")
-                _DISPLAY.turn_off()
-                return
-            if wParam == win32con.PBT_APMRESUMEAUTOMATIC:
-                logger.info("Computer is resuming from sleep, display will turn on")
-                _DISPLAY.turn_on()
-                _DISPLAY.display_static_images()
-                _DISPLAY.display_static_text()
-                return
-        request_process_exit(0)
-
-    win32api.SetConsoleCtrlHandler(on_win32_ctrl_event, True)
-    hinst = win32api.GetModuleHandle(None)
-    wndclass = win32gui.WNDCLASS()
-    wndclass.hInstance = hinst
-    wndclass.lpszClassName = "turingEventWndClass"
-    wndclass.lpfnWndProc = {
-        win32con.WM_QUERYENDSESSION: on_win32_wm_event,
-        win32con.WM_ENDSESSION: on_win32_wm_event,
-        win32con.WM_QUIT: on_win32_wm_event,
-        win32con.WM_DESTROY: on_win32_wm_event,
-        win32con.WM_CLOSE: on_win32_wm_event,
-        win32con.WM_POWERBROADCAST: on_win32_wm_event,
-    }
-    window_class = win32gui.RegisterClass(wndclass)
-    win32gui.CreateWindowEx(
-        win32con.WS_EX_LEFT,
-        window_class,
-        "turingEventWnd",
-        0,
-        0,
-        0,
-        win32con.CW_USEDEFAULT,
-        win32con.CW_USEDEFAULT,
-        0,
-        0,
-        hinst,
-        None,
-    )
-    while not scheduler.STOPPING:
-        win32gui.PumpWaitingMessages()
-        time.sleep(0.5)
-
-
 def run_forever() -> None:
-    if _TRAY_ICON and platform.system() == "Darwin":
-        from AppKit import NSApp, NSApplicationActivationPolicyProhibited, NSBundle
-
-        info = NSBundle.mainBundle().infoDictionary()
-        info["LSUIElement"] = "1"
-        NSApp.setActivationPolicy_(NSApplicationActivationPolicyProhibited)
-        _TRAY_ICON.run()
-    elif platform.system() == "Windows":
-        run_windows_message_loop()
-    else:
-        while not scheduler.STOPPING:
-            time.sleep(0.5)
+    while not scheduler.STOPPING:
+        time.sleep(0.5)
 
 
 def main() -> int:

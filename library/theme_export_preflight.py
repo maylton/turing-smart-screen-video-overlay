@@ -20,7 +20,6 @@ import yaml
 
 from library.theme_generated_media import (
     GeneratedMediaReport,
-    GeneratedMediaStatus,
     inspect_generated_media,
     normalize_theme_reference,
 )

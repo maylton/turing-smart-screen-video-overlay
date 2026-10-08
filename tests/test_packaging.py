@@ -43,7 +43,6 @@ class PackagingContractTests(unittest.TestCase):
                 "res/themes/core/theme.yaml",
                 "res/theme-templates/html-ide-starter.theme",
                 "res/theme-templates/html-ide-starter/manifest.json",
-                "res/docs/no-preview.png",
                 "res/fonts/roboto/Roboto-Regular.ttf",
                 "tools/render_theme_preview.py",
                 "packaging/core-fonts-rsync-filter.txt",
@@ -51,12 +50,11 @@ class PackagingContractTests(unittest.TestCase):
             )
             excluded = (
                 "main.py.video-working",
-                "simple-program.py",
+                "unlisted-script.py",
                 "docs/ROADMAP.md",
                 "tests/test_runtime.py",
-                "external/windows-only.dll",
                 "tools/compare-images.py",
-                "res/docs/device-photo.png",
+                "res/docs/no-preview.png",
                 "res/fonts/BoutiqueBitmap9x9/Optional.ttf",
                 "res/themes/--Theme examples/large.png",
                 "res/themes/core/theme.yaml.editor-backup",

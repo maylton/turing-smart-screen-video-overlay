@@ -3,9 +3,8 @@
 """
 GTK4 + Libadwaita configuration shell for turing-smart-screen-python.
 
-This is intentionally installed alongside the existing Tkinter configure.py.
-It provides a modern Linux-first home screen while reusing the already
-working theme editor, video manager, and main monitor process.
+Linux-first home screen that launches the theme editor, video manager and the
+main monitor process.
 """
 
 from __future__ import annotations
@@ -353,7 +352,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         toolbar_view.add_top_bar(header)
 
         menu = Gio.Menu()
-        menu.append("Open classic interface", "win.open-classic")
         menu.append("About", "app.about")
         menu_button = Gtk.MenuButton(
             icon_name="open-menu-symbolic",
@@ -393,7 +391,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
 
     def install_actions(self):
         actions = {
-            "open-classic": self.open_classic,
             "open-editor": self.open_theme_editor,
             "open-videos": self.open_video_manager,
             "start-monitor": self.start_monitor,
@@ -857,12 +854,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
                 "video-x-generic-symbolic",
                 "win.open-videos",
             ),
-            (
-                "Classic configuration",
-                "Open the original Tkinter configuration window.",
-                "preferences-system-symbolic",
-                "win.open-classic",
-            ),
         ):
             row = Adw.ActionRow(
                 title=title_text,
@@ -1293,9 +1284,6 @@ class SmartScreenWindow(Adw.ApplicationWindow):
         except Exception as exc:
             self.toast(f"Could not open {path.name}: {exc}")
             return None
-
-    def open_classic(self, *_args):
-        self.launch_script(ROOT / "configure.py")
 
     def open_theme_editor(self, *_args):
         theme = read_current_theme()

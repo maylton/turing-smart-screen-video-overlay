@@ -21,10 +21,7 @@ _MONITOR_ENTRY_POINTS = {
 }
 _GTK_SHELL_ENTRY_POINTS = {
     "configure-gtk.py",
-    "theme-gallery-gtk.py",
     "turing-smart-screen",
-    "turing-smart-screen-gtk.py",
-    "turing-smart-screen-main.py",
 }
 _TRAY_I18N_HOOK_INSTALLED = False
 

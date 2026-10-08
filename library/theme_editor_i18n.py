@@ -45,7 +45,6 @@ _PT_BR = {
     "Open Theme YAML": "Abrir YAML do tema",
     "Reload Theme From Disk": "Recarregar tema do disco",
     "Theme Diagnostics": "Diagnóstico do tema",
-    "Advanced / Legacy Editor…": "Editor avançado / legado…",
 
     # Elements panel
     "Theme elements": "Elementos do tema",
@@ -82,7 +81,6 @@ _PT_BR = {
     "Duplicate the selected custom text or static image": "Duplica o texto personalizado ou a imagem estática selecionada",
     "Delete": "Excluir",
     "Delete custom elements; sensors are disabled after confirmation": "Exclui elementos personalizados; sensores são desativados após confirmação",
-    "Legacy editor access moved to More theme actions → Advanced / Legacy Editor…": "O acesso ao editor legado foi movido para Mais ações do tema → Editor avançado / legado…",
 
     # Element tree labels and statuses
     "Display": "Tela",

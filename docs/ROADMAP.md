@@ -151,7 +151,7 @@ The release-readiness layer adds:
 - write the selected display path into the theme video section;
 - extract an exact-size PNG background from a local video frame;
 - update `video.PREVIEW_BACKGROUND` and refresh the GTK preview safely;
-- retain the classic editor as a fallback while the migration is completed.
+- retire the classic Tk editor once the GTK editor covers its workflows (done).
 
 ## Theme cloning and prepared-media reuse
 

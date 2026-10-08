@@ -27,11 +27,7 @@
 - /.github/***
 - /docs/***
 - /tests/***
-- /external/***
 
-# Keep the one documentation image used by the classic configuration fallback.
-+ /res/docs/
-+ /res/docs/no-preview.png
 - /res/docs/***
 
 # Tools used from the installed GTK theme editor.
@@ -69,17 +65,13 @@
 + /requirements-gpu-amd.txt
 
 # Native Linux install/update entrypoints.
-+ /StartAtBoot.sh
-+ /display.sh
 + /install.sh
 + /install-checked.sh
 + /run-gtk.sh
-+ /start-turing.sh
 + /uninstall.sh
 
 # Main application and supported fallback/diagnostic entrypoints.
 + /configure-gtk.py
-+ /configure.py
 + /configure_gtk_app.py
 + /diagnostics-gtk.py
 + /diagnostics.py
@@ -89,10 +81,6 @@
 + /gtk-checkup.py
 + /html-theme-build-video.py
 + /html-theme-editor-gtk.py
-+ /html-theme-physical-live.py
-+ /html-theme-physical-test.py
-+ /html-theme-preview-gtk.py
-+ /html-theme-transport-sim.py
 + /main.py
 + /media-preparation-gtk.py
 + /media-preparation.py
@@ -101,10 +89,7 @@
 + /sitecustomize.py
 + /theme-backups.py
 + /theme-editor-gtk.py
-+ /theme-editor.py
 + /theme-migrate.py
-+ /theme_gallery_card_polish.py
-+ /turing-smart-screen-main.py
 + /usercustomize.py
 + /video-manager-gtk.py
 + /video_manager.py
