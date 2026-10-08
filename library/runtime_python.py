@@ -14,15 +14,10 @@ from pathlib import Path
 RUNTIME_PYTHON_ENV = "TURING_SMART_SCREEN_PYTHON"
 _THEME_IMPORT_ENTRY_POINTS = {
     "configure-gtk.py",
-    "theme-gallery-gtk.py",
-    "turing-smart-screen-gtk.py",
-    "turing-smart-screen-main.py",
 }
 _MAIN_APP_ENTRY_POINTS = {
     "configure-gtk.py",
     "turing-smart-screen",
-    "turing-smart-screen-gtk.py",
-    "turing-smart-screen-main.py",
 }
 _MAIN_APP_WATCH_STARTED = False
 

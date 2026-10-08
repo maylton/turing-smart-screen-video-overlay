@@ -100,8 +100,8 @@ class ExampleCustomTextOnlyData(CustomDataSource):
         # If a custom data class only has text values, it won't be possible to display line graph
         pass
 
-# Optional sensors used by the Material Expressive 2.1 theme.
-from library.sensors.material_expressive import (
+# Re-exported: themes look custom sensor classes up by name in this module.
+from library.sensors.material_expressive import (  # noqa: F401
     MaterialLiquidTemperature,
     MaterialMemoryUsedGb,
     MaterialPumpRpm,

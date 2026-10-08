@@ -18,7 +18,6 @@ _EXACT_PT_BR = {
     "Edit components, backgrounds, positions, and sensor templates.": "Edite componentes, fundos, posições e modelos de sensores.",
     "Native video manager": "Gerenciador de vídeos nativos",
     "Manage videos stored on the Turing Smart Screen.": "Gerencie vídeos armazenados na Turing Smart Screen.",
-    "Open the original Tkinter configuration window.": "Abre a janela de configuração original em Tkinter.",
     "Display size could not be detected; showing all installed themes": "Não foi possível detectar o tamanho da tela; mostrando todos os temas instalados",
     "No themes found": "Nenhum tema encontrado",
     "No theme selected": "Nenhum tema selecionado",

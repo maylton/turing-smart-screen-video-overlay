@@ -37,7 +37,6 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
-from PIL import Image
 import ruamel.yaml
 
 from library.theme_video_background import (
@@ -89,7 +88,6 @@ from library.theme_media_layout import (
     MODE_ORIGINAL,
     MODE_STRETCH,
     ImageLayoutSettings,
-    ThemeMediaLayoutError,
     compute_image_layout,
     image_dimensions,
     infer_layout_mode,
@@ -115,8 +113,6 @@ from library.theme_media_transform import (
     ROTATION_180,
     ROTATION_270,
     ImageTransformSettings,
-    ThemeMediaTransformError,
-    is_identity_transform,
     prepare_transform_asset,
     render_transform_preview_asset,
     resolve_transform_source,
@@ -137,7 +133,6 @@ from ruamel.yaml.comments import CommentedSeq
 APP_ID = "io.github.turing.SmartScreen.ThemeEditor"
 CONFIG_FILE = ROOT / "config.yaml"
 THEMES_DIR = ROOT / "res" / "themes"
-CLASSIC_EDITOR = ROOT / "theme-editor.py"
 EDITOR_TEMPLATE_DIR = ROOT / "res" / "editor-templates"
 DEFAULT_TEMPLATE_FILE = EDITOR_TEMPLATE_DIR / "default.yaml"
 EXAMPLE_TEMPLATE_FILE = EDITOR_TEMPLATE_DIR / "theme_example.yaml"
@@ -644,15 +639,6 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
                 "Theme Diagnostics",
                 "dialog-information-symbolic",
                 self.show_theme_diagnostics,
-                overflow_popover,
-            )
-        )
-        overflow_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-        overflow_box.append(
-            popover_action_button(
-                "Advanced / Legacy Editor…",
-                "applications-system-symbolic",
-                self.confirm_open_classic_editor,
                 overflow_popover,
             )
         )
@@ -1563,17 +1549,6 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.actions_button.set_popover(actions_popover)
         actions_row.append(self.actions_button)
         box.append(actions_row)
-
-        legacy_note = Gtk.Label(
-            label=(
-                "Legacy editor access moved to More theme actions → "
-                "Advanced / Legacy Editor…"
-            ),
-            xalign=0,
-            wrap=True,
-        )
-        legacy_note.add_css_class("dim-label")
-        box.append(legacy_note)
         return box
 
     def create_children_model(self, item):
@@ -4964,60 +4939,6 @@ class ThemeEditorWindow(Adw.ApplicationWindow):
         self.preview_status.set_label("Rendering preview…")
 
         def worker():
-            script = f"""
-import sys
-from pathlib import Path
-root = Path({str(ROOT)!r})
-sys.path.insert(0, str(root))
-from library import config
-config.CONFIG_DATA["config"]["HW_SENSORS"] = "STATIC"
-config.CONFIG_DATA["config"]["THEME"] = {self.theme_name!r}
-config.load_theme()
-config.CONFIG_DATA["display"]["REVISION"] = "SIMU"
-from library.display import display
-display.initialize_display()
-from PIL import Image
-video = config.THEME_DATA.get("video", {{}})
-bg = video.get("PREVIEW_BACKGROUND", "background.png")
-bg_path = Path(config.THEME_DATA["PATH"]) / bg
-if bg_path.is_file():
-    image = Image.open(bg_path).convert("RGB").resize(
-        (display.lcd.get_width(), display.lcd.get_height())
-    )
-    display.lcd.screen_image = image
-display.display_static_images()
-from library.theme_video_background import theme_uses_video_overlay
-if theme_uses_video_overlay(config.THEME_DATA):
-    display.lcd.video_overlay_enabled = True
-display.display_static_text()
-import library.stats as stats
-callbacks = [
-    (("STATS","CPU","PERCENTAGE"), stats.CPU.percentage),
-    (("STATS","CPU","FREQUENCY"), stats.CPU.frequency),
-    (("STATS","CPU","LOAD"), stats.CPU.load),
-    (("STATS","CPU","TEMPERATURE"), stats.CPU.temperature),
-    (("STATS","CPU","FAN_SPEED"), stats.CPU.fan_speed),
-    (("STATS","GPU"), stats.Gpu.stats),
-    (("STATS","MEMORY"), stats.Memory.stats),
-    (("STATS","DISK"), stats.Disk.stats),
-    (("STATS","NET"), stats.Net.stats),
-    (("STATS","DATE"), stats.Date.stats),
-    (("STATS","UPTIME"), stats.SystemUptime.stats),
-    (("STATS","CUSTOM"), stats.Custom.stats),
-    (("STATS","WEATHER"), stats.Weather.stats),
-    (("STATS","PING"), stats.Ping.stats),
-]
-for path, callback in callbacks:
-    node = config.THEME_DATA
-    try:
-        for part in path:
-            node = node[part]
-        if isinstance(node, dict) and node.get("INTERVAL", 0) > 0:
-            callback()
-    except Exception:
-        pass
-display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
-"""
             result = subprocess.run(
                 [
                     project_python(),
@@ -8292,44 +8213,6 @@ display.lcd.screen_image.save({str(self.preview_file)!r}, "PNG")
             self.update_actions_sensitivity()
             self.refresh_preview()
             self.toast("Element deleted")
-
-        dialog.connect("response", response)
-        dialog.present(self.dialog_parent())
-
-    def launch_classic_editor(self):
-        try:
-            subprocess.Popen(
-                [project_python(), str(CLASSIC_EDITOR), self.theme_name],
-                cwd=str(ROOT),
-                start_new_session=True,
-            )
-        except Exception as exc:
-            self.toast(f"Could not open classic editor: {exc}")
-
-    def confirm_open_classic_editor(self):
-        dialog = Adw.AlertDialog(
-            heading="Open legacy editor?",
-            body=(
-                "Most theme editing workflows now live in the GTK editor. "
-                "The legacy editor is kept as an advanced fallback for tools "
-                "that have not fully migrated yet.\n\n"
-                "Before using it, save or reload the GTK editor state. Changes "
-                "made outside this window may require Reload Theme From Disk "
-                "before saving here again."
-            ),
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("open", "Open Legacy Editor")
-        dialog.set_close_response("cancel")
-        dialog.set_default_response("cancel")
-        dialog.set_response_appearance(
-            "open",
-            Adw.ResponseAppearance.DESTRUCTIVE,
-        )
-
-        def response(_dialog, response_id):
-            if response_id == "open":
-                self.launch_classic_editor()
 
         dialog.connect("response", response)
         dialog.present(self.dialog_parent())

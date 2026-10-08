@@ -27,11 +27,6 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-tools/windows-installer/Output/
 
 # Installer logs
 pip-log.txt
@@ -141,7 +136,6 @@ screencap.png
 tmp
 
 version.txt
-external/LibreHardwareMonitor/LibreHardwareMonitorLib.sys
 
 # Local environment and temporary files
 venv/

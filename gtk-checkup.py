@@ -58,9 +58,6 @@ def detect_linux_gpu_vendors(sysfs_root: Optional[Path] = None) -> set[str]:
     available so hybrid systems are not misidentified when sysfs exposes only
     one adapter during installation.
     """
-    if not sys.platform.startswith("linux"):
-        return set()
-
     root = sysfs_root or Path(
         os.environ.get("TURING_SYSFS_DRM_ROOT", "/sys/class/drm")
     )
@@ -179,7 +176,7 @@ def main() -> int:
         import gi
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import Adw, Gtk
+        from gi.repository import Adw, Gtk  # noqa: F401
         checks.append(result(True, "GTK4 and Libadwaita imports"))
     except Exception as exc:
         checks.append(result(False, "GTK4 and Libadwaita imports", str(exc)))
@@ -259,7 +256,6 @@ def main() -> int:
         "media-preparation.py",
         "media-preparation-gtk.py",
         "media_preparation_gtk_app.py",
-        "theme-editor.py",
         "main.py",
         "config.yaml",
         "requirements-gpu-amd.txt",
@@ -268,7 +264,6 @@ def main() -> int:
         "packaging/runtime-rsync-filter.txt",
         "res/editor-templates/default.yaml",
         "res/editor-templates/theme_example.yaml",
-        "res/docs/no-preview.png",
         "tools/render_theme_preview.py",
         "tools/turzx_extract_assets.py",
         "tools/turzx_theme_hints.py",

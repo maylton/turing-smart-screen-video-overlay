@@ -111,10 +111,6 @@ class GpuDependencyDetectionTests(unittest.TestCase):
 
         self.assertEqual(vendors, {"AMD"})
 
-    def test_non_linux_platform_skips_detection(self):
-        with mock.patch.object(checkup.sys, "platform", "win32"):
-            self.assertEqual(checkup.detect_linux_gpu_vendors(Path("unused")), set())
-
     def test_dependency_profile_covers_supported_python_versions(self):
         text = (ROOT / "requirements-gpu-amd.txt").read_text(encoding="utf-8")
         self.assertIn("pyamdgpuinfo~=2.1.7", text)

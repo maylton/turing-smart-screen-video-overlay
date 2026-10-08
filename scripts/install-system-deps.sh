@@ -85,7 +85,7 @@ case "$FAMILY" in
     PACKAGES=(
       python python-pip python-virtualenv python-gobject python-cairo
       gtk3 gtk4 libadwaita webkitgtk-6.0 webkit2gtk-4.1
-      ffmpeg rsync git tk python-pillow python-pyserial python-babel
+      ffmpeg rsync git python-pillow python-pyserial python-babel
       desktop-file-utils xdg-utils acl libusb
     )
     ;;
@@ -95,7 +95,7 @@ case "$FAMILY" in
       python3 python3-venv python3-pip python3-gi python3-gi-cairo python3-cairo
       gir1.2-gtk-3.0 gir1.2-gtk-4.0 gir1.2-adw-1
       gir1.2-webkit-6.0 gir1.2-webkit2-4.1
-      ffmpeg rsync git python3-tk desktop-file-utils xdg-utils acl libusb-1.0-0
+      ffmpeg rsync git desktop-file-utils xdg-utils acl libusb-1.0-0
     )
     ;;
   fedora)
@@ -104,7 +104,7 @@ case "$FAMILY" in
     PACKAGES=(
       python3 python3-pip python3-gobject python3-cairo
       gtk3 gtk4 libadwaita webkitgtk6.0 webkit2gtk4.1
-      rsync git python3-tkinter desktop-file-utils xdg-utils acl libusb1
+      rsync git desktop-file-utils xdg-utils acl libusb1
     )
     # Keep an existing (e.g. RPM Fusion) ffmpeg instead of forcing a swap.
     if ! command -v ffmpeg >/dev/null 2>&1; then
@@ -129,7 +129,7 @@ if [[ "$FAMILY" == "unknown" ]]; then
   echo "Supported families: Arch (pacman), Debian/Ubuntu (apt-get), Fedora (dnf)." >&2
   echo "Install manually: Python 3 with venv and pip, PyGObject with its cairo integration (gi._gi_cairo)," >&2
   echo "pycairo, GTK 3/4 and Libadwaita introspection data, WebKitGTK 6.0 and 4.1 introspection data," >&2
-  echo "FFmpeg/FFprobe with libx264, rsync, Git, Tk, libusb, desktop-file-utils, xdg-utils and acl." >&2
+  echo "FFmpeg/FFprobe with libx264, rsync, Git, libusb, desktop-file-utils, xdg-utils and acl." >&2
   echo "Then re-run ./install.sh --no-deps" >&2
   exit 0
 fi

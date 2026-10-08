@@ -66,7 +66,6 @@ def active_language_label() -> str:
 GTK_SHELL_MESSAGES = (
     "Linux configuration center",
     "Main menu",
-    "Open classic interface",
     "About",
     "Navigation",
     "Overview",
@@ -93,8 +92,6 @@ GTK_SHELL_MESSAGES = (
     "Run main.py using the project environment.",
     "Stop monitor",
     "Stop the process started from this window.",
-    "Classic configuration",
-    "Open the original Tkinter configuration window.",
     "Appearance",
     "Choose the application appearance. The selection is saved for the next session.",
     "Color scheme",
@@ -225,7 +222,6 @@ _PT_BR = {
     # App shell / header
     "Linux configuration center": "Central de configuração Linux",
     "Main menu": "Menu principal",
-    "Open classic interface": "Abrir interface clássica",
     "About": "Sobre",
 
     # Navigation
@@ -267,10 +263,6 @@ _PT_BR = {
     "Stop monitor": "Parar tela",
     "Stop the process started from this window.": (
         "Para o processo iniciado por esta janela."
-    ),
-    "Classic configuration": "Configuração clássica",
-    "Open the original Tkinter configuration window.": (
-        "Abre a janela de configuração original em Tkinter."
     ),
 
     # Settings

@@ -14,9 +14,6 @@ from typing import Callable
 
 _THEME_GALLERY_ENTRY_POINTS = {
     "configure-gtk.py",
-    "theme-gallery-gtk.py",
-    "turing-smart-screen-gtk.py",
-    "turing-smart-screen-main.py",
 }
 
 _MONITOR_ENTRY_POINTS = {
