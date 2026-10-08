@@ -45,13 +45,6 @@ def build_inline_theme_editor_page(app: Any, window: Any, theme_name: str):
 
     Gtk = app.Gtk
 
-    try:
-        from library.theme_editor_widget_i18n import install as install_widget_i18n
-
-        install_widget_i18n()
-    except Exception:
-        pass
-
     module = _load_theme_editor_module(app)
     _install_inline_theme_editor_i18n(module)
     editor_class = getattr(module, "ThemeEditorWindow")

@@ -157,18 +157,15 @@ class PackagingContractTests(unittest.TestCase):
 
     def test_installer_keeps_translation_runtime_files(self):
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")
-        self.assertNotIn("--exclude 'usercustomize.py'", installer)
         self.assertNotIn("--exclude 'library/*i18n.py'", installer)
 
         required_i18n_files = (
-            "usercustomize.py",
             "library/i18n.py",
             "library/main_app_i18n.py",
             "library/diagnostics_gtk_i18n.py",
             "library/media_preparation_i18n.py",
             "library/theme_editor_i18n.py",
             "library/theme_editor_safe_i18n.py",
-            "library/theme_editor_widget_i18n.py",
             "library/theme_gallery_i18n.py",
             "library/video_manager_i18n.py",
         )
@@ -177,12 +174,6 @@ class PackagingContractTests(unittest.TestCase):
                 self.assertTrue((ROOT / relative).is_file())
 
     def test_translation_entry_points_are_connected(self):
-        startup = (ROOT / "usercustomize.py").read_text(encoding="utf-8")
-        self.assertIn('"configure-gtk.py"', startup)
-        self.assertIn('"theme-editor-gtk.py"', startup)
-        self.assertIn("install_main_app_tray_i18n", startup)
-        self.assertIn("install_theme_editor_widget_i18n", startup)
-
         integrations = (
             ROOT / "library" / "main_app_diagnostics_integration.py"
         ).read_text(encoding="utf-8")
@@ -195,7 +186,6 @@ class PackagingContractTests(unittest.TestCase):
         for excluded in (
             "VERSION",
             "library/release_info.py",
-            "library/theme_editor_backups.py",
             "library/display_lifecycle.py",
             "library/gpu_selection.py",
             "gpu-selection-gtk.py",
@@ -208,9 +198,6 @@ class PackagingContractTests(unittest.TestCase):
             "install-checked.sh",
             "scripts/installation-report.py",
             "library/release_info.py",
-            "library/theme_editor_backups.py",
-            "library/theme_editor_backup_runtime.py",
-            "theme-backups.py",
             "library/display_lifecycle.py",
             "library/gpu_selection.py",
             "library/gpu_diagnostics.py",
@@ -222,9 +209,8 @@ class PackagingContractTests(unittest.TestCase):
                 self.assertTrue((ROOT / relative).is_file())
 
     def test_gpu_selection_is_connected_to_monitor_and_diagnostics(self):
-        startup = (ROOT / "usercustomize.py").read_text(encoding="utf-8")
-        self.assertIn('"main.py"', startup)
-        self.assertIn("install_gpu_selection", startup)
+        sensors = (ROOT / "library" / "sensors" / "sensors_python.py").read_text(encoding="utf-8")
+        self.assertIn("select_amd_gpu_index(pyamdgpuinfo, preference)", sensors)
 
         diagnostics = (ROOT / "diagnostics.py").read_text(encoding="utf-8")
         self.assertIn("collect_gpu_diagnostics", diagnostics)

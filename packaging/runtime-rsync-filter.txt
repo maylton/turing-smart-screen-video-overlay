@@ -86,10 +86,8 @@
 + /media-preparation.py
 + /media_preparation_gtk_app.py
 + /screen-control.py
-+ /theme-backups.py
 + /theme-editor-gtk.py
 + /theme-migrate.py
-+ /usercustomize.py
 + /video-manager-gtk.py
 + /video_manager.py
 + /video_manager_backend.py

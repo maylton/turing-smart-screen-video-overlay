@@ -2089,7 +2089,11 @@ class SmartScreenApplication(Adw.Application):
 
 def main() -> int:
     app = SmartScreenApplication()
-    return app.run(sys.argv)
+    try:
+        return app.run(sys.argv)
+    except KeyboardInterrupt:
+        # Ctrl-C in the launching terminal: exit quietly with the shell's code.
+        return 130
 
 
 if __name__ == "__main__":

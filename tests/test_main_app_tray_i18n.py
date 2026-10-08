@@ -73,22 +73,18 @@ class MainAppTrayI18nContractTests(unittest.TestCase):
         ):
             assert_source_contains(self, source, key)
 
-    def test_usercustomize_loads_tray_i18n_for_gtk_shell_entrypoints(self):
-        source = Path("usercustomize.py").read_text(encoding="utf-8")
-        assert_source_contains(self, source, "_GTK_SHELL_ENTRY_POINTS")
-        assert_source_contains(self, source, '"configure-gtk.py"')
-        assert_source_contains(self, source, '"turing-smart-screen"')
-        assert_source_contains(self, source, "return _entry_point_name() in _GTK_SHELL_ENTRY_POINTS")
-        assert_source_contains(self, source, "install_main_app_tray_i18n")
-        assert_source_contains(self, source, "_install_tray_i18n_import_hook()")
+    def test_ctrl_c_in_the_launching_terminal_exits_quietly(self):
+        import importlib.util
+        from unittest import mock
 
-    def test_usercustomize_installs_ctrl_c_traceback_guard_for_gtk_shell(self):
-        source = Path("usercustomize.py").read_text(encoding="utf-8")
-        assert_source_contains(self, source, "def _install_gtk_ctrl_c_handler")
-        assert_source_contains(self, source, "except KeyboardInterrupt")
-        assert_source_contains(self, source, "return 130")
-        assert_source_contains(self, source, "application_class.run = run_without_keyboard_interrupt_traceback")
-        assert_source_contains(self, source, "_install_gtk_ctrl_c_handler(module)")
+        spec = importlib.util.spec_from_file_location("configure_gtk_app_ctrl_c", "configure_gtk_app.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        application = mock.Mock()
+        application.run.side_effect = KeyboardInterrupt
+        with mock.patch.object(module, "SmartScreenApplication", return_value=application):
+            self.assertEqual(module.main(), 130)
 
     def test_main_app_integrations_install_shell_i18n_directly(self):
         source = Path("library/main_app_diagnostics_integration.py").read_text(

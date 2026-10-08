@@ -150,12 +150,11 @@ class EmbeddedThemeEditorPage(Gtk.Box):
         return module
 
     def _install_embedded_editor_runtime_patches(self, module) -> None:
-        """Apply Theme Editor runtime patches when the editor is embedded.
+        """Apply the Theme Editor runtime patches to the embedded copy.
 
-        The standalone editor gets these through usercustomize.py because
-        sys.argv[0] is theme-editor-gtk.py. The embedded editor is loaded as a
-        normal module from configure-gtk.py, so the patch modules would otherwise
-        look at __main__ and miss ThemeEditorWindow.
+        The patch modules look ThemeEditorWindow up on ``__main__``; the
+        embedded editor is loaded as a normal module, so it is exposed there
+        while they install.
         """
 
         main_module = sys.modules.get("__main__")
