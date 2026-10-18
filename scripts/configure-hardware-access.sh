@@ -13,6 +13,38 @@ if [[ "$TARGET_USER" == "root" && -n "${SUDO_USER:-}" ]]; then
   TARGET_USER="$SUDO_USER"
 fi
 
+run_root() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+user_can_rw() {
+  local user="$1"
+  local path="$2"
+
+  if [[ "$(id -un)" == "$user" ]]; then
+    [[ -r "$path" && -w "$path" ]]
+    return
+  fi
+
+  if command -v runuser >/dev/null 2>&1; then
+    runuser -u "$user" -- test -r "$path" && \
+      runuser -u "$user" -- test -w "$path"
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -u "$user" test -r "$path" && \
+      sudo -u "$user" test -w "$path"
+    return
+  fi
+
+  return 1
+}
+
 OS_ID="unknown"
 OS_LIKE=""
 OS_NAME="Linux"
@@ -67,14 +99,16 @@ esac
 
 if [[ -f "$RULE_SOURCE" ]] && command -v udevadm >/dev/null 2>&1; then
   echo "Installing udev hardware-access rules..."
-  sudo install -Dm0644 "$RULE_SOURCE" "$RULE_DEST"
-  sudo udevadm control --reload-rules
+  run_root install -Dm0644 "$RULE_SOURCE" "$RULE_DEST"
+  run_root udevadm control --reload-rules
 
   # Re-apply rules to already connected devices so a fresh install can work
   # immediately when systemd-logind/uaccess is available.
-  sudo udevadm trigger --subsystem-match=tty --action=change || true
-  sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=1cbe --action=change || true
-  sudo udevadm settle || true
+  run_root udevadm trigger --subsystem-match=tty --action=change || true
+  for vendor in 1a86 0525 1d6b 1cbe 454d; do
+    run_root udevadm trigger --subsystem-match=usb --attr-match="idVendor=$vendor" --action=change || true
+  done
+  run_root udevadm settle || true
 else
   echo "udev rules could not be installed; falling back to serial groups." >&2
 fi
@@ -94,7 +128,7 @@ for group in "${SERIAL_GROUPS[@]:-}"; do
   fi
 
   echo "Adding $TARGET_USER to serial access group: $group"
-  sudo usermod -aG "$group" "$TARGET_USER"
+  run_root usermod -aG "$group" "$TARGET_USER"
   GROUP_MEMBERSHIP_CHANGED=1
   SESSION_REFRESH_NEEDED=1
 done
@@ -105,21 +139,20 @@ shopt -s nullglob
 for device in /dev/ttyACM* /dev/ttyUSB*; do
   [[ -e "$device" ]] || continue
   FOUND_SERIAL=1
-  if [[ ! -r "$device" || ! -w "$device" ]]; then
-    # Group changes only reach new login sessions. Apply a user ACL to the
-    # currently connected endpoint so installation can finish with a usable
-    # display immediately; udev/group rules cover future reconnects.
-    if command -v setfacl >/dev/null 2>&1; then
-      sudo setfacl -m "u:${TARGET_USER}:rw" "$device" || true
-    fi
+
+  # A new supplementary-group membership only reaches a fresh login session.
+  # Always grant a user ACL to connected endpoints so first-run setup can use
+  # the display immediately; udev/group rules cover future reconnects.
+  if command -v setfacl >/dev/null 2>&1; then
+    run_root setfacl -m "u:${TARGET_USER}:rw" "$device" || true
   fi
 
-  if [[ -r "$device" && -w "$device" ]]; then
+  if user_can_rw "$TARGET_USER" "$device"; then
     echo "Serial endpoint is accessible now: $device"
     ACCESSIBLE=1
   else
     owner="$(stat -c '%U:%G %a' "$device" 2>/dev/null || true)"
-    echo "Serial endpoint is not accessible in this process yet: $device ($owner)" >&2
+    echo "Serial endpoint is not accessible to $TARGET_USER yet: $device ($owner)" >&2
   fi
 done
 shopt -u nullglob
@@ -129,5 +162,5 @@ if [[ "$FOUND_SERIAL" -eq 0 ]]; then
 elif [[ "$ACCESSIBLE" -eq 0 && ( "$GROUP_MEMBERSHIP_CHANGED" -eq 1 || "$SESSION_REFRESH_NEEDED" -eq 1 ) ]]; then
   echo
   echo "Hardware access was configured, but this login session has not inherited the new group yet." >&2
-  echo "The udev uaccess rule may make the device available immediately; otherwise sign out and back in once." >&2
+  echo "The udev uaccess rule/ACL may make the device available immediately; otherwise sign out and back in once." >&2
 fi

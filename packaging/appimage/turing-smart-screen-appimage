@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${APPDIR:-}" ]]; then
+  echo "APPDIR is not set; this launcher must run from the AppImage runtime." >&2
+  exit 1
+fi
+
+if [[ "${1:-}" == "--appimage-smoke-test" ]]; then
+  exec "$APPDIR/usr/bin/python3" - <<'PY'
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+gi.require_version("WebKit", "6.0")
+
+from gi.repository import Adw, Gtk, WebKit  # noqa: F401
+import PIL
+import serial
+
+print("AppImage Python/GTK/WebKit runtime: OK")
+print("Pillow:", PIL.__version__)
+print("PySerial:", serial.__version__)
+PY
+fi
+
+PAYLOAD="$APPDIR/usr/share/turing-smart-screen"
+DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/turing-smart-screen-appimage"
+RUNTIME="$DATA_ROOT/runtime"
+MARKER="$DATA_ROOT/.appimage-payload-id"
+FLATPAK_RUNTIME="$HOME/.var/app/io.github.turing.SmartScreen/data/turing-smart-screen/runtime"
+PACKAGED_ID="$(cat "$PAYLOAD/.appimage-payload-id" 2>/dev/null || cat "$PAYLOAD/VERSION" 2>/dev/null || printf '%s' unknown)"
+
+mkdir -p "$DATA_ROOT"
+
+copy_user_state() {
+  local source="$1"
+  local destination="$2"
+
+  [[ -d "$source" ]] || return 0
+
+  [[ -f "$source/config.yaml" ]] && cp -a "$source/config.yaml" "$destination/config.yaml"
+
+  for path in res/themes res/video res/videos .gtk-ui-backups .theme-editor-backups; do
+    if [[ -d "$source/$path" ]]; then
+      mkdir -p "$destination/$path"
+      cp -a "$source/$path/." "$destination/$path/"
+    fi
+  done
+}
+
+needs_refresh=0
+if [[ ! -d "$RUNTIME" ]]; then
+  needs_refresh=1
+elif [[ ! -f "$MARKER" ]]; then
+  needs_refresh=1
+elif [[ "$(cat "$MARKER" 2>/dev/null || true)" != "$PACKAGED_ID" ]]; then
+  needs_refresh=1
+fi
+
+if [[ "$needs_refresh" -eq 1 ]]; then
+  NEW_RUNTIME="$DATA_ROOT/runtime.new"
+  OLD_RUNTIME="$RUNTIME"
+
+  rm -rf "$NEW_RUNTIME"
+  mkdir -p "$NEW_RUNTIME"
+  cp -a "$PAYLOAD/." "$NEW_RUNTIME/"
+
+  if [[ -d "$OLD_RUNTIME" ]]; then
+    copy_user_state "$OLD_RUNTIME" "$NEW_RUNTIME"
+  elif [[ -d "$FLATPAK_RUNTIME" ]]; then
+    echo "Migrating Turing Smart Screen settings from the previous Flatpak installation..." >&2
+    copy_user_state "$FLATPAK_RUNTIME" "$NEW_RUNTIME"
+    touch "$DATA_ROOT/.migrated-from-flatpak"
+  fi
+
+  rm -rf "$RUNTIME.old"
+  if [[ -d "$RUNTIME" ]]; then
+    mv "$RUNTIME" "$RUNTIME.old"
+  fi
+  mv "$NEW_RUNTIME" "$RUNTIME"
+  printf '%s\n' "$PACKAGED_ID" > "$MARKER"
+  rm -rf "$RUNTIME.old"
+fi
+
+supported_hardware_present() {
+  local device vendor product pair
+  for device in /sys/bus/usb/devices/*; do
+    [[ -r "$device/idVendor" && -r "$device/idProduct" ]] || continue
+    vendor="$(tr '[:upper:]' '[:lower:]' < "$device/idVendor" 2>/dev/null || true)"
+    product="$(tr '[:upper:]' '[:lower:]' < "$device/idProduct" 2>/dev/null || true)"
+    pair="$vendor:$product"
+    case "$pair" in
+      1a86:5722|1a86:ca21|0525:a4a7|1d6b:0121|1d6b:0106|454d:4e41|1a86:fe0c|1cbe:0028|1cbe:0046|1cbe:0050|1cbe:0080|1cbe:0088|1cbe:0092|1cbe:0123)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+serial_endpoints_accessible() {
+  local found=0 device
+  shopt -s nullglob
+  for device in /dev/ttyACM* /dev/ttyUSB*; do
+    [[ -e "$device" ]] || continue
+    found=1
+    if [[ ! -r "$device" || ! -w "$device" ]]; then
+      shopt -u nullglob
+      return 1
+    fi
+  done
+  shopt -u nullglob
+  [[ "$found" -eq 0 ]] || return 0
+  return 0
+}
+
+configure_hardware_access_once() {
+  local helper rule marker host_rule current_hash configured_hash host_hash target_user
+
+  helper="$RUNTIME/scripts/configure-hardware-access.sh"
+  rule="$RUNTIME/packaging/70-turing-smart-screen.rules"
+  marker="$DATA_ROOT/.hardware-access-rule"
+  host_rule="/etc/udev/rules.d/70-turing-smart-screen.rules"
+
+  [[ -f "$helper" && -f "$rule" ]] || return 0
+  supported_hardware_present || return 0
+
+  current_hash="$(sha256sum "$rule" | awk '{print $1}')"
+  configured_hash="$(cat "$marker" 2>/dev/null || true)"
+  [[ -n "$current_hash" && "$configured_hash" == "$current_hash" ]] && return 0
+
+  # Reuse permissions installed by an earlier native/Flatpak setup when they
+  # already match this AppImage and the current serial endpoints are usable.
+  if [[ -r "$host_rule" ]]; then
+    host_hash="$(sha256sum "$host_rule" | awk '{print $1}')"
+    if [[ "$host_hash" == "$current_hash" ]] && serial_endpoints_accessible; then
+      printf '%s\n' "$current_hash" > "$marker"
+      return 0
+    fi
+  fi
+
+  target_user="$(id -un)"
+  echo "Turing Smart Screen hardware detected; configuring persistent device access..." >&2
+
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    TURING_INSTALL_USER="$target_user" bash "$helper"
+  elif command -v run0 >/dev/null 2>&1; then
+    # KDE Linux ships run0 as the preferred privilege boundary. Running env as
+    # root keeps the target desktop user explicit while the helper itself sees
+    # EUID=0 and therefore never attempts sudo on the immutable host.
+    if ! run0 /usr/bin/env \
+      TURING_INSTALL_USER="$target_user" \
+      /usr/bin/bash "$helper"; then
+      echo "Hardware-access authorization was cancelled or failed; continuing without changing host permissions." >&2
+      return 0
+    fi
+  elif command -v pkexec >/dev/null 2>&1; then
+    if ! pkexec /usr/bin/env \
+      TURING_INSTALL_USER="$target_user" \
+      /usr/bin/bash "$helper"; then
+      echo "Hardware-access authorization was cancelled or failed; continuing without changing host permissions." >&2
+      return 0
+    fi
+  else
+    echo "No supported privilege helper (run0/pkexec) is available; hardware access was not configured automatically." >&2
+    echo "Run scripts/configure-hardware-access.sh with administrator authorization if the display is inaccessible." >&2
+    return 0
+  fi
+
+  printf '%s\n' "$current_hash" > "$marker"
+}
+
+configure_hardware_access_once
+
+export TURING_SMART_SCREEN_HOME="$RUNTIME"
+export TURING_SMART_SCREEN_PYTHON="$APPDIR/usr/bin/python3"
+export TURING_APPIMAGE=1
+
+cd "$RUNTIME"
+exec "$APPDIR/usr/bin/python3" "$RUNTIME/configure-gtk.py" "$@"
