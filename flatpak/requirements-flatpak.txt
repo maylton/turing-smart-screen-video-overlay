@@ -1,0 +1,18 @@
+# Runtime Python dependencies for the GTK Flatpak.
+# GTK, Libadwaita, WebKitGTK, libusb and the base multimedia stack come from
+# org.gnome.Platform//50. Windows-only, Tk-only and PyInstaller dependencies
+# from requirements.txt are intentionally excluded.
+pyserial~=3.5
+PyYAML~=6.0.3
+psutil~=7.2.2
+babel~=2.18.0
+ruamel.yaml~=0.19.1
+uptime~=3.0.1
+ping3~=5.1.5
+pyusb~=1.3.1
+pycryptodome~=3.23.0
+requests~=2.34.2
+Pillow~=12.3.0
+numpy~=2.5.1
+GPUtil @ git+https://github.com/mathoudebine/gputil.git@1.4.1-py3.13
+pyamdgpuinfo~=2.1.8

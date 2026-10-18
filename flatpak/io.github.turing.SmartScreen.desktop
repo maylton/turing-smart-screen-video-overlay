@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Turing Smart Screen
+Comment=Configure and monitor USB smart screens on Linux
+Exec=turing-smart-screen
+Icon=io.github.turing.SmartScreen
+Terminal=false
+Categories=System;Utility;Settings;
+Keywords=Turing;TURZX;smart screen;system monitor;USB;hardware;
+StartupNotify=true
+StartupWMClass=io.github.turing.SmartScreen
