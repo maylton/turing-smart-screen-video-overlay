@@ -78,8 +78,42 @@ class HtmlNativeVideoSinkTests(unittest.TestCase):
             HtmlNativeVideoSink(
                 self.overlay, self.spec, port="/dev/fake",
                 driver_factory=lambda _port: driver,
+                sleeper=lambda _seconds: None,
             )
         self.assertEqual(driver.events[-1], "close")
+
+    def test_cold_start_retries_until_first_frame_is_acknowledged(self):
+        drivers = []
+
+        def factory(_port):
+            driver = FakeDriver()
+            # Only the third attempt reaches a display that ACKs frames.
+            driver._video_overlay_last_sent = 0.0
+            if len(drivers) >= 2:
+                original = driver.DisplayPILImageOnVideoOverlay
+
+                def submit(image, **kwargs):
+                    original(image, **kwargs)
+                    driver._video_overlay_last_sent = 1.0
+
+                driver.DisplayPILImageOnVideoOverlay = submit
+            drivers.append(driver)
+            return driver
+
+        previous = HtmlNativeVideoSink.FIRST_FRAME_TIMEOUT_SECONDS
+        HtmlNativeVideoSink.FIRST_FRAME_TIMEOUT_SECONDS = 0.05
+        try:
+            sink = HtmlNativeVideoSink(
+                self.overlay, self.spec, port="/dev/fake",
+                driver_factory=factory, sleeper=lambda _seconds: None,
+            )
+        finally:
+            HtmlNativeVideoSink.FIRST_FRAME_TIMEOUT_SECONDS = previous
+        self.assertEqual(len(drivers), 3)
+        for failed in drivers[:2]:
+            self.assertEqual(failed.events[-1], "close")
+        sink.check_health()
+        sink.close()
 
     def test_fully_opaque_capture_is_refused_before_driver_factory(self):
         calls = []
