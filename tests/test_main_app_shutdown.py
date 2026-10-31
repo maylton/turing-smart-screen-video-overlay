@@ -148,6 +148,12 @@ class MainAppShutdownTests(unittest.TestCase):
     def setUp(self):
         FakeGLib.registered = []
         FakeGLib.removed = []
+        signal_patch = patch(
+            "library.main_app_shutdown.unix_signal_add",
+            FakeGLib.unix_signal_add,
+        )
+        signal_patch.start()
+        self.addCleanup(signal_patch.stop)
         FakeGioApplicationAPI.current = None
 
     def test_parent_gets_graceful_signal_before_process_group(self):

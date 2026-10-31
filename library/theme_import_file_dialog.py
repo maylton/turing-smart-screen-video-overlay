@@ -41,7 +41,7 @@ def normalize_theme_import_path(value: str | Path) -> Path:
 
 
 def install() -> bool:
-    """Replace the text entry importer with a native GTK file chooser."""
+    """Replace the text entry importer with the native GTK file dialog."""
     from library import theme_gallery as gallery
 
     pane_class = gallery.ThemeGalleryPane
@@ -49,6 +49,8 @@ def install() -> bool:
         return False
 
     Gtk = gallery.Gtk
+    Gio = gallery.Gio
+    GLib = gallery.GLib
     original_import_theme = gallery.import_theme
 
     def import_legacy_theme_archive(source: Path) -> str:
@@ -90,67 +92,48 @@ def install() -> bool:
 
         return original_import_theme(str(source))
 
-    def close_chooser(pane, chooser) -> None:
-        if getattr(pane, "_theme_import_chooser", None) is chooser:
-            pane._theme_import_chooser = None
-        destroy = getattr(chooser, "destroy", None)
-        if callable(destroy):
-            destroy()
-            return
-        hide = getattr(chooser, "hide", None)
-        if callable(hide):
-            hide()
-
     def confirm_import_theme(self) -> None:
-        existing = getattr(self, "_theme_import_chooser", None)
-        if existing is not None:
-            show = getattr(existing, "show", None)
-            if callable(show):
-                show()
+        if getattr(self, "_theme_import_dialog_open", False):
             return
 
         root = self.root_widget()
         parent = root if isinstance(root, Gtk.Window) else None
-        chooser = Gtk.FileChooserNative.new(
-            "Import Theme",
-            parent,
-            Gtk.FileChooserAction.OPEN,
-            "_Import",
-            "_Cancel",
-        )
-        chooser.set_modal(True)
 
         supported = Gtk.FileFilter()
         supported.set_name("Theme packages and definitions")
         for pattern in _SUPPORTED_PATTERNS:
             supported.add_pattern(pattern)
-        chooser.add_filter(supported)
-        chooser.set_filter(supported)
 
         all_files = Gtk.FileFilter()
         all_files.set_name("All files")
         all_files.add_pattern("*")
-        chooser.add_filter(all_files)
 
-        def on_response(dialog, response) -> None:
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(supported)
+        filters.append(all_files)
+
+        dialog = Gtk.FileDialog(title="Import Theme", accept_label="_Import", modal=True)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(supported)
+
+        def on_finished(source, result) -> None:
+            self._theme_import_dialog_open = False
             try:
-                if response != Gtk.ResponseType.ACCEPT:
-                    return
-                selected = dialog.get_file()
-                path = selected.get_path() if selected is not None else None
-                if not path:
-                    self.show_error_dialog(
-                        "Could not import theme",
-                        "Only local theme files can be imported.",
-                    )
-                    return
-                self.on_import_theme(str(normalize_theme_import_path(path)))
-            finally:
-                close_chooser(self, dialog)
+                selected = source.open_finish(result)
+            except GLib.Error:
+                # Cancelled or dismissed by the user.
+                return
+            path = selected.get_path() if selected is not None else None
+            if not path:
+                self.show_error_dialog(
+                    "Could not import theme",
+                    "Only local theme files can be imported.",
+                )
+                return
+            self.on_import_theme(str(normalize_theme_import_path(path)))
 
-        chooser.connect("response", on_response)
-        self._theme_import_chooser = chooser
-        chooser.show()
+        self._theme_import_dialog_open = True
+        dialog.open(parent, None, on_finished)
 
     gallery.import_theme = import_theme_from_selection
     pane_class.confirm_import_theme = confirm_import_theme

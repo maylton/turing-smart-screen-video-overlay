@@ -8,6 +8,7 @@ import signal
 import subprocess
 from typing import Any
 
+from library.glib_signals import unix_signal_add
 from library.runtime import DeviceBusyError, MonitorController
 
 
@@ -176,21 +177,20 @@ def install_main_app_shutdown(app: Any) -> bool:
         if getattr(application, "_turing_shutdown_signal_sources", None) is not None:
             return False
         sources = []
-        unix_signal_add = getattr(GLib, "unix_signal_add", None)
-        if callable(unix_signal_add):
-            priority = getattr(GLib, "PRIORITY_HIGH", 0)
-            registered_signals = set()
-            for signum in (
-                signal.SIGTERM,
-                signal.SIGINT,
-                getattr(signal, "SIGHUP", signal.SIGTERM),
-                getattr(signal, "SIGQUIT", signal.SIGTERM),
-            ):
-                if signum in registered_signals:
-                    continue
-                registered_signals.add(signum)
-                callback = lambda current=application: request_quit(current)
-                source_id = unix_signal_add(priority, signum, callback)
+        priority = getattr(GLib, "PRIORITY_HIGH", 0)
+        registered_signals = set()
+        for signum in (
+            signal.SIGTERM,
+            signal.SIGINT,
+            getattr(signal, "SIGHUP", signal.SIGTERM),
+            getattr(signal, "SIGQUIT", signal.SIGTERM),
+        ):
+            if signum in registered_signals:
+                continue
+            registered_signals.add(signum)
+            callback = lambda current=application: request_quit(current)
+            source_id = unix_signal_add(priority, signum, callback)
+            if source_id is not None:
                 sources.append((signum, source_id))
         application._turing_shutdown_signal_sources = sources
         return False

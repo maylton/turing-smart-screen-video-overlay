@@ -383,30 +383,27 @@ def _attach_background_page(window, Gtk, GLib) -> None:
             GLib.source_remove(timer)
         state["timer"] = GLib.timeout_add(180, run_scheduled_preview)
 
-    def select_response(dialog, response, kind: str) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            selected = dialog.get_file()
-            path = Path(selected.get_path()) if selected and selected.get_path() else None
-            if path is not None:
-                window._turing_background_selected_source = path
-                window._turing_background_selected_kind = kind
-                state["preview_key"] = None
-                state["preview_uri"] = None
-                label = "imagem" if kind == "image" else "vídeo"
-                file_label.set_text(f"Nova {label}: {path.name}")
-                sync_video_controls(kind)
-                schedule_preview(force=True)
-        dialog.destroy()
+    def select_finished(dialog, result, kind: str) -> None:
+        try:
+            selected = dialog.open_finish(result)
+        except GLib.Error:
+            # Cancelled or dismissed by the user.
+            return
+        path = Path(selected.get_path()) if selected and selected.get_path() else None
+        if path is not None:
+            window._turing_background_selected_source = path
+            window._turing_background_selected_kind = kind
+            state["preview_key"] = None
+            state["preview_uri"] = None
+            label = "imagem" if kind == "image" else "vídeo"
+            file_label.set_text(f"Nova {label}: {path.name}")
+            sync_video_controls(kind)
+            schedule_preview(force=True)
 
     def choose_source(kind: str) -> None:
+        from gi.repository import Gio
+
         label = "imagem" if kind == "image" else "vídeo"
-        dialog = Gtk.FileChooserNative.new(
-            f"Selecionar {label} de fundo",
-            window,
-            Gtk.FileChooserAction.OPEN,
-            "Selecionar",
-            "Cancelar",
-        )
         media_filter = Gtk.FileFilter()
         if kind == "image":
             media_filter.set_name("Imagens")
@@ -423,12 +420,20 @@ def _attach_background_page(window, Gtk, GLib) -> None:
                 "image/gif",
             ):
                 media_filter.add_mime_type(mime)
-        dialog.add_filter(media_filter)
-        dialog.connect(
-            "response",
-            lambda item, response: select_response(item, response, kind),
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(media_filter)
+        dialog = Gtk.FileDialog(
+            title=f"Selecionar {label} de fundo",
+            accept_label="Selecionar",
+            modal=True,
         )
-        dialog.show()
+        dialog.set_filters(filters)
+        dialog.set_default_filter(media_filter)
+        dialog.open(
+            window,
+            None,
+            lambda source, result: select_finished(source, result, kind),
+        )
 
     def persist(*_args, build: bool = False) -> None:
         try:
