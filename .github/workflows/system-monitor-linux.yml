@@ -39,6 +39,11 @@ jobs:
         echo "Using theme ${{ matrix.theme }}"
         sed -i "/THEME:/c\  THEME: ${{ matrix.theme }}" config.yaml
 
+        # The committed config may select the HTML renderer, which needs real
+        # hardware and ffprobe: force the YAML renderer for this smoke test
+        sed -i "/^  engine:/c\  engine: yaml" config.yaml
+        grep -n "THEME:\|engine:" config.yaml
+
     - name: Run system monitor for 20 seconds
       run: |
         python3 main.py > output.log 2>&1 &
