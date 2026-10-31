@@ -485,7 +485,6 @@ class LcdComm(ABC):
     def ReadData(self, readSize: int):
         try:
             response = self.serial_read(readSize)
-            # logger.debug("Received: [{}]".format(str(response, 'utf-8')))
             return response
         except serial.SerialTimeoutException:
             # We timed-out trying to read from our device, slow things down.
@@ -1083,7 +1082,6 @@ text_effects: Optional[dict] = None):
             bar_image = bar_image.crop(box=custom_bbox)
 
         self.DisplayPILImage(bar_image, xc - radius + custom_bbox[0], yc - radius + custom_bbox[1])
-       # self.DisplayPILImage(bar_image, xc - radius, yc - radius)
 
     # Load image from the filesystem, or get from the cache if it has already been loaded previously
     def open_image(self, bitmap_path: str) -> Image.Image:
