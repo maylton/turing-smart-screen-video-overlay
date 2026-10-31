@@ -956,8 +956,8 @@ def install_runtime_patches(app):
             return False
         return True
 
-    def list_screen_serial_devices_for_theme_apply() -> list[Path]:
-        """Return ttyACM devices that look like the real display, not UsbMonitor."""
+    def scan_display_ports_for_theme_apply() -> tuple[list[Path], list[str]] | None:
+        """Return (display ports, UsbMonitor ports), or None without metadata."""
         try:
             result = subprocess.run(
                 [
@@ -966,7 +966,8 @@ def install_runtime_patches(app):
                     (
                         "import json\n"
                         "from serial.tools import list_ports\n"
-                        "print(json.dumps([p._asdict() for p in list_ports.comports()]))\n"
+                        "keys = ('device', 'description', 'manufacturer', 'product', 'interface')\n"
+                        "print(json.dumps([{k: getattr(p, k, None) for k in keys} for p in list_ports.comports()]))\n"
                     ),
                 ],
                 text=True,
@@ -974,28 +975,61 @@ def install_runtime_patches(app):
                 timeout=5,
                 check=False,
             )
-            if result.returncode == 0 and result.stdout.strip():
-                ports = json.loads(result.stdout)
-                devices = []
-                for port in ports:
-                    device = str(port.get("device") or "")
-                    haystack = " ".join(
-                        str(port.get(key) or "")
-                        for key in ("description", "manufacturer", "product", "interface")
-                    ).casefold()
-                    if not device.startswith("/dev/ttyACM"):
-                        continue
-                    if "usbmonitor" in haystack:
-                        continue
-                    if Path(device).exists():
-                        devices.append(Path(device))
-                if devices:
-                    return sorted(devices)
+            if result.returncode != 0 or not result.stdout.strip():
+                return None
+            ports = json.loads(result.stdout)
         except Exception:
-            pass
+            return None
 
+        devices = []
+        monitors = []
+        for port in ports:
+            device = str(port.get("device") or "")
+            haystack = " ".join(
+                str(port.get(key) or "")
+                for key in ("description", "manufacturer", "product", "interface")
+            ).casefold()
+            if not device.startswith("/dev/ttyACM") or not Path(device).exists():
+                continue
+            if "usbmonitor" in haystack:
+                monitors.append(device)
+            else:
+                devices.append(Path(device))
+        return sorted(devices), sorted(monitors)
+
+    def list_screen_serial_devices_for_theme_apply() -> list[Path]:
+        """Return ttyACM devices that look like the real display, not UsbMonitor."""
+        scan = scan_display_ports_for_theme_apply()
+        if scan is not None:
+            return scan[0]
         # Fallback only when pyserial metadata is unavailable.
         return sorted(Path("/dev").glob("ttyACM*"))
+
+    def wake_usbmonitor_ports_for_theme_apply(monitors: list[str]) -> None:
+        """Open the UsbMonitor port, which wakes a powered-off display.
+
+        Same handshake as LcdCommRevC._wake_up_device. Sending HELLO there
+        instead never gets an answer and only delays the real port.
+        """
+        for device in monitors:
+            try:
+                subprocess.run(
+                    [
+                        app.project_python(),
+                        "-c",
+                        (
+                            "import sys, serial\n"
+                            "serial.Serial(sys.argv[1], 115200, timeout=1, rtscts=True).close()\n"
+                        ),
+                        device,
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                )
+            except Exception:
+                pass
 
     def wait_for_serial_device_for_theme_apply(timeout: float = 30.0) -> list[Path]:
         """Wait until the real display serial port is visible and stable."""
@@ -1013,8 +1047,16 @@ def install_runtime_patches(app):
         except Exception:
             pass
 
+        last_wake = 0.0
         while time.monotonic() < deadline:
-            devices = list_screen_serial_devices_for_theme_apply()
+            scan = scan_display_ports_for_theme_apply()
+            if scan is None:
+                devices = list_screen_serial_devices_for_theme_apply()
+            else:
+                devices, monitors = scan
+                if not devices and monitors and time.monotonic() - last_wake >= 1.0:
+                    wake_usbmonitor_ports_for_theme_apply(monitors)
+                    last_wake = time.monotonic()
             key = tuple(str(device) for device in devices)
 
             if devices and key == stable_key:
