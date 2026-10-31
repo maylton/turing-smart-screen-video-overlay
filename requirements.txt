@@ -14,7 +14,7 @@ pycryptodome~=3.23.0   # For TURZX USB models: decrypt/encrypt frames using DES
 requests~=2.34.2
 
 # Image generation
-Pillow~=12.3.0
+Pillow~=13.0.0
 
 # Efficient image serialization
 numpy~=2.2.6; python_version == "3.10"   # Python 3.10 compatibility
