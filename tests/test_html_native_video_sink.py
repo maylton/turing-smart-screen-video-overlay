@@ -1,5 +1,7 @@
-from PIL import Image
+import time
 import unittest
+
+from PIL import Image
 
 from library.html_native_video_sink import HtmlNativeVideoSink
 from library.theme_engine import NativeVideoOverlay, ThemeValidationError
@@ -170,6 +172,17 @@ class HtmlNativeVideoSinkTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "stop failed"):
             sink.close()
         self.assertEqual(driver.events[-1], "close")
+
+    def test_reports_age_of_last_acknowledged_frame(self):
+        driver = FakeDriver()
+        sink = HtmlNativeVideoSink(
+            self.overlay, self.spec, port="/dev/fake",
+            driver_factory=lambda _port: driver,
+        )
+        self.assertIsNone(sink.last_frame_ack_age())
+        driver._video_overlay_last_sent = time.monotonic() - 5.0
+        self.assertGreaterEqual(sink.last_frame_ack_age(), 5.0)
+        sink.close()
 
 
 if __name__ == "__main__":
