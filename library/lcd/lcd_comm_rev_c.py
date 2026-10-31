@@ -261,7 +261,6 @@ class LcdCommRevC(LcdComm):
         if cmd != Command.SEND_PAYLOAD:
             message = bytearray(cmd.value)
 
-        # logger.debug("Command: {}".format(cmd.name))
 
         if not padding:
             padding = Padding.NULL
@@ -481,13 +480,10 @@ class LcdCommRevC(LcdComm):
         self._send_command(Command.TURNOFF)
 
     def ScreenOn(self):
-        # logger.info("Calling ScreenOn")
         self._send_command(Command.STOP_VIDEO)
         self._send_command(Command.STOP_MEDIA, readsize=1024)
-        # self._send_command(Command.SET_BRIGHTNESS, payload=bytearray([255]))
 
     def SetBrightness(self, level: int = 25):
-        # logger.info("Call SetBrightness")
         assert 0 <= level <= 100, 'Brightness level must be [0-100]'
 
         # Brightness scales from 0 to 255, with 255 being the brightest and 0 being the darkest.
@@ -498,7 +494,6 @@ class LcdCommRevC(LcdComm):
 
     def SetOrientation(self, orientation: Orientation = Orientation.PORTRAIT):
         self.orientation = orientation
-        # logger.info(f"Call SetOrientation to: {self.orientation.name}")
 
         if self.orientation in {
             Orientation.REVERSE_LANDSCAPE,
@@ -1076,7 +1071,6 @@ class LcdCommRevC(LcdComm):
 
         image_size = int(len(img_raw_data) + 2).to_bytes(3, "big")  # The +2 is for the "ef69" that will be added later.
 
-        # logger.debug("Render Count: {}".format(count))
         payload = bytearray()
 
         if cmd:

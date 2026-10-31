@@ -16,6 +16,7 @@ import yaml
 from library import display_health
 from library.budgeted_frame_planner import BudgetedFramePlanner
 from library.frame_pipeline import FramePipeline, decode_png_frame, write_frame_artifacts
+from library.glib_signals import unix_signal_add
 from library.html_theme_engine import HtmlThemeEngine, WebKitGtk3OffscreenBackend
 from library.html_hybrid import (
     OVERLAY_SELECTOR,
@@ -374,9 +375,10 @@ def run(theme: Path) -> int:
                 # evaluate() queues until LOAD_FINISHED, replacing the old
                 # fixed 1.2-second startup sleep with an explicit barrier.
                 engine.evaluate("true", self.start_updates)
-            if hasattr(GLib, "unix_signal_add"):
-                for signum in (signal.SIGINT, signal.SIGTERM):
-                    self.source_ids.add(GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self.stop))
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                source_id = unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self.stop)
+                if source_id is not None:
+                    self.source_ids.add(source_id)
 
     worker = Worker()
     status = int(worker.run([]))

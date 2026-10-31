@@ -505,7 +505,6 @@ def read_flush(ep_in, max_attempts=5):
             if e.errno == 110 or e.args[0] == 'Operation timed out':
                 break
             else:
-                # print("Flush read error:", e)
                 break
 
 

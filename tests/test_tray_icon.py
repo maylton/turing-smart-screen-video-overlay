@@ -93,6 +93,8 @@ class TrayIconTests(unittest.TestCase):
             ]
         )
         image.save(source)
+        # source_icon_path() resolves to the dedicated tray artwork.
+        image.save(root / "res" / "icons" / "turing-screen-overlay.png")
         return source
 
     def fake_module(self, root: Path):
@@ -165,7 +167,8 @@ class TrayIconTests(unittest.TestCase):
                 save_tray_icon_mode(MODE_LIGHT_THEME)
                 image = load_pystray_image(root, size=2)
 
-        self.assertEqual(image.getpixel((0, 0))[:3], LIGHT_THEME_TINT)
+        # The dedicated tray artwork keeps its authored colors in every mode.
+        self.assertEqual(image.getpixel((0, 0)), (255, 0, 0, 255))
 
     def test_status_notifier_pixmap_uses_argb_network_order(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -180,9 +183,9 @@ class TrayIconTests(unittest.TestCase):
         width, height, payload = pixmaps[0]
         self.assertEqual((width, height), (2, 2))
         self.assertEqual(len(payload), width * height * 4)
-        alpha, red, green, blue = payload[:4]
-        self.assertEqual(alpha, 235)
-        self.assertEqual((red, green, blue), DARK_THEME_TINT)
+        # Pixels (255, 0, 0, 255) and (0, 255, 0, 96) as ARGB bytes.
+        self.assertEqual(tuple(payload[:4]), (255, 255, 0, 0))
+        self.assertEqual(tuple(payload[4:8]), (96, 0, 255, 0))
 
     def test_cached_hicolor_theme_contains_all_status_sizes(self):
         with tempfile.TemporaryDirectory() as temporary:
