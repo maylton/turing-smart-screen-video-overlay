@@ -102,3 +102,23 @@ class TestLcdCommRevCVideoStart(unittest.TestCase):
     def test_missing_play_reply_aborts_start(self):
         with self.assertRaisesRegex(RuntimeError, "did not confirm video playback"):
             self.start_with_reply(b"")
+
+
+class TestLcdCommRevCLateBitmapAck(unittest.TestCase):
+    ACK = b"seq_png_init_sucess" + bytes(1005)
+
+    def send_with_reads(self, reads):
+        lcd = MockedLcdCommRevC(display_width=480, display_height=480)
+        lcd.lcd_serial.read.side_effect = list(reads) + [self.ACK] * 4
+        lcd._send_video_visible_pixels = lambda _image: None
+        lcd._apply_video_overlay = lambda: None
+        image = generate_sample_image(480, 480).convert("RGBA")
+        lcd._send_full_video_overlay_transaction(image)
+        return lcd.lcd_serial.read.call_count
+
+    def test_late_bitmap_ack_is_accepted(self):
+        self.assertEqual(self.send_with_reads([b"", self.ACK]), 2)
+
+    def test_missing_bitmap_ack_still_fails(self):
+        with self.assertRaisesRegex(RuntimeError, "empty status"):
+            self.send_with_reads([b""] * 3)
