@@ -18,8 +18,19 @@ and fork releases follow semantic versioning where practical.
 - The legacy Tk configuration window (`configure.py`) and theme editor (`theme-editor.py`), with their "classic" entries in the GTK app; Tk is no longer a dependency.
 - Unused prototypes and modules: the HTML preview/transport/physical test harnesses, unused theme preset modules, alternative launchers, personal start scripts and obsolete development notes in `docs/`.
 
+### Changed
+
+- Python 3.10 or newer is required; Python 3.9 reached end of life in October 2025.
+- Autostart activates the saved theme the same way as the activation button: it powers the display off, syncs the theme video and only then starts the monitor.
+- The runtime status of native video themes shows when the display last acknowledged a frame ("last frame 2s ago", "waiting for the display", "no frame for N min") instead of only "Running".
+- `log.log` keeps two rotated files instead of being truncated at 1 MB.
+- Deprecated GLib/GTK APIs replaced: `GLib.unix_signal_add`, `Gtk.FileChooserNative` and `Gtk.ColorButton`.
+
 ### Fixed
 
+- After a cold boot the display could stay frozen on its factory boot image while the monitor reported itself as running. The reply to the video play command (`play_video_success`) was never read, so it was taken as the first frame acknowledgement and every later status was shifted by one; it is now read and required.
+- Video sync port discovery always failed (`ListPortInfo._asdict()` does not exist in pyserial 3.5) and fell back to every `/dev/ttyACM*`, so the first attempt after a power cycle spent ~22 s on the UsbMonitor port. Activation now takes ~21 s instead of ~36 s.
+- The System monitor and theme screenshot CI jobs ran the HTML renderer selected in the committed `config.yaml` and failed without hardware; they now force the YAML renderer.
 - Native installs on Debian/Ubuntu (and Arch without `python-cairo`) lacked the PyGObject cairo integration, so every HTML frame capture failed and the display stayed dark while the monitor reported a successful start. The installer now installs it, the installed checkup verifies `gi._gi_cairo`, and the HTML renderer refuses to start with an actionable message when it is missing.
 - HTML renderer failures now exit with a non-zero status, and worker restarts are written to `log.log` instead of only to stderr.
 - WebKitGTK dependencies are installed regardless of the renderer selected in `config.yaml`, since the HTML renderer can be enabled from the GUI later.

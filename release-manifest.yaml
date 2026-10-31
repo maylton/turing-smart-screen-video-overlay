@@ -1,7 +1,7 @@
 schema_version: 1
 release:
-  version: 0.1.0-rc1
-  status: release-candidate
+  version: 0.10.0
+  status: in-development
   published: false
   tag_created: false
 runtime:
@@ -13,9 +13,6 @@ platforms:
   targeted:
   - Linux desktop
   - Raspberry Pi
-  inherited_unverified:
-  - Windows
-  - macOS
 external_tools:
   required:
   - name: Python
