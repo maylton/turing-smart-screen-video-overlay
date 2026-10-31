@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from library.lcd.lcd_comm_rev_c import LcdCommRevC, Orientation
 
@@ -82,3 +83,22 @@ class TestLcdCommRevC(unittest.TestCase):
         lcd.DisplayPILImage(sample_img_landscape, x=10, y=20, image_width=100, image_height=200)
 
         lcd.expect_golden(self, "rev_c_display_pil_image_patch_reverse_landscape")
+
+
+class TestLcdCommRevCVideoStart(unittest.TestCase):
+    def start_with_reply(self, reply):
+        lcd = MockedLcdCommRevC(display_width=480, display_height=480)
+        lcd.lcd_serial.read.return_value = reply
+        started = []
+        lcd._start_video_overlay_worker = lambda: started.append(True)
+        with mock.patch("library.lcd.lcd_comm_rev_c.time.sleep"):
+            lcd.StartVideoOverlay("/mnt/SDCARD/video/test.mp4")
+        return started
+
+    def test_play_reply_is_consumed_before_overlay_worker_starts(self):
+        started = self.start_with_reply(b"play_video_success" + bytes(1006))
+        self.assertEqual(started, [True])
+
+    def test_missing_play_reply_aborts_start(self):
+        with self.assertRaisesRegex(RuntimeError, "did not confirm video playback"):
+            self.start_with_reply(b"")

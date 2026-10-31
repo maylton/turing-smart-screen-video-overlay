@@ -1760,10 +1760,45 @@ def install_runtime_patches(app):
     def auto_apply_last_theme(self):
         if not load_boolean(START_MONITOR_FILE, default=False):
             return False
-        if not app.read_current_theme():
+        current_name = app.read_current_theme()
+        if not current_name:
             self.toast("No saved theme to start automatically")
             return False
-        start_monitor(self)
+
+        # Follow the same path as activating the theme by hand: power-cycle
+        # the display, sync the theme video and only then start the monitor.
+        # After a cold boot the firmware restores its factory video and a
+        # plain start leaves the screen frozen on the boot image.
+        gallery = getattr(self, "theme_gallery", None)
+        record = None
+        if gallery is not None:
+            for candidate in getattr(gallery, "records", []):
+                if candidate.name == current_name:
+                    record = candidate
+                    break
+            if record is None:
+                gallery.reload_themes()
+                for candidate in getattr(gallery, "records", []):
+                    if candidate.name == current_name:
+                        record = candidate
+                        break
+
+        if record is None:
+            print(
+                f"[autostart] theme {current_name} not found in gallery; "
+                "starting monitor without video sync",
+                file=sys.stderr,
+                flush=True,
+            )
+            start_monitor(self)
+            return False
+
+        print(
+            f"[autostart] activating {current_name} with video sync",
+            file=sys.stderr,
+            flush=True,
+        )
+        self.apply_set_current_theme_from_gallery(record)
         return False
 
     def start_monitor(self, *_args):

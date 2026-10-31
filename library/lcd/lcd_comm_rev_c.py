@@ -594,6 +594,15 @@ class LcdCommRevC(LcdComm):
 
         # The display needs a moment to enter video mode before the first CA/D0/CF.
         time.sleep(1.0)
+        # The play command answers "play_video_success". Consume it here:
+        # left in the buffer it was read as the first bitmap ACK, shifting
+        # every later status by one and hiding a failed start after boot.
+        reply = bytes(self.ReadData(1024) or b"")
+        logger.debug("Video play reply: %r", reply.rstrip(bytes(1))[:64])
+        if b"play_video_success" not in reply:
+            raise RuntimeError(
+                f"Display did not confirm video playback: {reply.rstrip(bytes(1))[:64]!r}"
+            )
         self._start_video_overlay_worker()
 
     def StopVideoOverlay(self):

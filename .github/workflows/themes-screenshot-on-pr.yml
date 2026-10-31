@@ -25,6 +25,10 @@ jobs:
         # Use static data
         sed -i "/HW_SENSORS:/c\  HW_SENSORS: STATIC" config.yaml
 
+        # The committed config may select the HTML renderer: these
+        # screenshots are for YAML themes
+        sed -i "/^  engine:/c\  engine: yaml" config.yaml
+
     - name: Run system monitor for 5 seconds on all themes
       run: |
         for dir in res/themes/*/
