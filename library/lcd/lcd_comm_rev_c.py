@@ -126,6 +126,8 @@ WAKE_RETRIES = 15
 HELLO_ATTEMPTS = 3
 POST_RESET_HELLO_ATTEMPTS = 3
 SERIAL_WRITE_TIMEOUT_SECONDS = 2.0
+# Extra 1 s reads granted to a bitmap ACK that misses the first timeout.
+LATE_BITMAP_ACK_READS = 2
 USB_SETTLE_SECONDS = 1.0
 
 AWAKE_USB_IDS = (
@@ -888,6 +890,15 @@ class LcdCommRevC(LcdComm):
             bypass_queue=True,
             readsize=1024,
         )
+        for extra_read in range(1, LATE_BITMAP_ACK_READS + 1):
+            if response:
+                break
+            # The firmware sometimes acknowledges a full bitmap after the
+            # 1 s read timeout. Wait for that late ACK instead of tearing
+            # the overlay down, but keep the wait bounded.
+            response = self.ReadData(1024)
+            if response:
+                logger.info("Bitmap ACK arrived late (extra read %d)", extra_read)
         self._require_video_overlay_status(response, "bitmap payload")
 
         self._send_video_visible_pixels(image)
