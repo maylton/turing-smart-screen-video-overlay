@@ -9,6 +9,7 @@ from typing import Callable, Optional
 from PIL import Image
 
 from library.log import logger
+from library import display_health
 from library.display_shutdown import power_off_and_close_display
 from library.theme_engine import NativeVideoOverlay, ThemeValidationError
 
@@ -47,6 +48,7 @@ class HtmlNativeVideoSink:
         self._driver_factory = driver_factory
         self._port = port
         self._spec = spec
+        display_health.clear()
         last_error: Optional[Exception] = None
         for attempt in range(1, self.START_ATTEMPTS + 1):
             try:
@@ -156,6 +158,13 @@ class HtmlNativeVideoSink:
         if not bool(getattr(self._driver, "video_overlay_enabled", False)):
             raise RuntimeError("native video overlay stopped unexpectedly")
 
+    def last_frame_ack_age(self) -> Optional[float]:
+        """Seconds since the display acknowledged an overlay frame, or None."""
+        last_sent = getattr(self._driver, "_video_overlay_last_sent", 0.0)
+        if not last_sent:
+            return None
+        return max(0.0, time.monotonic() - last_sent)
+
     def submit(self, overlay: Image.Image) -> None:
         self.check_health()
         self._validate_overlay(overlay)
@@ -171,6 +180,7 @@ class HtmlNativeVideoSink:
         if self._closed:
             return
         self._closed = True
+        display_health.clear()
         driver, self._driver = self._driver, None
         power_off_and_close_display(driver, sleeper=self._sleeper)
 
