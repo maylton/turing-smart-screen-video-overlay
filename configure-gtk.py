@@ -124,6 +124,30 @@ def install_runtime_patches(app):
         original_init(self, application)
         app.GLib.timeout_add_seconds(2, self.refresh_runtime_status)
 
+    def theme_uses_native_video(theme_name: str) -> bool:
+        try:
+            from library.theme_engine import ThemeManifest
+
+            manifest = ThemeManifest.load(app.THEMES_DIR / theme_name)
+            return manifest.native_video_overlay is not None
+        except Exception:
+            return False
+
+    def describe_display_health(pid) -> str:
+        from library import display_health
+        from library.i18n import tr
+
+        age = display_health.frame_age()
+        if age is None:
+            return tr("Running (PID {pid}) · waiting for the display", pid=pid)
+        if age <= display_health.STALE_AFTER_SECONDS:
+            return tr("Running (PID {pid}) · last frame {age}s ago", pid=pid, age=int(age))
+        return tr(
+            "Running (PID {pid}) · no frame for {minutes} min",
+            pid=pid,
+            minutes=max(1, int(age // 60)),
+        )
+
     def update_runtime_status(self):
         state = self.runtime_controller.state()
         if state.monitor_running:
@@ -131,6 +155,13 @@ def install_runtime_patches(app):
             subtitle = (
                 f"Running (PID {owner.pid})" if owner.pid else "Running"
             )
+            # Only native video themes report acknowledged frames.
+            theme = self.current_theme or ""
+            if owner.pid and theme:
+                if getattr(self, "_native_video_theme", (None,))[0] != theme:
+                    self._native_video_theme = (theme, theme_uses_native_video(theme))
+                if self._native_video_theme[1]:
+                    subtitle = describe_display_health(owner.pid)
         elif state.busy:
             subtitle = "Device busy: " + state.owner.describe()
         else:

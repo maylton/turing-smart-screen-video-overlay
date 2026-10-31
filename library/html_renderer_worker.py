@@ -8,10 +8,12 @@ import os
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 
 import yaml
 
+from library import display_health
 from library.budgeted_frame_planner import BudgetedFramePlanner
 from library.frame_pipeline import FramePipeline, decode_png_frame, write_frame_artifacts
 from library.html_theme_engine import HtmlThemeEngine, WebKitGtk3OffscreenBackend
@@ -172,6 +174,7 @@ def run(theme: Path) -> int:
             )
             self.window = None
             self.sink = None
+            self.published_frame_ack = None
             self.planner = None
             self.capture_busy = False
             self.sensor_update_busy = False
@@ -329,7 +332,22 @@ def run(theme: Path) -> int:
             except Exception as exc:
                 self.fail(f"HTML native transport stopped safely: {exc}")
                 return False
+            self.publish_frame_ack()
             return True
+
+        def publish_frame_ack(self):
+            age = self.sink.last_frame_ack_age()
+            if age is None:
+                return
+            # Round so an unchanged ACK is not rewritten every second.
+            timestamp = round(time.time() - age, 1)
+            if timestamp == self.published_frame_ack:
+                return
+            try:
+                display_health.write_frame_ack(timestamp)
+                self.published_frame_ack = timestamp
+            except OSError:
+                pass
 
         def start_updates(self, error=None):
             if error is not None:
