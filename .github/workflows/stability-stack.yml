@@ -109,4 +109,10 @@ jobs:
             tests.test_display_lifecycle \
             tests.test_gpu_selection \
             tests.test_tray_icon \
-            tests.test_packaging
+            tests.test_packaging \
+            tests.test_version_consistency \
+            tests.test_release_readiness \
+            tests.library.lcd.test_lcd_comm_rev_c \
+            tests.test_html_native_video_sink \
+            tests.test_display_health \
+            tests.test_main_app_shutdown
