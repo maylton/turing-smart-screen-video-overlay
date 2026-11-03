@@ -283,7 +283,6 @@ class CPU:
         )
         save_last_value(cpu_percentage, cls.last_values_cpu_percentage,
                         theme_data['LINE_GRAPH'].get("HISTORY_SIZE", DEFAULT_HISTORY_SIZE))
-        # logger.debug(f"CPU Percentage: {cpu_percentage}")
 
         display_themed_progress_bar(theme_data['GRAPH'], cpu_percentage)
         display_themed_percent_radial_bar(theme_data['RADIAL'], cpu_percentage)
@@ -316,7 +315,6 @@ class CPU:
     @classmethod
     def load(cls):
         cpu_load = sensors.Cpu.load()
-        # logger.debug(f"CPU Load: ({cpu_load[0]},{cpu_load[1]},{cpu_load[2]})")
         load_theme_data = config.THEME_DATA['STATS']['CPU']['LOAD']
 
         display_themed_percent_value(load_theme_data['ONE']['TEXT'], cpu_load[0])
@@ -898,8 +896,6 @@ class Weather:
                             time = f"@{now.hour:02d}:{now.minute:02d}"
                         else:
                             logger.error(f"Error {response.status_code} fetching OpenWeatherMap API:")
-                            # logger.error(f"Response content: {response.content}")
-                            # logger.error(response.text)
                             desc = response.json().get('message')
                     except Exception as e:
                         logger.error(f"Error fetching OpenWeatherMap API: {str(e)}")
@@ -932,7 +928,6 @@ class Ping:
 
         save_last_value(delay, cls.last_values_ping,
                         theme_data['LINE_GRAPH'].get("HISTORY_SIZE", DEFAULT_HISTORY_SIZE))
-        # logger.debug(f"Ping delay: {delay}ms")
 
         display_themed_progress_bar(theme_data['GRAPH'], delay)
         display_themed_radial_bar(

@@ -137,6 +137,9 @@ GTK_SHELL_MESSAGES = (
     "No active theme",
     "Running",
     "Stopped",
+    "Running (PID {pid}) · waiting for the display",
+    "Running (PID {pid}) · last frame {age}s ago",
+    "Running (PID {pid}) · no frame for {minutes} min",
 )
 
 
@@ -337,6 +340,9 @@ _PT_BR = {
     "No active theme": "Nenhum tema ativo",
     "Running": "Em execução",
     "Stopped": "Parado",
+    "Running (PID {pid}) · waiting for the display": "Em execução (PID {pid}) · aguardando a tela",
+    "Running (PID {pid}) · last frame {age}s ago": "Em execução (PID {pid}) · último quadro há {age} s",
+    "Running (PID {pid}) · no frame for {minutes} min": "Em execução (PID {pid}) · sem quadros há {minutes} min",
 
     # Dashboard polish
     "Control the active theme, display state, video overlay, and monitor process from one place.": (

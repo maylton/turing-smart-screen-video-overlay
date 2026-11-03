@@ -36,6 +36,7 @@ from library.main_app_base import (
     ROOT,
     SCREEN_CONTROL,
     THEME_EDITOR,
+    THEMES_DIR,
     load_start_minimized,
     project_python,
     read_current_theme,
@@ -467,8 +468,8 @@ def sync_theme_video_worker(self, record: ThemeRecord):
     GLib.idle_add(self.finish_sync_theme_video, record.name, message, error)
 
 
-def list_screen_serial_devices_for_theme_apply() -> list[Path]:
-    """Return ttyACM devices that look like the real display, not UsbMonitor."""
+def scan_display_ports_for_theme_apply() -> tuple[list[Path], list[str]] | None:
+    """Return (display ports, UsbMonitor ports), or None without metadata."""
     try:
         result = subprocess.run(
             [
@@ -477,7 +478,8 @@ def list_screen_serial_devices_for_theme_apply() -> list[Path]:
                 (
                     "import json\n"
                     "from serial.tools import list_ports\n"
-                    "print(json.dumps([p._asdict() for p in list_ports.comports()]))\n"
+                    "keys = ('device', 'description', 'manufacturer', 'product', 'interface')\n"
+                    "print(json.dumps([{k: getattr(p, k, None) for k in keys} for p in list_ports.comports()]))\n"
                 ),
             ],
             text=True,
@@ -485,28 +487,63 @@ def list_screen_serial_devices_for_theme_apply() -> list[Path]:
             timeout=5,
             check=False,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            ports = json.loads(result.stdout)
-            devices = []
-            for port in ports:
-                device = str(port.get("device") or "")
-                haystack = " ".join(
-                    str(port.get(key) or "")
-                    for key in ("description", "manufacturer", "product", "interface")
-                ).casefold()
-                if not device.startswith("/dev/ttyACM"):
-                    continue
-                if "usbmonitor" in haystack:
-                    continue
-                if Path(device).exists():
-                    devices.append(Path(device))
-            if devices:
-                return sorted(devices)
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        ports = json.loads(result.stdout)
     except Exception:
-        pass
+        return None
 
+    devices = []
+    monitors = []
+    for port in ports:
+        device = str(port.get("device") or "")
+        haystack = " ".join(
+            str(port.get(key) or "")
+            for key in ("description", "manufacturer", "product", "interface")
+        ).casefold()
+        if not device.startswith("/dev/ttyACM") or not Path(device).exists():
+            continue
+        if "usbmonitor" in haystack:
+            monitors.append(device)
+        else:
+            devices.append(Path(device))
+    return sorted(devices), sorted(monitors)
+
+
+def list_screen_serial_devices_for_theme_apply() -> list[Path]:
+    """Return ttyACM devices that look like the real display, not UsbMonitor."""
+    scan = scan_display_ports_for_theme_apply()
+    if scan is not None:
+        return scan[0]
     # Fallback only when pyserial metadata is unavailable.
     return sorted(Path("/dev").glob("ttyACM*"))
+
+
+def wake_usbmonitor_ports_for_theme_apply(monitors: list[str]) -> None:
+    """Open the UsbMonitor port, which wakes a powered-off display.
+
+    Same handshake as LcdCommRevC._wake_up_device. Sending HELLO there
+    instead never gets an answer and only delays the real port.
+    """
+    for device in monitors:
+        try:
+            subprocess.run(
+                [
+                    project_python(),
+                    "-c",
+                    (
+                        "import sys, serial\n"
+                        "serial.Serial(sys.argv[1], 115200, timeout=1, rtscts=True).close()\n"
+                    ),
+                    device,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            pass
 
 
 def wait_for_serial_device_for_theme_apply(timeout: float = 30.0) -> list[Path]:
@@ -525,8 +562,16 @@ def wait_for_serial_device_for_theme_apply(timeout: float = 30.0) -> list[Path]:
     except Exception:
         pass
 
+    last_wake = 0.0
     while time.monotonic() < deadline:
-        devices = list_screen_serial_devices_for_theme_apply()
+        scan = scan_display_ports_for_theme_apply()
+        if scan is None:
+            devices = list_screen_serial_devices_for_theme_apply()
+        else:
+            devices, monitors = scan
+            if not devices and monitors and time.monotonic() - last_wake >= 1.0:
+                wake_usbmonitor_ports_for_theme_apply(monitors)
+                last_wake = time.monotonic()
         key = tuple(str(device) for device in devices)
 
         if devices and key == stable_key:
@@ -926,6 +971,32 @@ def apply_used_theme_video_and_start_worker(self, record: ThemeRecord, new_theme
     )
 
 
+def theme_uses_native_video(theme_name: str) -> bool:
+    try:
+        from library.theme_engine import ThemeManifest
+
+        manifest = ThemeManifest.load(THEMES_DIR / theme_name)
+        return manifest.native_video_overlay is not None
+    except Exception:
+        return False
+
+
+def describe_display_health(pid) -> str:
+    from library import display_health
+    from library.i18n import tr
+
+    age = display_health.frame_age()
+    if age is None:
+        return tr("Running (PID {pid}) · waiting for the display", pid=pid)
+    if age <= display_health.STALE_AFTER_SECONDS:
+        return tr("Running (PID {pid}) · last frame {age}s ago", pid=pid, age=int(age))
+    return tr(
+        "Running (PID {pid}) · no frame for {minutes} min",
+        pid=pid,
+        minutes=max(1, int(age // 60)),
+    )
+
+
 class RuntimeMixin:
     def __init__(self, application):
         self.runtime_controller = MonitorController(
@@ -945,6 +1016,13 @@ class RuntimeMixin:
             subtitle = (
                 f"Running (PID {owner.pid})" if owner.pid else "Running"
             )
+            # Only native video themes report acknowledged frames.
+            theme = self.current_theme or ""
+            if owner.pid and theme:
+                if getattr(self, "_native_video_theme", (None,))[0] != theme:
+                    self._native_video_theme = (theme, theme_uses_native_video(theme))
+                if self._native_video_theme[1]:
+                    subtitle = describe_display_health(owner.pid)
         elif state.busy:
             subtitle = "Device busy: " + state.owner.describe()
         else:
@@ -1686,10 +1764,45 @@ class RuntimeMixin:
     def auto_apply_last_theme(self):
         if not load_boolean(START_MONITOR_FILE, default=False):
             return False
-        if not read_current_theme():
+        current_name = read_current_theme()
+        if not current_name:
             self.toast("No saved theme to start automatically")
             return False
-        RuntimeMixin.start_monitor(self)
+
+        # Follow the same path as activating the theme by hand: power-cycle
+        # the display, sync the theme video and only then start the monitor.
+        # After a cold boot the firmware restores its factory video and a
+        # plain start leaves the screen frozen on the boot image.
+        gallery = getattr(self, "theme_gallery", None)
+        record = None
+        if gallery is not None:
+            for candidate in getattr(gallery, "records", []):
+                if candidate.name == current_name:
+                    record = candidate
+                    break
+            if record is None:
+                gallery.reload_themes()
+                for candidate in getattr(gallery, "records", []):
+                    if candidate.name == current_name:
+                        record = candidate
+                        break
+
+        if record is None:
+            print(
+                f"[autostart] theme {current_name} not found in gallery; "
+                "starting monitor without video sync",
+                file=sys.stderr,
+                flush=True,
+            )
+            RuntimeMixin.start_monitor(self)
+            return False
+
+        print(
+            f"[autostart] activating {current_name} with video sync",
+            file=sys.stderr,
+            flush=True,
+        )
+        self.apply_set_current_theme_from_gallery(record)
         return False
 
     def start_monitor(self, *_args):

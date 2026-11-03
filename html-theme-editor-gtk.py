@@ -31,6 +31,7 @@ from library.html_theme_components import (
     render_widget_runtime_script,
 )
 from library.html_theme_engine import WebKitGtkBackend, build_snapshot_script
+from library.html_theme_round_mask import is_probably_round, round_mask_script
 from library.html_theme_visual_editor import (
     HtmlVisualElementStyle,
     VisualStyleHistory,
@@ -338,6 +339,18 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         )
         self.overlay_mode_check.connect("toggled", self._on_overlay_mode_changed)
         elements_page.append(self.overlay_mode_check)
+
+        self.round_mask_check = Gtk.CheckButton(
+            label="Mostrar a área visível da tela redonda"
+        )
+        self.round_mask_check.set_active(
+            is_probably_round(manifest.width, manifest.height)
+        )
+        self.round_mask_check.connect("toggled", lambda *_: self._sync_round_mask())
+        elements_page.append(self.round_mask_check)
+        self.round_mask_label = Gtk.Label(xalign=0, wrap=True)
+        self.round_mask_label.add_css_class("dim-label")
+        elements_page.append(self.round_mask_label)
 
         self.component_dropdown = Gtk.DropDown.new_from_strings(
             tuple(component.label for component in self.component_catalog)
@@ -1021,8 +1034,12 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             """
         )
         self.backend.evaluate(render_widget_runtime_script())
+        self.backend.evaluate(
+            round_mask_script(self.manifest.width, self.manifest.height)
+        )
         self._sync_grid()
         self._sync_overlay_mode()
+        self._sync_round_mask()
         try:
             saved = load_visual_styles(self.manifest)
         except Exception as exc:
@@ -1458,6 +1475,9 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.save_button.set_sensitive(True)
         self.build_button.set_sensitive(self.manifest.native_video_overlay is not None)
         self.status_label.set_text("Alterações ainda não salvas")
+        if self.round_mask_check.get_active():
+            # Let the preview apply the edit before measuring it.
+            GLib.timeout_add(250, lambda: self._sync_round_mask() or False)
 
     def _restore_history(self, snapshot) -> None:
         selected_id = self._selected_id()
@@ -1560,6 +1580,25 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         enabled = "true" if self.overlay_mode_check.get_active() else "false"
         self.backend.evaluate(
             f"window.__turingEditorSetOverlayMode?.({enabled});"
+        )
+
+    def _sync_round_mask(self) -> None:
+        enabled = self.round_mask_check.get_active()
+
+        def finished(outside, error) -> None:
+            if error is not None or not enabled:
+                self.round_mask_label.set_text("")
+                return
+            outside = [str(item) for item in outside or []]
+            self.round_mask_label.set_text(
+                "Todos os elementos estão dentro da área visível"
+                if not outside
+                else f"Fora da área visível ({len(outside)}): " + ", ".join(outside)
+            )
+
+        self._evaluate_json(
+            f"window.__turingEditorSetRoundMask?.({'true' if enabled else 'false'}) || []",
+            finished,
         )
 
     def _align_selected(self, alignment: str) -> None:

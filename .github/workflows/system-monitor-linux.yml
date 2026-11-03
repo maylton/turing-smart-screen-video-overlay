@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         theme: [ "3.5inchTheme2" ]
 
     steps:
@@ -38,6 +38,11 @@ jobs:
         # Setup selected theme in config.yaml
         echo "Using theme ${{ matrix.theme }}"
         sed -i "/THEME:/c\  THEME: ${{ matrix.theme }}" config.yaml
+
+        # The committed config may select the HTML renderer, which needs real
+        # hardware and ffprobe: force the YAML renderer for this smoke test
+        sed -i "/^  engine:/c\  engine: yaml" config.yaml
+        grep -n "THEME:\|engine:" config.yaml
 
     - name: Run system monitor for 20 seconds
       run: |

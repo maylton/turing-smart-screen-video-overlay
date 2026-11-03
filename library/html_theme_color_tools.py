@@ -323,12 +323,16 @@ def _attach(window: Any, Gtk: Any, Gdk: Any, GLib: Any) -> None:
     def native_button(entry: Any, label: str) -> Any:
         rgba = Gdk.RGBA()
         rgba.parse(normalize_hex(entry.get_text()))
-        button = Gtk.ColorButton.new_with_rgba(rgba)
-        button.set_use_alpha(False)
-        button.set_title(label)
+        dialog = Gtk.ColorDialog(title=label, with_alpha=False)
+        button = Gtk.ColorDialogButton(dialog=dialog)
+        button.set_rgba(rgba)
         button.set_tooltip_text(f"Abrir seletor para {label.lower()}")
+        syncing = {"active": False}
 
         def selected(*_args) -> None:
+            # notify::rgba also fires when sync() mirrors the entry.
+            if syncing["active"]:
+                return
             select_target(entry)
             _set_entry(entry, _rgba_to_hex(button.get_rgba()))
 
@@ -338,9 +342,13 @@ def _attach(window: Any, Gtk: Any, Gdk: Any, GLib: Any) -> None:
                 return
             current = Gdk.RGBA()
             current.parse(value)
-            button.set_rgba(current)
+            syncing["active"] = True
+            try:
+                button.set_rgba(current)
+            finally:
+                syncing["active"] = False
 
-        button.connect("color-set", selected)
+        button.connect("notify::rgba", selected)
         entry.connect("changed", sync)
         return button
 

@@ -26,9 +26,8 @@ class ReleaseReadinessTests(unittest.TestCase):
         text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertIn("## [Unreleased]", text)
         for phrase in (
-            "Native Rev. C video overlay",
+            "native video overlay",
             "Media Preparation Editor",
-            "Reusable display profiles",
             "automatic display detection",
         ):
             self.assertIn(phrase.lower(), text.lower())

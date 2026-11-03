@@ -113,10 +113,8 @@ class GpuDependencyDetectionTests(unittest.TestCase):
 
     def test_dependency_profile_covers_supported_python_versions(self):
         text = (ROOT / "requirements-gpu-amd.txt").read_text(encoding="utf-8")
-        self.assertIn("pyamdgpuinfo~=2.1.7", text)
-        self.assertIn('python_version < "3.10"', text)
         self.assertIn("pyamdgpuinfo~=2.1.8", text)
-        self.assertIn('python_version >= "3.10"', text)
+        self.assertNotIn("python_version", text)
 
 
 if __name__ == "__main__":

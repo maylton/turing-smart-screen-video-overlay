@@ -18,7 +18,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, Gtk, Pango
+from gi.repository import Adw, Gio, GLib, Gtk, Pango
 from library.html_theme_authoring import (
     discover_overlay_candidates,
     inspect_native_video_artifact,
@@ -1767,52 +1767,44 @@ class ThemeGalleryPane(Gtk.Box):
         self.reload_themes()
 
     def confirm_import_theme(self) -> None:
-        existing = getattr(self, "_theme_import_chooser", None)
-        if existing is not None:
-            existing.show()
+        if getattr(self, "_theme_import_dialog_open", False):
             return
 
         root = self.root_widget()
         parent = root if isinstance(root, Gtk.Window) else None
-        chooser = Gtk.FileChooserNative.new(
-            "Import Theme",
-            parent,
-            Gtk.FileChooserAction.OPEN,
-            "_Import",
-            "_Cancel",
-        )
-        chooser.set_modal(True)
 
         supported = Gtk.FileFilter()
         supported.set_name("Theme packages and definitions")
         for pattern in SUPPORTED_PATTERNS:
             supported.add_pattern(pattern)
-        chooser.add_filter(supported)
-        chooser.set_filter(supported)
 
         all_files = Gtk.FileFilter()
         all_files.set_name("All files")
         all_files.add_pattern("*")
-        chooser.add_filter(all_files)
 
-        def on_response(dialog, response) -> None:
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(supported)
+        filters.append(all_files)
+
+        dialog = Gtk.FileDialog(title="Import Theme", accept_label="_Import", modal=True)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(supported)
+
+        def on_finished(source, result) -> None:
+            self._theme_import_dialog_open = False
             try:
-                if response != Gtk.ResponseType.ACCEPT:
-                    return
-                selected = dialog.get_file()
-                path = selected.get_path() if selected is not None else None
-                if not path:
-                    self.show_error_dialog("Could not import theme", "Only local theme files can be imported.")
-                    return
-                self.on_import_theme(str(normalize_theme_import_path(path)))
-            finally:
-                if getattr(self, "_theme_import_chooser", None) is dialog:
-                    self._theme_import_chooser = None
-                dialog.destroy()
+                selected = source.open_finish(result)
+            except GLib.Error:
+                # Cancelled or dismissed by the user.
+                return
+            path = selected.get_path() if selected is not None else None
+            if not path:
+                self.show_error_dialog("Could not import theme", "Only local theme files can be imported.")
+                return
+            self.on_import_theme(str(normalize_theme_import_path(path)))
 
-        chooser.connect("response", on_response)
-        self._theme_import_chooser = chooser
-        chooser.show()
+        self._theme_import_dialog_open = True
+        dialog.open(parent, None, on_finished)
 
     def apply_import_theme(self, source_path_text: str) -> None:
         try:

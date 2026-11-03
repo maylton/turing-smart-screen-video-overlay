@@ -17,7 +17,7 @@
 - /.test-environment/***
 - /.test-media/***
 - /.packaging-test/***
-- /log.log
+- /log.log*
 - /logs/***
 - /tmp/***
 

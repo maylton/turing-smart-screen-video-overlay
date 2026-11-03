@@ -17,7 +17,7 @@ echo "== Release readiness verification =="
 
 "$PYTHON" - <<'PY'
 import sys
-minimum = (3, 9)
+minimum = (3, 10)
 current = sys.version_info[:2]
 if current < minimum:
     raise SystemExit(
