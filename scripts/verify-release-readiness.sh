@@ -37,7 +37,7 @@ required_files=(
   docs/ROADMAP.md
   docs/releases/0.1.0-rc1.md
   main.py
-  configure_gtk_app.py
+  library/main_app.py
   install.sh
 )
 

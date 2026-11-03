@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+import functools
+from typing import Any, Callable, Iterable
 
 from library.i18n import active_language
 
@@ -292,7 +293,7 @@ def _install_dialog_i18n(gallery: Any) -> None:
                 pass
 
 
-def _localize_report(report: str) -> str:
+def localize_report(report: str) -> str:
     if active_language() != "pt_BR":
         return report
 
@@ -349,176 +350,25 @@ def _localize_report(report: str) -> str:
     return "\n".join(localized_lines)
 
 
-def _install_window_i18n(gallery: Any) -> None:
-    window_class = getattr(gallery, "ThemeGalleryWindow", None)
-    if window_class is None or getattr(window_class, "_theme_gallery_window_i18n_installed", False):
-        return
+def translated_widget(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Translate the widget tree a builder method returns."""
 
-    original_init = window_class.__init__
-    original_update_records_state = window_class.update_records_state
-    original_toast = getattr(window_class, "toast", None)
-    original_error_dialog = getattr(window_class, "error_dialog", None)
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        widget = method(*args, **kwargs)
+        translate_widget_tree(widget)
+        return widget
 
-    def update_records_state_i18n(self, records):
-        if not hasattr(self, "gallery"):
-            # ThemeGalleryPane emits the initial records callback while the
-            # standalone window is still assigning self.gallery. Ignore that
-            # early call; init_with_i18n below refreshes the state afterwards.
-            return None
-        result = original_update_records_state(self, records)
-        if active_language() == "pt_BR":
-            target = self.gallery.target_display_size
-            count = len(records)
-            if records and target:
-                noun = t("compatible theme") if count == 1 else t("compatible themes")
-                subtitle = f'{count} {noun} · {target}" {t("display")}'
-            elif records:
-                noun = t("compatible theme") if count == 1 else t("compatible themes")
-                subtitle = f"{count} {noun}"
-            elif target:
-                subtitle = f'{t("No compatible themes")} · {target}" {t("display")}'
-            else:
-                subtitle = t("No compatible themes found")
-            self.window_title.set_subtitle(subtitle)
-        return result
-
-    def init_with_i18n(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        translate_widget_tree(self)
-        try:
-            self.update_records_state(list(self.gallery.records))
-        except Exception:
-            pass
-
-    window_class.__init__ = init_with_i18n
-    window_class.update_records_state = update_records_state_i18n
-
-    if callable(original_toast):
-        def toast_i18n(self, message: str) -> None:
-            return original_toast(self, translate_dynamic(str(message)))
-
-        window_class.toast = toast_i18n
-
-    if callable(original_error_dialog):
-        def error_dialog_i18n(self, heading: str, body: str) -> None:
-            return original_error_dialog(
-                self,
-                translate_dynamic(str(heading)),
-                translate_dynamic(str(body)),
-            )
-
-        window_class.error_dialog = error_dialog_i18n
-
-    window_class._theme_gallery_window_i18n_installed = True
+    return wrapper
 
 
 def install_theme_gallery_i18n(app: Any | None = None) -> None:
+    """Translate every Adw.AlertDialog heading, body and response label.
+
+    This is a deliberate application-wide hook: dialogs are built in many
+    modules, and translating them when presented keeps those call sites plain.
+    """
     del app
-    try:
-        from library import theme_gallery as gallery
-    except Exception:
-        return
+    from library import theme_gallery as gallery
 
     _install_dialog_i18n(gallery)
-    _install_window_i18n(gallery)
-
-    record_class = getattr(gallery, "ThemeRecord", None)
-    if record_class is not None and not getattr(record_class, "_theme_gallery_i18n_installed", False):
-        def status_label(self) -> str:
-            if self.issue:
-                return t(self.issue)
-            if self.current:
-                return t("Current theme")
-            return t("Ready")
-
-        def display_label(self) -> str:
-            return f'{self.display_size}" {t("display")}' if self.display_size else t("Unknown display size")
-
-        try:
-            record_class.status_label = property(status_label)
-            record_class.display_label = property(display_label)
-            record_class._theme_gallery_i18n_installed = True
-        except Exception:
-            pass
-
-    original_report = getattr(gallery, "build_theme_gallery_diagnostics_report", None)
-    if callable(original_report) and not getattr(original_report, "_theme_gallery_i18n_wrapper", False):
-        def build_report_i18n(*args, **kwargs):
-            return _localize_report(original_report(*args, **kwargs))
-
-        build_report_i18n._theme_gallery_i18n_wrapper = True
-        gallery.build_theme_gallery_diagnostics_report = build_report_i18n
-
-    pane_class = getattr(gallery, "ThemeGalleryPane", None)
-    if pane_class is None or getattr(pane_class, "_theme_gallery_i18n_installed", False):
-        return
-
-    original_init = pane_class.__init__
-    def init_with_i18n(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        translate_widget_tree(self)
-
-    pane_class.__init__ = init_with_i18n
-
-    original_update_result_label = getattr(pane_class, "update_result_label", None)
-    if callable(original_update_result_label):
-        def update_result_label_i18n(self, *args, **kwargs):
-            result = original_update_result_label(self, *args, **kwargs)
-            total = len(self.records)
-            visible = len(self.filtered_records)
-            if not total:
-                display = f' para {self.target_display_size}"' if self.target_display_size else ""
-                self.result_label.set_text(f"{t('No compatible themes')}{display}")
-            elif self.filter_query:
-                self.result_label.set_text(
-                    f"{visible} de {total}"
-                    if active_language() == "pt_BR"
-                    else f"{visible} of {total}"
-                )
-            elif active_language() == "pt_BR":
-                display = f' · {self.target_display_size}"' if self.target_display_size else ""
-                noun = t("compatible theme") if total == 1 else t("compatible themes")
-                self.result_label.set_text(f"{total} {noun}{display}")
-            return result
-
-        pane_class.update_result_label = update_result_label_i18n
-
-    for method_name in (
-        "empty_state",
-        "preview_widget",
-        "theme_actions_popover",
-        "theme_card",
-    ):
-        original_method = getattr(pane_class, method_name, None)
-        if not callable(original_method):
-            continue
-
-        def make_wrapper(method):
-            def wrapper(self, *args, **kwargs):
-                widget = method(self, *args, **kwargs)
-                translate_widget_tree(widget)
-                return widget
-
-            return wrapper
-
-        setattr(pane_class, method_name, make_wrapper(original_method))
-
-    original_show_error = getattr(pane_class, "show_error_dialog", None)
-    if callable(original_show_error):
-        def show_error_dialog_i18n(self, heading: str, body: str) -> None:
-            return original_show_error(
-                self,
-                translate_dynamic(str(heading)),
-                translate_dynamic(str(body)),
-            )
-
-        pane_class.show_error_dialog = show_error_dialog_i18n
-
-    original_toast = getattr(pane_class, "toast", None)
-    if callable(original_toast):
-        def toast_i18n(self, message: str) -> None:
-            return original_toast(self, translate_dynamic(str(message)))
-
-        pane_class.toast = toast_i18n
-
-    pane_class._theme_gallery_i18n_installed = True

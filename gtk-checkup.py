@@ -234,7 +234,7 @@ def main() -> int:
 
     required_files = (
         "configure-gtk.py",
-        "configure_gtk_app.py",
+        "library/main_app.py",
         "theme-editor-gtk.py",
         "html-theme-editor-gtk.py",
         "video-manager-gtk.py",
@@ -289,7 +289,7 @@ def main() -> int:
 
     scripts = (
         root / "configure-gtk.py",
-        root / "configure_gtk_app.py",
+        root / "library" / "main_app.py",
         root / "theme-editor-gtk.py",
         root / "html-theme-editor-gtk.py",
         root / "video-manager-gtk.py",

@@ -33,6 +33,7 @@ import GPUtil
 import psutil
 
 import library.sensors.sensors as sensors
+from library.gpu_selection import GpuPreference, load_preference, select_amd_gpu_index
 from library.log import logger
 
 # AMD GPU on Linux
@@ -309,36 +310,27 @@ class GpuAmd(sensors.Gpu):
 
     @staticmethod
     def preferred_linux_gpu_index() -> int:
-        """Select the AMD adapter with the largest dedicated VRAM.
+        """Select the AMD adapter to monitor.
 
-        Ryzen processors may expose an integrated AMD GPU before a discrete
-        Radeon card. pyamdgpuinfo indexes devices but does not choose one for
-        the caller, so using index 0 can monitor the iGPU instead of the card
-        driving games. The largest VRAM size is a stable proxy for the
-        dedicated adapter; ties and unavailable sizes keep the first device.
+        Honours the adapter saved with gpu-selection-gtk.py. Otherwise picks the
+        largest dedicated VRAM: Ryzen processors may expose an integrated GPU
+        before the discrete Radeon card, so index 0 is not a safe default.
         """
         if not pyamdgpuinfo:
             return -1
-
-        count = pyamdgpuinfo.detect_gpus()
-        if count <= 0:
-            return -1
-
-        best_index = 0
-        best_vram = -1
-        for index in range(count):
-            try:
-                gpu = pyamdgpuinfo.get_gpu(index)
-                memory_info = getattr(gpu, "memory_info", {}) or {}
-                vram_size = int(memory_info.get("vram_size", 0) or 0)
-            except Exception:
-                vram_size = 0
-
-            if vram_size > best_vram:
-                best_index = index
-                best_vram = vram_size
-
-        return best_index
+        try:
+            preference = load_preference()
+        except Exception as exc:
+            logger.warning("Could not read the AMD GPU preference: %s", exc)
+            preference = GpuPreference()
+        selected = select_amd_gpu_index(pyamdgpuinfo, preference)
+        logger.info(
+            "AMD GPU selection mode=%s requested_index=%s selected_index=%d",
+            preference.mode,
+            preference.amd_index,
+            selected,
+        )
+        return selected
 
     @staticmethod
     def linux_gpu():

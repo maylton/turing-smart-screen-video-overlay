@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Automatic Overview status refresh for the GTK main app.
-
-The polished Overview already shows Theme, Monitor, and Display cards.  This
-hook only makes the existing status refresh happen automatically, so users do
-not have to click Refresh to see the current monitor state.
-"""
+"""Automatic refresh of the Overview Theme, Monitor and Display cards."""
 
 from __future__ import annotations
 
 from typing import Any
+
+from gi.repository import GLib
 
 
 REFRESH_INTERVAL_SECONDS = 2
@@ -39,53 +36,20 @@ def _safe_refresh_overview(window: Any) -> None:
                     pass
 
 
-def _install_final_tray_icon(app: Any) -> None:
-    """Restore the grayscale SNI pixmap after translation hooks run."""
+class OverviewRefreshMixin:
+    """Keep the Overview status cards fresh without a manual Refresh."""
 
-    try:
-        from library.tray_icon_runtime import (
-            install_status_notifier_grayscale_icon,
-        )
-
-        install_status_notifier_grayscale_icon(app)
-    except Exception:
-        # Tray support is optional and must never prevent the GTK app startup.
-        pass
-
-
-def install_main_app_overview_auto_refresh(app: Any) -> None:
-    """Install a lightweight timer that keeps Overview status cards fresh."""
-
-    # Runtime integrations are installed in the order i18n → status → refresh.
-    # The i18n layer replaces StatusNotifierItem._on_get_property, so make the
-    # grayscale pixmap wrapper the final tray integration in that sequence.
-    _install_final_tray_icon(app)
-
-    window_class = getattr(app, "SmartScreenWindow", None)
-    if window_class is None or getattr(window_class, "_overview_auto_refresh_installed", False):
-        return
-
-    original_init = window_class.__init__
+    def __init__(self, application):
+        super().__init__(application)
+        try:
+            GLib.timeout_add_seconds(REFRESH_INTERVAL_SECONDS, self.refresh_overview_status_timer)
+        except Exception:
+            pass
 
     def refresh_overview_status_timer(self) -> bool:
         # Do not fight longer-running Apply + Sync + Start status messages.
         if bool(getattr(self, "_apply_sync_status_active", False)):
             return True
-
         if _overview_is_visible(self):
             _safe_refresh_overview(self)
         return True
-
-    def patched_init(self, application):
-        original_init(self, application)
-        try:
-            app.GLib.timeout_add_seconds(
-                REFRESH_INTERVAL_SECONDS,
-                self.refresh_overview_status_timer,
-            )
-        except Exception:
-            pass
-
-    window_class.refresh_overview_status_timer = refresh_overview_status_timer
-    window_class.__init__ = patched_init
-    window_class._overview_auto_refresh_installed = True

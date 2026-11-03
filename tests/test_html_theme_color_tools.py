@@ -59,7 +59,8 @@ class HtmlThemeColorToolsTests(unittest.TestCase):
         source = Path("library/runtime_python.py").read_text(encoding="utf-8")
         self.assertIn('root / "venv" / "bin" / "python3"', source)
         self.assertIn('root / ".venv" / "bin" / "python3"', source)
-        self.assertIn("install_color_tools_hook", source)
+        editor = Path("html-theme-editor-gtk.py").read_text(encoding="utf-8")
+        self.assertIn("install_color_tools_hook", editor)
 
 
 if __name__ == "__main__":

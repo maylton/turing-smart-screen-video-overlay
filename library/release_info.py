@@ -24,10 +24,9 @@ REQUIRED_PROJECT_FILES = (
     "VERSION",
     "main.py",
     "configure-gtk.py",
-    "configure_gtk_app.py",
+    "library/main_app.py",
     "gtk-checkup.py",
     "library/i18n.py",
-    "library/main_app_tray_settings.py",
     "library/release_info.py",
     "library/runtime.py",
     "library/tray_icon.py",
@@ -35,7 +34,6 @@ REQUIRED_PROJECT_FILES = (
     "library/tray_icon_runtime.py",
     "requirements.txt",
     "requirements-gpu-amd.txt",
-    "usercustomize.py",
 )
 
 

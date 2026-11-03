@@ -7,14 +7,14 @@ process-wide advisory lock and a small monitor controller so the GTK app,
 main monitor, video manager, and power helper cannot use the device at the
 same time.
 
-The lock uses ``flock`` on POSIX systems and a one-byte ``msvcrt`` lock on
-Windows. Owner metadata is stored in the same file and is trusted only while
-the operating-system lock is held.
+The lock uses ``flock``. Owner metadata is stored in the same file and is
+trusted only while the lock is held.
 """
 
 from __future__ import annotations
 
 import errno
+import fcntl
 import json
 import os
 import signal
@@ -25,20 +25,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows
-    fcntl = None
-
-try:
-    import msvcrt
-except ImportError:  # pragma: no cover - POSIX
-    msvcrt = None
-
 
 APP_RUNTIME_DIR = "turing-smart-screen"
 LOCK_FILENAME = "device.lock"
-_WINDOWS_LOCK_SIZE = 1
 
 
 @dataclass(frozen=True)
@@ -117,11 +106,7 @@ def runtime_directory() -> Path:
     if base:
         candidate = Path(base)
     else:
-        try:
-            uid = os.getuid()
-        except AttributeError:  # pragma: no cover - Windows
-            uid = os.getpid()
-        candidate = Path(tempfile.gettempdir()) / f"{APP_RUNTIME_DIR}-{uid}"
+        candidate = Path(tempfile.gettempdir()) / f"{APP_RUNTIME_DIR}-{os.getuid()}"
 
     directory = candidate / APP_RUNTIME_DIR if base else candidate
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -167,69 +152,18 @@ def _read_owner_from_handle(handle) -> LockOwner:
         return LockOwner()
 
 
-def _prepare_windows_lock_file(handle) -> None:
-    """Ensure the byte range used by ``msvcrt.locking`` exists."""
-
-    handle.seek(0, os.SEEK_END)
-    if handle.tell() == 0:
-        handle.write("{}\n")
-        handle.flush()
-        try:
-            os.fsync(handle.fileno())
-        except OSError:
-            pass
-    handle.seek(0)
-
-
 def _try_lock(handle) -> bool:
-    if fcntl is not None:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
-        except OSError as exc:
-            if exc.errno in {errno.EACCES, errno.EAGAIN}:
-                return False
-            raise
-
-    if msvcrt is not None:  # pragma: no cover - exercised on Windows CI
-        _prepare_windows_lock_file(handle)
-        try:
-            msvcrt.locking(
-                handle.fileno(),
-                msvcrt.LK_NBLCK,
-                _WINDOWS_LOCK_SIZE,
-            )
-            return True
-        except OSError as exc:
-            if exc.errno in {
-                errno.EACCES,
-                errno.EAGAIN,
-                errno.EDEADLK,
-                13,
-                36,
-            }:
-                return False
-            raise
-
-    raise RuntimeError("Device locking is not supported on this operating system")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError as exc:
+        if exc.errno in {errno.EACCES, errno.EAGAIN}:
+            return False
+        raise
 
 
 def _unlock(handle) -> None:
-    if fcntl is not None:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        return
-
-    if msvcrt is not None:  # pragma: no cover - exercised on Windows CI
-        handle.seek(0)
-        try:
-            msvcrt.locking(
-                handle.fileno(),
-                msvcrt.LK_UNLCK,
-                _WINDOWS_LOCK_SIZE,
-            )
-        except OSError:
-            # Closing the descriptor releases any remaining Windows byte lock.
-            pass
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 class DeviceLock:
@@ -309,52 +243,9 @@ def get_runtime_state(lock_path: Path | str | None = None) -> RuntimeState:
         handle.close()
 
 
-def _windows_process_api():
-    import ctypes
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.OpenProcess.argtypes = [
-        wintypes.DWORD,
-        wintypes.BOOL,
-        wintypes.DWORD,
-    ]
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.CloseHandle.restype = wintypes.BOOL
-    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
-    kernel32.TerminateProcess.restype = wintypes.BOOL
-    return ctypes, kernel32
-
-
-def _pid_exists_windows(pid: int) -> bool:
-    """Check a Windows PID without using ``os.kill(pid, 0)``.
-
-    CPython maps most Windows ``os.kill`` calls to ``TerminateProcess``;
-    therefore signal zero is not a safe existence probe there.
-    """
-
-    ctypes, kernel32 = _windows_process_api()
-    process_query_limited_information = 0x1000
-    handle = kernel32.OpenProcess(
-        process_query_limited_information,
-        False,
-        pid,
-    )
-    if handle:
-        kernel32.CloseHandle(handle)
-        return True
-
-    # Access denied still means that the process exists.
-    return ctypes.get_last_error() == 5
-
-
 def _pid_exists(pid: Optional[int]) -> bool:
     if not pid or pid <= 0:
         return False
-
-    if os.name == "nt":  # pragma: no cover - exercised on Windows CI
-        return _pid_exists_windows(pid)
 
     try:
         os.kill(pid, 0)
@@ -365,37 +256,13 @@ def _pid_exists(pid: Optional[int]) -> bool:
     return True
 
 
-def _terminate_windows_process(pid: int) -> None:
-    ctypes, kernel32 = _windows_process_api()
-    process_terminate = 0x0001
-    handle = kernel32.OpenProcess(process_terminate, False, pid)
-    if not handle:
-        error = ctypes.get_last_error()
-        if error == 87:
-            raise ProcessLookupError(pid)
-        raise OSError(error, f"Could not open process {pid}")
-
-    try:
-        if not kernel32.TerminateProcess(handle, 1):
-            error = ctypes.get_last_error()
-            raise OSError(error, f"Could not terminate process {pid}")
-    finally:
-        kernel32.CloseHandle(handle)
-
-
 def _terminate_pid(pid: int, force: bool = False) -> None:
-    if os.name == "nt":  # pragma: no cover - exercised on Windows CI
-        _terminate_windows_process(pid)
-        return
-
     selected_signal = signal.SIGKILL if force else signal.SIGTERM
     os.kill(pid, selected_signal)
 
 
 def _dedicated_process_group(pid: int) -> Optional[int]:
     """Return a monitor-owned POSIX group, never an inherited/shared group."""
-    if os.name == "nt":
-        return None
     try:
         group = os.getpgid(pid)
     except OSError:
@@ -445,15 +312,8 @@ class MonitorController:
         process_options: dict[str, object] = {
             "cwd": str(self.root),
             "env": dict(env) if env is not None else None,
+            "start_new_session": True,
         }
-        if os.name == "nt":  # pragma: no cover - exercised on Windows CI
-            process_options["creationflags"] = getattr(
-                subprocess,
-                "CREATE_NEW_PROCESS_GROUP",
-                0,
-            )
-        else:
-            process_options["start_new_session"] = True
 
         process = subprocess.Popen(
             [

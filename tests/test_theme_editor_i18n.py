@@ -152,25 +152,6 @@ class ThemeEditorI18nContractTests(unittest.TestCase):
         self.assertIn("_translate_dialog_title(self)", source)
         self.assertIn("translate_widget_tree(self)", source)
 
-    def test_theme_editor_widget_monkeypatch_is_disabled(self):
-        source = Path("library/theme_editor_widget_i18n.py").read_text(encoding="utf-8")
-        startup_source = Path("usercustomize.py").read_text(encoding="utf-8")
-        background_source = Path("library/theme_video_background.py").read_text(
-            encoding="utf-8"
-        )
-        inline_source = Path("library/main_app_inline_theme_editor.py").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("def install()", source)
-        self.assertIn("side-effect free", source)
-        self.assertNotIn("_patch_init", source)
-        self.assertNotIn("_patch_text_method", source)
-        self.assertNotIn("_patch_dropdown_new_from_strings", source)
-        self.assertNotIn("_patch_string_list", source)
-        self.assertIn("install_theme_editor_widget_i18n()", startup_source)
-        self.assertNotIn("install_theme_editor_i18n_class_hook", startup_source)
-        self.assertNotIn("install_theme_editor_i18n_class_hook", background_source)
-        self.assertNotIn("theme_editor_property_layout_i18n", inline_source)
 
 
 if __name__ == "__main__":

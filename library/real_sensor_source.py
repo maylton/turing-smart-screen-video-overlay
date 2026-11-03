@@ -82,9 +82,6 @@ class RealSensorSource:
             if self._gpu_backend_factory is not None:
                 self._gpu_backend = self._gpu_backend_factory()
             else:
-                from library.gpu_selection_runtime import install
-
-                install()
                 from library.sensors import sensors_python
 
                 self._gpu_backend = sensors_python

@@ -24,8 +24,7 @@ class MainAppDiagnosticsI18nContractTests(unittest.TestCase):
         source = Path("library/main_app_i18n.py").read_text(encoding="utf-8")
         self.assertIn("def translate_after_integrations", source)
         self.assertIn("translate_widget_tree(self)", source)
-        self.assertIn('getattr(getattr(app, "GLib", None), "idle_add", None)', source)
-        self.assertIn("idle_add(translate_after_integrations)", source)
+        self.assertIn("GLib.idle_add(translate_after_integrations)", source)
 
 
 if __name__ == "__main__":

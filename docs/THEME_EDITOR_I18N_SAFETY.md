@@ -80,16 +80,10 @@ Saving uses `direction_values`, so YAML receives `auto`, `horizontal`,
 
 ## Translation hook boundaries
 
-`library/theme_editor_widget_i18n.py` deliberately patches only:
-
-- constructor keyword labels such as `label`, `title`, `subtitle`, `tooltip_text`,
-  `placeholder_text`, `heading`, and `body`;
-- label/title/subtitle setter methods;
-- dialog response labels;
-- dropdown/string-list display labels.
-
-It does **not** patch `set_text()`. This is intentional because `set_text()` is
-used by entries that carry data to be parsed and saved into YAML.
+GTK/Libadwaita widget constructors and setters are not patched: global patches
+corrupted complex editor surfaces. The editor is translated by walking the
+built widget tree, and the translation layer does **not** patch `set_text()`,
+because entries carry data that is parsed and saved into YAML.
 
 ## Manual audit checklist
 

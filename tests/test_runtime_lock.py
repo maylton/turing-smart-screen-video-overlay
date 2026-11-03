@@ -25,7 +25,6 @@ def hold_lock(lock_path: str, ready) -> None:
 class DeviceLockTests(unittest.TestCase):
     def test_force_termination_kills_dedicated_monitor_group(self):
         with (
-            mock.patch("library.runtime.os.name", "posix"),
             mock.patch("library.runtime.os.getpgid", return_value=4321),
             mock.patch("library.runtime.os.killpg") as kill_group,
             mock.patch("library.runtime.os.kill") as kill_process,

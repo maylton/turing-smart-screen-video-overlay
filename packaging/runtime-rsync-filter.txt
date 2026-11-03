@@ -72,7 +72,6 @@
 
 # Main application and supported fallback/diagnostic entrypoints.
 + /configure-gtk.py
-+ /configure_gtk_app.py
 + /diagnostics-gtk.py
 + /diagnostics.py
 + /display-detection.py
@@ -86,11 +85,8 @@
 + /media-preparation.py
 + /media_preparation_gtk_app.py
 + /screen-control.py
-+ /sitecustomize.py
-+ /theme-backups.py
 + /theme-editor-gtk.py
 + /theme-migrate.py
-+ /usercustomize.py
 + /video-manager-gtk.py
 + /video_manager.py
 + /video_manager_backend.py

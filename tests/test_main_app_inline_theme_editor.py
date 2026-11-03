@@ -4,7 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
-from library.main_app_diagnostics_integration import _open_theme_editor_factory
+from unittest import mock
+
+from library import main_app_diagnostics_integration
+from library.main_app_diagnostics_integration import DiagnosticsMixin
 
 
 class MainAppInlineThemeEditorContractTests(unittest.TestCase):
@@ -84,19 +87,16 @@ class MainAppInlineThemeEditorContractTests(unittest.TestCase):
         self.assertNotIn("dropdown.set_size_request(220, -1)", source)
 
     def test_main_app_routes_theme_editor_actions_inline(self):
-        source = Path("library/main_app_diagnostics_integration.py").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("def _open_theme_editor_factory", source)
+        source = Path("library/main_app_diagnostics_integration.py").read_text(encoding="utf-8")
         self.assertIn("build_inline_theme_editor_page", source)
         self.assertIn("show_html_theme_authoring_dialog", source)
         self.assertIn('page_name = "theme-editor"', source)
-        self.assertIn("window_class.open_theme_editor = open_theme_editor", source)
-        self.assertIn("window_class.open_theme_editor_record = open_theme_editor_record", source)
+        for name in ("open_theme_editor", "open_theme_editor_record"):
+            self.assertIn(name, vars(DiagnosticsMixin))
 
     def test_main_app_html_route_prefers_visual_editor(self):
-        source = Path("configure-gtk.py").read_text(encoding="utf-8")
-        self.assertIn('visual_editor = app.ROOT / "html-theme-editor-gtk.py"', source)
+        source = Path("library/main_app_runtime.py").read_text(encoding="utf-8")
+        self.assertIn('visual_editor = ROOT / "html-theme-editor-gtk.py"', source)
         self.assertIn("Opening visual HTML editor", source)
 
     def test_active_html_theme_opens_authoring_dialog_instead_of_yaml_editor(self):
@@ -129,37 +129,24 @@ class MainAppInlineThemeEditorContractTests(unittest.TestCase):
                 read_current_theme=lambda: "html-test",
             )
             opened = []
-            window = SimpleNamespace(
-                show_html_theme_authoring_dialog=opened.append,
-                toast=lambda message: self.fail(message),
-            )
 
-            open_current, open_record = _open_theme_editor_factory(app)
-            open_current(window)
-            open_record(window, SimpleNamespace(name="html-test"))
+            class Window(DiagnosticsMixin):
+                pass
+
+            window = Window.__new__(Window)
+            window.show_html_theme_authoring_dialog = opened.append
+            window.toast = lambda message: self.fail(message)
+
+            with mock.patch.object(main_app_diagnostics_integration, "app", app):
+                window.open_theme_editor()
+                window.open_theme_editor_record(SimpleNamespace(name="html-test"))
 
             self.assertEqual([record.engine for record in opened], ["html", "html"])
             self.assertEqual([record.name for record in opened], ["html-test", "html-test"])
 
-    def test_theme_gallery_edit_actions_are_routed_to_inline_editor(self):
-        source = Path("library/main_app_diagnostics_integration.py").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("def _install_theme_gallery_editor_route", source)
-        self.assertIn("gallery.launch_theme_editor = launch_theme_editor_inline", source)
-        self.assertIn("opener = getattr(window, \"open_theme_editor_record\", None)", source)
-        self.assertIn("_install_theme_gallery_editor_route(self)", source)
-
-    def test_theme_gallery_panes_bind_on_open_theme_to_inline_editor(self):
-        source = Path("library/main_app_diagnostics_integration.py").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("def _bind_existing_gallery_pane", source)
-        self.assertIn("pane.on_open_theme = opener", source)
-        self.assertIn("def init_with_inline_editor_route", source)
-        self.assertIn("kwargs[\"on_open_theme\"] = opener", source)
-        self.assertIn("pane_class.__init__ = init_with_inline_editor_route", source)
-
+    def test_theme_gallery_edit_opens_the_inline_editor(self):
+        source = Path("library/main_app_runtime.py").read_text(encoding="utf-8")
+        self.assertIn("on_open_theme=self.open_theme_editor_record", source)
 
 if __name__ == "__main__":
     unittest.main()

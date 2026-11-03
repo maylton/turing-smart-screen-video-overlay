@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Main app UI polish and animated overview preview hooks."""
+"""Animated Overview preview of the active theme video."""
 
 from __future__ import annotations
 
@@ -411,53 +411,3 @@ class OverviewLivePreviewAnimator:
         except Exception:
             return True
         return True
-
-
-def install_main_app_ui_polish_patches(app, *, root: Path) -> None:
-    """Improve overview visual hierarchy and add a full-theme video preview."""
-
-    original_build_overview_page = app.SmartScreenWindow.build_overview_page
-    original_refresh_overview = app.SmartScreenWindow.refresh_overview
-
-    def build_overview_page(self):
-        page = original_build_overview_page(self)
-        picture = getattr(self, "overview_picture", None)
-        if picture is not None and not getattr(self, "_overview_preview_enhanced", False):
-            picture.add_css_class("device-live-preview")
-            self._overview_preview_enhanced = True
-        return page
-
-    def refresh_overview(self):
-        result = original_refresh_overview(self)
-        animator = getattr(self, "overview_preview_animator", None)
-        if animator is None:
-            animator = OverviewLivePreviewAnimator(app, self)
-            self.overview_preview_animator = animator
-        animator.show_theme(getattr(self, "current_theme", ""))
-        return result
-
-    app.SmartScreenWindow.build_overview_page = build_overview_page
-    app.SmartScreenWindow.refresh_overview = refresh_overview
-
-# Dashboard polish bridge:
-# Re-apply the newer dashboard Overview after the legacy overview animator patch
-# installs itself. This keeps the animated preview helper available while making
-# the dashboard own the actual Overview layout and refresh method.
-try:
-    _legacy_install_main_app_ui_polish_patches = install_main_app_ui_polish_patches
-
-    def install_main_app_ui_polish_patches(app, *, root):
-        _legacy_install_main_app_ui_polish_patches(app, root=root)
-        try:
-            from library.main_app_dashboard_polish import install_main_app_dashboard_polish
-
-            install_main_app_dashboard_polish(app)
-            print(
-                "[dashboard] dashboard polish installed after main_app_ui_polish",
-                flush=True,
-            )
-        except Exception as exc:
-            print(f"[dashboard] bridge failed: {exc}", flush=True)
-
-except Exception as exc:
-    print(f"[dashboard] could not install bridge: {exc}", flush=True)

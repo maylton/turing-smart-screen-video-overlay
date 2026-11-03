@@ -21,7 +21,9 @@ from library.simulated_display_transport import (
 
 class RevCProductionParityTests(unittest.TestCase):
     def setUp(self):
-        self.size = (32, 24)
+        # Square, like the 480x480 2.1" panel: the production driver clips
+        # partial updates to the landscape display bounds.
+        self.size = (32, 32)
         self.profile = get_transport_profile("rev-c-2inch")
         self.transport = SimulatedDisplayTransport(self.profile)
         self.protocol = RevCProtocolSimulator(display_stride=self.size[1])

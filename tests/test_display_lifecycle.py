@@ -83,7 +83,6 @@ class DisplayLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(snapshot.state, DisplayLifecycleState.UNKNOWN)
 
-    @mock.patch("library.display_lifecycle.os.name", "posix")
     @mock.patch("library.display_lifecycle.shutil.which", return_value="/usr/bin/fuser")
     @mock.patch("library.display_lifecycle.subprocess.run")
     def test_fuser_uses_stdout_only_for_pids(self, run, _which):

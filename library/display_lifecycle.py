@@ -80,7 +80,7 @@ def _normalized_pids(values: Sequence[int]) -> Tuple[int, ...]:
 
 def device_owner_pids(device: str) -> Tuple[int, ...]:
     """Return best-effort fuser ownership without elevation or side effects."""
-    if os.name != "posix" or not device or shutil.which("fuser") is None:
+    if not device or shutil.which("fuser") is None:
         return ()
     try:
         completed = subprocess.run(

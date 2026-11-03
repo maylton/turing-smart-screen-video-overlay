@@ -1,9 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Main GTK application i18n integration hooks."""
+"""Portuguese translation of the main window and tray menu."""
 
 from __future__ import annotations
 
 from typing import Any, Callable, Iterable
+
+from gi.repository import GLib
+
+from library.i18n import t as _, tr
 
 
 _EXACT_PT_BR = {
@@ -174,46 +178,58 @@ def translate_widget_tree(root: Any) -> None:
         _translate_widget_text(widget, translate_main_app_text)
 
 
-def _wrap_translate_after(window_class: type, method_name: str) -> None:
-    original = getattr(window_class, method_name, None)
-    if not callable(original) or getattr(original, "_main_app_i18n_wrapper", False):
-        return
+def _translate_after(method_name: str):
+    """Build a method that runs the parent implementation, then translates."""
 
-    def wrapper(self, *args, **kwargs):
-        result = original(self, *args, **kwargs)
+    def method(self, *args, **kwargs):
+        result = getattr(super(I18nMixin, self), method_name)(*args, **kwargs)
         translate_widget_tree(self)
         return result
 
-    wrapper._main_app_i18n_wrapper = True
-    setattr(window_class, method_name, wrapper)
+    method.__name__ = method_name
+    return method
 
 
-def install_theme_gallery_i18n(app) -> None:
-    """Localize theme gallery cards, dialogs, and standalone surfaces."""
+class I18nMixin:
+    """Translate the main window after each UI build or refresh."""
 
-    try:
-        from library.theme_gallery_i18n import install_theme_gallery_i18n as install
+    def __init__(self, application):
+        super().__init__(application)
+        translate_widget_tree(self)
 
-        install(app)
-    except Exception:
-        return
+        # Mixins listed before this one may append widgets after the
+        # immediate translation; translate again once the GTK loop is idle.
+        def translate_after_integrations():
+            translate_widget_tree(self)
+            return False
+
+        GLib.idle_add(translate_after_integrations)
+
+    def build_settings_page(self):
+        page = super().build_settings_page()
+        translate_widget_tree(page)
+        return page
+
+    def refresh_overview(self):
+        result = super().refresh_overview()
+        translate_widget_tree(self)
+        return result
+
+    def toast(self, message: str, *args, **kwargs):
+        return super().toast(translate_main_app_text(str(message)), *args, **kwargs)
+
+    build_themes_page = _translate_after("build_themes_page")
+    refresh_theme_list = _translate_after("refresh_theme_list")
+    on_theme_selected = _translate_after("on_theme_selected")
+    finish_display_detection = _translate_after("finish_display_detection")
+    finish_turn_off_display = _translate_after("finish_turn_off_display")
+    show_checkup_result = _translate_after("show_checkup_result")
 
 
-def install_main_app_tray_i18n(app) -> None:
-    """Localize the StatusNotifier tray menu without changing tray behavior."""
-
-    from library.i18n import t as _, tr
-
-    StatusNotifierMenu = getattr(app, "StatusNotifierMenu", None)
-    StatusNotifierItem = getattr(app, "StatusNotifierItem", None)
-    if StatusNotifierMenu is None or StatusNotifierItem is None:
-        return
-
+class TrayMenuI18nMixin:
     def menu_label(self, action: str) -> str:
         labels = {
-            "show-hide-window": (
-                _("Hide window") if self.window_visible() else _("Show window")
-            ),
+            "show-hide-window": _("Hide window") if self.window_visible() else _("Show window"),
             "start-screen": _("Start screen"),
             "turn-off-screen": _("Turn off screen"),
             "open-theme-editor": _("Open theme editor"),
@@ -222,113 +238,27 @@ def install_main_app_tray_i18n(app) -> None:
         }
         return labels.get(action, action)
 
-    def status_notifier_get_property(
-        self,
-        _connection,
-        _sender,
-        _object_path,
-        _interface_name,
-        property_name,
-    ):
+
+class TrayItemI18nMixin:
+    def _on_get_property(self, _connection, _sender, _object_path, _interface_name, property_name):
+        from library import main_app_base as app
+
         theme = app.read_current_theme() or _("not selected")
         values = {
-            "Category": app.GLib.Variant("s", "Hardware"),
-            "Id": app.GLib.Variant("s", app.APP_ID),
-            "Title": app.GLib.Variant("s", app.APP_NAME),
-            "Status": app.GLib.Variant("s", "Active"),
-            "WindowId": app.GLib.Variant("u", 0),
-            "IconName": app.GLib.Variant("s", app.APP_ID),
-            "IconThemePath": app.GLib.Variant("s", ""),
-            "OverlayIconName": app.GLib.Variant("s", ""),
-            "AttentionIconName": app.GLib.Variant("s", ""),
-            "ToolTip": app.GLib.Variant(
+            "Category": GLib.Variant("s", "Hardware"),
+            "Id": GLib.Variant("s", app.APP_ID),
+            "Title": GLib.Variant("s", app.APP_NAME),
+            "Status": GLib.Variant("s", "Active"),
+            "WindowId": GLib.Variant("u", 0),
+            "IconName": GLib.Variant("s", app.APP_ID),
+            "IconThemePath": GLib.Variant("s", ""),
+            "OverlayIconName": GLib.Variant("s", ""),
+            "AttentionIconName": GLib.Variant("s", ""),
+            "ToolTip": GLib.Variant(
                 "(sa(iiay)ss)",
-                (
-                    app.APP_ID,
-                    [],
-                    app.APP_NAME,
-                    tr("Theme: {theme}", theme=theme),
-                ),
+                (app.APP_ID, [], app.APP_NAME, tr("Theme: {theme}", theme=theme)),
             ),
-            "ItemIsMenu": app.GLib.Variant("b", False),
-            "Menu": app.GLib.Variant("o", app.DBUSMENU_OBJECT_PATH),
+            "ItemIsMenu": GLib.Variant("b", False),
+            "Menu": GLib.Variant("o", app.DBUSMENU_OBJECT_PATH),
         }
         return values.get(property_name)
-
-    StatusNotifierMenu.menu_label = menu_label
-    StatusNotifierItem._on_get_property = status_notifier_get_property
-    setattr(app, "_tray_i18n_installed", True)
-
-
-def install_main_app_shell_i18n(app) -> None:
-    """Localize the main GTK shell after each affected UI build/refresh."""
-
-    install_main_app_tray_i18n(app)
-    install_theme_gallery_i18n(app)
-
-    window_class = getattr(app, "SmartScreenWindow", None)
-    if window_class is None or getattr(window_class, "_main_app_shell_i18n_installed", False):
-        return
-
-    original_init = window_class.__init__
-    original_build_settings_page = window_class.build_settings_page
-    original_refresh_overview = window_class.refresh_overview
-    original_toast = getattr(window_class, "toast", None)
-
-    def init_with_i18n(self, application):
-        original_init(self, application)
-        translate_widget_tree(self)
-
-        # Diagnostics and other optional integrations wrap __init__ after the
-        # i18n layer and may append widgets after the immediate translation.
-        # Translate once more on the GTK idle loop after all wrappers return.
-        def translate_after_integrations():
-            translate_widget_tree(self)
-            return False
-
-        idle_add = getattr(getattr(app, "GLib", None), "idle_add", None)
-        if callable(idle_add):
-            idle_add(translate_after_integrations)
-
-    def build_settings_page_with_i18n(self):
-        page = original_build_settings_page(self)
-        translate_widget_tree(page)
-        return page
-
-    def refresh_overview_with_i18n(self):
-        result = original_refresh_overview(self)
-        translate_widget_tree(self)
-        return result
-
-    if callable(original_toast):
-        def toast_with_i18n(self, message: str, *args, **kwargs):
-            return original_toast(
-                self,
-                translate_main_app_text(str(message)),
-                *args,
-                **kwargs,
-            )
-
-        toast_with_i18n._main_app_shell_i18n_wrapper = True
-        window_class.toast = toast_with_i18n
-
-    init_with_i18n._main_app_shell_i18n_wrapper = True
-    build_settings_page_with_i18n._main_app_shell_i18n_wrapper = True
-    refresh_overview_with_i18n._main_app_shell_i18n_wrapper = True
-
-    window_class.__init__ = init_with_i18n
-    window_class.build_settings_page = build_settings_page_with_i18n
-    window_class.refresh_overview = refresh_overview_with_i18n
-
-    for method_name in (
-        "build_themes_page",
-        "build_tools_page",
-        "refresh_theme_list",
-        "on_theme_selected",
-        "finish_display_detection",
-        "finish_turn_off_display",
-        "show_checkup_result",
-    ):
-        _wrap_translate_after(window_class, method_name)
-
-    window_class._main_app_shell_i18n_installed = True
