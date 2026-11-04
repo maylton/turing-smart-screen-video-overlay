@@ -1,8 +1,8 @@
 {
-  "builtAt": "2026-11-04T15:03:54.324862+00:00",
-  "duration": 1.5,
+  "builtAt": "2026-11-04T15:06:57.723948+00:00",
+  "duration": 3.0,
   "fps": 24,
   "schemaVersion": 1,
-  "sourceDigest": "fdad1cae4762616fcd6309143bcb91acde146bcb0fe25acbb4b297caca191f81",
-  "videoSha256": "8718413f690d5a60b6f7253f7a70d95b192900aed281a9ccb5bd584fc2bf7eeb"
+  "sourceDigest": "e3f71765781317cbe9812cd87dde35ee886d88c9c946a869737a2ad6942f3fe5",
+  "videoSha256": "477bb500a2c5380c60a094a4988dccf25623d064b8243e7014c546cf18564407"
 }

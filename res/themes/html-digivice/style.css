@@ -43,6 +43,54 @@ body {
   -webkit-user-drag: none;
 }
 
+/* Circuit glow. circuit-lines.png holds only the light line art of the dark
+   frame (alpha = line strength); the LCD area is empty. */
+@property --sweep {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.circuit {
+  position: absolute;
+  inset: 0;
+  width: 480px;
+  height: 480px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.circuit-glow {
+  filter:
+    drop-shadow(0 0 2px rgba(150, 250, 255, 1))
+    drop-shadow(0 0 7px rgba(0, 210, 255, 0.8))
+    drop-shadow(0 0 14px rgba(0, 170, 255, 0.45));
+  animation: circuit-pulse 3s ease-in-out infinite;
+}
+
+.circuit-sweep {
+  filter:
+    brightness(2.2)
+    drop-shadow(0 0 3px rgba(235, 255, 255, 1))
+    drop-shadow(0 0 10px rgba(80, 235, 255, 1))
+    drop-shadow(0 0 22px rgba(0, 190, 255, 0.75));
+  -webkit-mask-image: conic-gradient(from var(--sweep) at 243px 240px,
+    transparent 0deg, #000 30deg, #000 46deg, transparent 95deg, transparent 360deg);
+  mask-image: conic-gradient(from var(--sweep) at 243px 240px,
+    transparent 0deg, #000 30deg, #000 46deg, transparent 95deg, transparent 360deg);
+  animation: circuit-sweep 3s linear infinite;
+}
+
+@keyframes circuit-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@keyframes circuit-sweep {
+  from { --sweep: 0deg; }
+  to { --sweep: 360deg; }
+}
+
 .lcd,
 .lcd-text {
   text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.3);
