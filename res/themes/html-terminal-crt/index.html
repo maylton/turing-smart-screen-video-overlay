@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Terminal CRT</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="screen" aria-label="Terminal CRT">
+    <!-- Background (native video): phosphor glass, scanlines, rolling band. -->
+    <div class="phosphor"></div>
+    <div class="prompt top">turing@cooler:~$ sensors --watch</div>
+    <div class="rule r1"></div>
+    <div class="rows">
+      <div class="row" id="row-cpu"><span class="label">CPU</span><span class="frame"></span></div>
+      <div class="row" id="row-gpu"><span class="label">GPU</span><span class="frame"></span></div>
+      <div class="row" id="row-ram"><span class="label">RAM</span><span class="frame"></span></div>
+    </div>
+    <div class="rule r2"></div>
+    <div class="prompt bottom">turing@cooler:~$ <span class="cursor"></span></div>
+    <div class="scanlines"></div>
+    <div class="band"></div>
+    <div class="vignette"></div>
+
+    <!-- Overlays. -->
+    <div id="time" class="crt" data-turing-overlay>--:--</div>
+    <div id="date" class="crt dim" data-turing-overlay>--</div>
+    <div id="cpu-bar" class="bar" data-turing-overlay><div class="fill"></div></div>
+    <div id="gpu-bar" class="bar" data-turing-overlay><div class="fill"></div></div>
+    <div id="ram-bar" class="bar" data-turing-overlay><div class="fill"></div></div>
+    <div id="cpu-val" class="crt val" data-turing-overlay>--%</div>
+    <div id="gpu-val" class="crt val" data-turing-overlay>--%</div>
+    <div id="ram-val" class="crt val" data-turing-overlay>--%</div>
+    <div id="temps" class="crt" data-turing-overlay>TEMP CPU --° GPU --°</div>
+    <div id="net" class="crt dim" data-turing-overlay>NET DL -- UL -- MB/S</div>
+  </main>
+  <script src="theme.js"></script>
+</body>
+</html>
