@@ -36,6 +36,7 @@ from library.html_theme_visual_editor import (
     HtmlVisualElementStyle,
     VisualStyleHistory,
     align_visual_style,
+    duplicate_visual_style,
     find_visual_slot,
     load_persisted_visual_element_ids,
     load_visual_styles,
@@ -199,6 +200,15 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             "win.redo",
             ["<Primary><Shift>z", "<Primary>y"],
         )
+        save_action = Gio.SimpleAction.new("save", None)
+        save_action.connect("activate", lambda *_: self._on_save_shortcut())
+        self.add_action(save_action)
+        application.set_accels_for_action("win.save", ["<Primary>s"])
+        self.duplicate_action = Gio.SimpleAction.new("duplicate", None)
+        self.duplicate_action.connect("activate", lambda *_: self._on_duplicate_element())
+        self.duplicate_action.set_enabled(False)
+        self.add_action(self.duplicate_action)
+        application.set_accels_for_action("win.duplicate", ["<Primary>d"])
         undo_button = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text="Desfazer")
         undo_button.set_action_name("win.undo")
         header.pack_start(undo_button)
@@ -362,6 +372,13 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.add_component_button.add_css_class("suggested-action")
         self.add_component_button.connect("clicked", self._on_add_component)
         elements_page.append(self.add_component_button)
+
+        self.duplicate_element_button = Gtk.Button(
+            label="Duplicar elemento",
+            tooltip_text="Cria uma cópia do elemento selecionado (Ctrl+D)",
+        )
+        self.duplicate_element_button.set_action_name("win.duplicate")
+        elements_page.append(self.duplicate_element_button)
 
         self.remove_element_button = Gtk.Button(label="Remover elemento")
         self.remove_element_button.add_css_class("destructive-action")
@@ -1373,6 +1390,43 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self._update_history_actions()
         self._toast(f"{component.label} adicionado")
 
+    def _on_duplicate_element(self, *_args) -> None:
+        if not self._loaded_once:
+            return
+        style = self.styles.get(self._selected_id())
+        if style is None or not style.is_generated:
+            return
+        try:
+            copy = duplicate_visual_style(
+                style,
+                self.styles.values(),
+                display_width=self.manifest.width,
+                display_height=self.manifest.height,
+            ).validated(self.manifest)
+        except ThemeValidationError as exc:
+            self._toast(f"Não foi possível duplicar: {exc}")
+            return
+        self._checkpoint()
+        self.styles[copy.element_id] = copy
+        self._sync_element_ids_from_styles(copy.element_id)
+
+        def created(error: Exception | None) -> None:
+            if error is not None:
+                self.status_label.set_text(f"Falha ao duplicar elemento: {error}")
+                return
+            self._apply_style_to_preview(copy)
+            self._apply_preview_snapshot()
+            self._load_selected_controls()
+
+        self._sync_preview_elements(created)
+        self._mark_changed()
+        self._update_history_actions()
+        self._toast(f"Cópia criada: {copy.element_id}")
+
+    def _on_save_shortcut(self) -> None:
+        if self._loaded_once and self.save_button.get_sensitive():
+            self._save(False)
+
     def _on_remove_element(self, *_args) -> None:
         if not self._loaded_once:
             return
@@ -1430,6 +1484,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self.text_align_dropdown.set_selected(
                 self.text_align_values.index(style.text_align)
             )
+            self.duplicate_action.set_enabled(style.is_generated)
             self.remove_element_button.set_label(
                 "Excluir elemento criado"
                 if style.is_generated
