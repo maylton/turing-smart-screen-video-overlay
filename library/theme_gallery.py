@@ -1046,6 +1046,60 @@ def show_delete_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm
     dialog.present(parent)
 
 
+def show_import_theme_dialog(
+    parent: Gtk.Widget | None,
+    on_confirm: ImportThemeCallback,
+    on_error: Callable[[str], None] | None = None,
+    on_closed: Callable[[], None] | None = None,
+) -> None:
+    """Pick a theme package or definition with the native file dialog.
+
+    ``on_confirm`` receives the import source (a package, or the folder of a
+    selected manifest.json/theme.yaml). ``on_closed`` runs whether or not a
+    file was chosen.
+    """
+    window = parent if isinstance(parent, Gtk.Window) else None
+    if window is None and parent is not None:
+        root = parent.get_root()
+        window = root if isinstance(root, Gtk.Window) else None
+
+    supported = Gtk.FileFilter()
+    supported.set_name("Theme packages and definitions")
+    for pattern in SUPPORTED_PATTERNS:
+        supported.add_pattern(pattern)
+
+    all_files = Gtk.FileFilter()
+    all_files.set_name("All files")
+    all_files.add_pattern("*")
+
+    filters = Gio.ListStore.new(Gtk.FileFilter)
+    filters.append(supported)
+    filters.append(all_files)
+
+    dialog = Gtk.FileDialog(title="Import Theme", accept_label="_Import", modal=True)
+    dialog.set_filters(filters)
+    dialog.set_default_filter(supported)
+
+    def on_finished(source, result) -> None:
+        try:
+            try:
+                selected = source.open_finish(result)
+            except GLib.Error:
+                # Cancelled or dismissed by the user.
+                return
+            path = selected.get_path() if selected is not None else None
+            if not path:
+                if on_error is not None:
+                    on_error("Only local theme files can be imported.")
+                return
+            on_confirm(str(normalize_theme_import_path(path)))
+        finally:
+            if on_closed is not None:
+                on_closed()
+
+    dialog.open(window, None, on_finished)
+
+
 def show_export_theme_dialog(parent: Gtk.Widget, record: ThemeRecord, on_confirm: ExportThemeCallback) -> None:
     entry = Gtk.Entry()
     entry.set_text(str(default_export_path(record.name)))
@@ -1770,41 +1824,16 @@ class ThemeGalleryPane(Gtk.Box):
         if getattr(self, "_theme_import_dialog_open", False):
             return
 
-        root = self.root_widget()
-        parent = root if isinstance(root, Gtk.Window) else None
-
-        supported = Gtk.FileFilter()
-        supported.set_name("Theme packages and definitions")
-        for pattern in SUPPORTED_PATTERNS:
-            supported.add_pattern(pattern)
-
-        all_files = Gtk.FileFilter()
-        all_files.set_name("All files")
-        all_files.add_pattern("*")
-
-        filters = Gio.ListStore.new(Gtk.FileFilter)
-        filters.append(supported)
-        filters.append(all_files)
-
-        dialog = Gtk.FileDialog(title="Import Theme", accept_label="_Import", modal=True)
-        dialog.set_filters(filters)
-        dialog.set_default_filter(supported)
-
-        def on_finished(source, result) -> None:
+        def closed() -> None:
             self._theme_import_dialog_open = False
-            try:
-                selected = source.open_finish(result)
-            except GLib.Error:
-                # Cancelled or dismissed by the user.
-                return
-            path = selected.get_path() if selected is not None else None
-            if not path:
-                self.show_error_dialog("Could not import theme", "Only local theme files can be imported.")
-                return
-            self.on_import_theme(str(normalize_theme_import_path(path)))
 
         self._theme_import_dialog_open = True
-        dialog.open(parent, None, on_finished)
+        show_import_theme_dialog(
+            self.root_widget(),
+            self.on_import_theme,
+            on_error=lambda message: self.show_error_dialog("Could not import theme", message),
+            on_closed=closed,
+        )
 
     def apply_import_theme(self, source_path_text: str) -> None:
         try:
