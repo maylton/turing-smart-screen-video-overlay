@@ -572,8 +572,11 @@ class HtmlThemeVisualEditorTests(unittest.TestCase):
         self.assertIn("Opacidade (%)", source)
         self.assertIn("Camada", source)
         self.assertIn("Dados de teste", source)
-        self.assertIn("Valores máximos", source)
-        self.assertIn("Sensores indisponíveis", source)
+        from library.html_editor_preview_data import PRESET_LABELS
+
+        self.assertIn("PRESET_LABELS", source)
+        self.assertIn("Valores máximos", PRESET_LABELS)
+        self.assertIn("Sensores indisponíveis", PRESET_LABELS)
         self.assertIn("Mostrar somente o overlay enviado ao dispositivo", source)
         self.assertIn("__turingEditorSetOverlayMode", source)
         self.assertIn("overlay-editor", source)
