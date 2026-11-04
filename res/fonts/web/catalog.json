@@ -1,0 +1,206 @@
+[
+ {
+  "key": "inter",
+  "family": "Inter",
+  "label": "Inter",
+  "category": "Interface",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "inter/inter-400-800.woff2",
+    "weight": "400 800"
+   }
+  ],
+  "license": "inter/OFL.txt"
+ },
+ {
+  "key": "space-grotesk",
+  "family": "Space Grotesk",
+  "label": "Space Grotesk",
+  "category": "Interface",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "space-grotesk/space-grotesk-400-700.woff2",
+    "weight": "400 700"
+   }
+  ],
+  "license": "space-grotesk/OFL.txt"
+ },
+ {
+  "key": "exo-2",
+  "family": "Exo 2",
+  "label": "Exo 2",
+  "category": "Futurista",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "exo-2/exo-2-400-900.woff2",
+    "weight": "400 900"
+   }
+  ],
+  "license": "exo-2/OFL.txt"
+ },
+ {
+  "key": "orbitron",
+  "family": "Orbitron",
+  "label": "Orbitron",
+  "category": "Futurista",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "orbitron/orbitron-400-900.woff2",
+    "weight": "400 900"
+   }
+  ],
+  "license": "orbitron/OFL.txt"
+ },
+ {
+  "key": "oxanium",
+  "family": "Oxanium",
+  "label": "Oxanium",
+  "category": "Futurista",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "oxanium/oxanium-400-800.woff2",
+    "weight": "400 800"
+   }
+  ],
+  "license": "oxanium/OFL.txt"
+ },
+ {
+  "key": "michroma",
+  "family": "Michroma",
+  "label": "Michroma",
+  "category": "Futurista",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "michroma/michroma-400.woff2",
+    "weight": "400"
+   }
+  ],
+  "license": "michroma/OFL.txt"
+ },
+ {
+  "key": "audiowide",
+  "family": "Audiowide",
+  "label": "Audiowide",
+  "category": "Gamer",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "audiowide/audiowide-400.woff2",
+    "weight": "400"
+   }
+  ],
+  "license": "audiowide/OFL.txt"
+ },
+ {
+  "key": "chakra-petch",
+  "family": "Chakra Petch",
+  "label": "Chakra Petch",
+  "category": "HUD",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "chakra-petch/chakra-petch-500.woff2",
+    "weight": "500"
+   },
+   {
+    "file": "chakra-petch/chakra-petch-700.woff2",
+    "weight": "700"
+   }
+  ],
+  "license": "chakra-petch/OFL.txt"
+ },
+ {
+  "key": "rajdhani",
+  "family": "Rajdhani",
+  "label": "Rajdhani",
+  "category": "HUD",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "rajdhani/rajdhani-500.woff2",
+    "weight": "500"
+   },
+   {
+    "file": "rajdhani/rajdhani-700.woff2",
+    "weight": "700"
+   }
+  ],
+  "license": "rajdhani/OFL.txt"
+ },
+ {
+  "key": "bebas-neue",
+  "family": "Bebas Neue",
+  "label": "Bebas Neue",
+  "category": "Condensada",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "bebas-neue/bebas-neue-400.woff2",
+    "weight": "400"
+   }
+  ],
+  "license": "bebas-neue/OFL.txt"
+ },
+ {
+  "key": "jetbrains-mono",
+  "family": "JetBrains Mono",
+  "label": "JetBrains Mono",
+  "category": "Monoespaçada",
+  "fallback": "monospace",
+  "faces": [
+   {
+    "file": "jetbrains-mono/jetbrains-mono-400-800.woff2",
+    "weight": "400 800"
+   }
+  ],
+  "license": "jetbrains-mono/OFL.txt"
+ },
+ {
+  "key": "share-tech-mono",
+  "family": "Share Tech Mono",
+  "label": "Share Tech Mono",
+  "category": "Monoespaçada",
+  "fallback": "monospace",
+  "faces": [
+   {
+    "file": "share-tech-mono/share-tech-mono-400.woff2",
+    "weight": "400"
+   }
+  ],
+  "license": "share-tech-mono/OFL.txt"
+ },
+ {
+  "key": "vt323",
+  "family": "VT323",
+  "label": "VT323",
+  "category": "Retrô",
+  "fallback": "monospace",
+  "faces": [
+   {
+    "file": "vt323/vt323-400.woff2",
+    "weight": "400"
+   }
+  ],
+  "license": "vt323/OFL.txt"
+ },
+ {
+  "key": "press-start-2p",
+  "family": "Press Start 2P",
+  "label": "Press Start 2P",
+  "category": "Retrô",
+  "fallback": "monospace",
+  "faces": [
+   {
+    "file": "press-start-2p/press-start-2p-400.woff2",
+    "weight": "400"
+   }
+  ],
+  "license": "press-start-2p/OFL.txt"
+ }
+]

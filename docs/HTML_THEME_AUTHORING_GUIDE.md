@@ -205,7 +205,7 @@ O envelope atual é fixo:
 {
   "format": "turing-html-overlays",
   "formatVersion": 1,
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "display": {"width": 480, "height": 480},
   "elements": []
 }
@@ -233,6 +233,13 @@ Cada item de `elements` aceita:
   `gradientDirection` (`horizontal`, `vertical` ou `diagonal`).
 - `outlineWidth` (0–8) e `outlineColor`.
 - `glowRadius` (0–40) e `glowColor`.
+- `fontFamily`: vazio (fonte do tema) ou uma chave de `res/fonts/catalog.json`;
+  ao salvar, o editor copia a fonte e a licença OFL para `fonts/` do tema.
+- `letterSpacing` (−4 a 24 px) e `textTransform` (`none` ou `uppercase`).
+- `glowStyle`: `soft`, `neon` (núcleo branco e halos em camadas) ou `bloom`.
+- `shadowX`, `shadowY` (−20 a 20), `shadowBlur` (0–40) e `shadowColor`.
+- `gradientMidColor`: cor do meio opcional do degradê (vazio = 2 cores).
+- `barStyle` (barras): `solid`, `striped`, `segmented` ou `glossy`.
 
 `componentType` pode usar `cpu-temperature`, `gpu-temperature`, `cpu-usage`,
 `gpu-usage`, `ram-usage`, `ram-used`, `cpu-load`, `disk-usage`,

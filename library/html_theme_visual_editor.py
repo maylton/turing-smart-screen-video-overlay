@@ -31,7 +31,7 @@ LEGACY_EDITOR_METADATA_FILENAME = ".html-theme-editor.json"
 # points at the public, canonical overlay document rather than hidden metadata.
 EDITOR_METADATA_FILENAME = OVERLAY_DOCUMENT_FILENAME
 EDITOR_STYLESHEET_FILENAME = "theme-editor-overrides.css"
-EDITOR_SCHEMA_VERSION = 5
+EDITOR_SCHEMA_VERSION = 6
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _ELEMENT_KINDS = {"text", "bar"}
 _GRADIENT_DIRECTIONS = {
@@ -70,6 +70,17 @@ class HtmlVisualElementStyle:
     outline_color: str = "#000000"
     glow_radius: int = 0
     glow_color: str = "#ffffff"
+    # Schema 6: fonts and richer effects (library/html_theme_rich_effects.py).
+    font_family: str = ""
+    letter_spacing: int = 0
+    text_transform: str = "none"
+    glow_style: str = "soft"
+    shadow_x: int = 0
+    shadow_y: int = 0
+    shadow_blur: int = 0
+    shadow_color: str = "#000000"
+    gradient_mid_color: str = ""
+    bar_style: str = "solid"
 
     @property
     def is_generated(self) -> bool:
@@ -104,6 +115,10 @@ class HtmlVisualElementStyle:
             "z index": int(self.z_index),
             "outline width": int(self.outline_width),
             "glow radius": int(self.glow_radius),
+            "letter spacing": int(self.letter_spacing),
+            "shadow x": int(self.shadow_x),
+            "shadow y": int(self.shadow_y),
+            "shadow blur": int(self.shadow_blur),
         }
         if values["x"] < 0 or values["y"] < 0:
             raise ThemeValidationError(f"#{element_id} coordinates cannot be negative")
@@ -133,6 +148,7 @@ class HtmlVisualElementStyle:
             "gradient end color": str(self.gradient_end_color).strip().lower(),
             "outline color": str(self.outline_color).strip().lower(),
             "glow color": str(self.glow_color).strip().lower(),
+            "shadow color": str(self.shadow_color).strip().lower(),
         }
         for name, value in effect_colors.items():
             if not _HEX_COLOR.fullmatch(value):
@@ -201,6 +217,30 @@ class HtmlVisualElementStyle:
             raise ThemeValidationError(
                 f"#{element_id} glow radius must be 0-40 px"
             )
+        from library import html_theme_rich_effects as rich
+
+        font_family = str(self.font_family or "").strip()
+        if font_family and font_family not in rich.font_keys():
+            raise ThemeValidationError(f"#{element_id} font {font_family!r} is not available")
+        if not -4 <= values["letter spacing"] <= 24:
+            raise ThemeValidationError(f"#{element_id} letter spacing must be -4 to 24 px")
+        text_transform = str(self.text_transform or "none").strip().lower()
+        if text_transform not in rich.TEXT_TRANSFORMS:
+            raise ThemeValidationError(f"#{element_id} text transform is not supported")
+        glow_style = str(self.glow_style or "soft").strip().lower()
+        if glow_style not in rich.GLOW_STYLES:
+            raise ThemeValidationError(f"#{element_id} glow style is not supported")
+        for name in ("shadow x", "shadow y"):
+            if not -20 <= values[name] <= 20:
+                raise ThemeValidationError(f"#{element_id} {name} must be -20 to 20 px")
+        if not 0 <= values["shadow blur"] <= 40:
+            raise ThemeValidationError(f"#{element_id} shadow blur must be 0-40 px")
+        gradient_mid_color = str(self.gradient_mid_color or "").strip().lower()
+        if gradient_mid_color and not _HEX_COLOR.fullmatch(gradient_mid_color):
+            raise ThemeValidationError(f"#{element_id} gradient middle color must use #rrggbb or be empty")
+        bar_style = str(self.bar_style or "solid").strip().lower()
+        if bar_style not in rich.BAR_STYLES:
+            raise ThemeValidationError(f"#{element_id} bar style is not supported")
         return HtmlVisualElementStyle(
             element_id=element_id,
             x=values["x"],
@@ -229,6 +269,16 @@ class HtmlVisualElementStyle:
             outline_color=effect_colors["outline color"],
             glow_radius=values["glow radius"],
             glow_color=effect_colors["glow color"],
+            font_family=font_family,
+            letter_spacing=values["letter spacing"],
+            text_transform=text_transform,
+            glow_style=glow_style,
+            shadow_x=values["shadow x"],
+            shadow_y=values["shadow y"],
+            shadow_blur=values["shadow blur"],
+            shadow_color=effect_colors["shadow color"],
+            gradient_mid_color=gradient_mid_color,
+            bar_style=bar_style,
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -260,6 +310,16 @@ class HtmlVisualElementStyle:
             "outlineColor": self.outline_color,
             "glowRadius": self.glow_radius,
             "glowColor": self.glow_color,
+            "fontFamily": self.font_family,
+            "letterSpacing": self.letter_spacing,
+            "textTransform": self.text_transform,
+            "glowStyle": self.glow_style,
+            "shadowX": self.shadow_x,
+            "shadowY": self.shadow_y,
+            "shadowBlur": self.shadow_blur,
+            "shadowColor": self.shadow_color,
+            "gradientMidColor": self.gradient_mid_color,
+            "barStyle": self.bar_style,
         }
 
 
@@ -597,6 +657,16 @@ def _style_from_mapping(value: Mapping[str, object]) -> HtmlVisualElementStyle:
             outline_color=str(value.get("outlineColor", "#000000")),
             glow_radius=int(value.get("glowRadius", 0)),
             glow_color=str(value.get("glowColor", "#ffffff")),
+            font_family=str(value.get("fontFamily", "")),
+            letter_spacing=int(value.get("letterSpacing", 0)),
+            text_transform=str(value.get("textTransform", "none")),
+            glow_style=str(value.get("glowStyle", "soft")),
+            shadow_x=int(value.get("shadowX", 0)),
+            shadow_y=int(value.get("shadowY", 0)),
+            shadow_blur=int(value.get("shadowBlur", 0)),
+            shadow_color=str(value.get("shadowColor", "#000000")),
+            gradient_mid_color=str(value.get("gradientMidColor", "")),
+            bar_style=str(value.get("barStyle", "solid")),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ThemeValidationError(f"invalid visual editor element: {exc}") from exc
@@ -729,11 +799,18 @@ def _css_string(value: str) -> str:
 
 
 def render_visual_stylesheet(styles: Iterable[HtmlVisualElementStyle]) -> str:
+    from library import html_theme_rich_effects as rich
+
+    styles = tuple(styles)
     lines = [
         "/* Generated by the Turing HTML visual theme editor. */",
         "/* Edit through the visual editor so manifest regions stay synchronized. */",
         "",
     ]
+    faces = rich.font_face_css(rich.used_font_keys(styles))
+    if faces:
+        lines.extend([faces.rstrip(), ""])
+    rich_blocks = []
     for style in styles:
         selector = f"[id={_css_string(style.element_id)}]"
         component = (
@@ -850,7 +927,9 @@ def render_visual_stylesheet(styles: Iterable[HtmlVisualElementStyle]) -> str:
                     f"  background: {gradient if style.gradient_enabled else style.color} !important;"
                 )
             lines.extend(["}", ""])
+            rich_blocks.append(rich.rich_effect_css(style, selector, generated_bar=is_generated_bar))
             continue
+        rich_blocks.append(rich.rich_effect_css(style, selector, generated_bar=is_generated_bar))
         text_selector = f"{selector}, {selector} *"
         lines.extend([f"{text_selector} {{"])
         if style.gradient_enabled:
@@ -889,6 +968,9 @@ def render_visual_stylesheet(styles: Iterable[HtmlVisualElementStyle]) -> str:
                 "",
             ]
         )
+    rich_blocks = [block.rstrip() for block in rich_blocks if block]
+    if rich_blocks:
+        lines.extend(["/* Fonts and rich effects (schema 6). */", "\n\n".join(rich_blocks), ""])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -983,6 +1065,9 @@ def save_visual_styles(
         raise ThemeValidationError("visual styles must cover every live overlay (" + "; ".join(detail) + ")")
     ordered_ids = original_ids + generated_ids
     ordered = tuple(by_id[element_id] for element_id in ordered_ids)
+    from library import html_theme_rich_effects as rich
+
+    rich.ensure_theme_fonts(manifest.root, rich.used_font_keys(ordered))
 
     manifest_path = manifest.root / "manifest.json"
     entrypoint_path = manifest.entrypoint_path
