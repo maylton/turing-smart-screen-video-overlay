@@ -1,0 +1,79 @@
+/* Shinobi: ink brush ring, spinning throwing stars, drifting leaves and a
+   paper scroll for the readouts. The page is translucent so an image
+   chosen in the editor (Fundo) shows through. Font: Shojumaru (SIL OFL 1.1). */
+@font-face { font-family: "Shojumaru"; src: url("fonts/shojumaru/shojumaru-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+
+:root { --orange: #ff7a1a; --ink: #1b1410; --paper: #f1dfb8; }
+* { box-sizing: border-box; }
+html, body { width: 480px; height: 480px; margin: 0; overflow: hidden; background: transparent; }
+body { font-family: "Shojumaru", serif; color: #fff4e6; }
+.screen { position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%; }
+
+.tint { position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, rgba(10, 12, 30, 0.05) 0%, rgba(10, 12, 30, 0.2) 50%, rgba(8, 8, 20, 0.75) 82%, rgba(5, 5, 12, 0.95) 100%); }
+.wind { position: absolute; inset: 0; width: 480px; height: 480px; animation: wind 2s linear infinite; }
+.wind path { fill: none; stroke: rgba(255, 196, 140, 0.25); stroke-width: 2.5; stroke-linecap: round; }
+@keyframes wind { to { transform: rotate(120deg); } }
+.leaves { position: absolute; inset: 0; width: 480px; height: 480px; }
+.leaf { fill: #7cc35a; stroke: #3f7a2c; stroke-width: 1; opacity: 0; animation: fall 2s linear infinite; }
+@keyframes fall {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+  15% { opacity: 0.9; }
+  85% { opacity: 0.8; }
+  100% { transform: translate(-30px, 140px) rotate(360deg); opacity: 0; }
+}
+.leaf-wrap:nth-child(1) .leaf { animation-delay: 0.000s; }
+.leaf-wrap:nth-child(2) .leaf { animation-delay: -0.143s; }
+.leaf-wrap:nth-child(3) .leaf { animation-delay: -0.286s; }
+.leaf-wrap:nth-child(4) .leaf { animation-delay: -0.429s; }
+.leaf-wrap:nth-child(5) .leaf { animation-delay: -0.571s; }
+.leaf-wrap:nth-child(6) .leaf { animation-delay: -0.714s; }
+.leaf-wrap:nth-child(7) .leaf { animation-delay: -0.857s; }
+.leaf-wrap:nth-child(8) .leaf { animation-delay: -1.000s; }
+.leaf-wrap:nth-child(9) .leaf { animation-delay: -1.143s; }
+.leaf-wrap:nth-child(10) .leaf { animation-delay: -1.286s; }
+.leaf-wrap:nth-child(11) .leaf { animation-delay: -1.429s; }
+.leaf-wrap:nth-child(12) .leaf { animation-delay: -1.571s; }
+.leaf-wrap:nth-child(13) .leaf { animation-delay: -1.714s; }
+.leaf-wrap:nth-child(14) .leaf { animation-delay: -1.857s; }
+.brush { position: absolute; inset: 0; width: 480px; height: 480px; }
+.brush path { fill: #d9520c; fill-rule: evenodd; opacity: 0.9; filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.8)); }
+.star { position: absolute; width: 44px; height: 44px; animation: spin 2s linear infinite; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.7)); }
+.star polygon { fill: #b9c0c8; stroke: #5d646c; stroke-width: 1.5; }
+.star .hole { fill: var(--ink); }
+.star-left { left: 64px; top: 118px; }
+.star-right { left: 372px; top: 118px; animation-direction: reverse; }
+@keyframes spin { to { transform: rotate(90deg); } }
+
+.tag { position: absolute; left: 176px; top: 290px; width: 128px; height: 26px; border-radius: 4px; background: var(--orange);
+  box-shadow: 0 2px 0 #9a3c00, 0 4px 10px rgba(0, 0, 0, 0.5); }
+.scroll { position: absolute; left: 96px; top: 326px; width: 288px; height: 92px; border-radius: 4px;
+  background: linear-gradient(180deg, #e6cd99, var(--paper) 18%, #f6e9cc 50%, var(--paper) 82%, #dcc08a);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.55); }
+.rod { position: absolute; top: -8px; width: 14px; height: 108px; border-radius: 7px; background: linear-gradient(90deg, #5a2d12, #a8622e, #5a2d12); }
+.rod.left { left: -12px; }
+.rod.right { right: -12px; }
+.labels { position: absolute; left: 124px; top: 392px; width: 232px; display: flex; justify-content: space-between; }
+.labels span { width: 72px; text-align: center; font-size: 11px; letter-spacing: 0.18em; color: #8a3b10; }
+.tracks { position: absolute; left: 132px; top: 380px; width: 216px; display: flex; justify-content: space-between; }
+.tracks span { width: 56px; height: 6px; border-radius: 3px; background: rgba(27, 20, 16, 0.18); }
+
+/* Overlays. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; text-align: center; }
+#time { left: 140px; top: 44px; width: 200px; height: 60px; font-size: 50px; line-height: 60px; color: #fff4e6;
+  text-shadow: 2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink), 0 0 14px rgba(255, 122, 26, 0.9); }
+#date { left: 150px; top: 104px; width: 180px; height: 20px; font-size: 13px; line-height: 20px; letter-spacing: 0.16em; color: #ffd2a8;
+  text-shadow: 0 2px 2px rgba(0, 0, 0, 0.9); }
+#cpu-temp { left: 176px; top: 290px; width: 128px; height: 26px; font-size: 14px; line-height: 26px; letter-spacing: 0.08em; color: #1b1410; }
+.val { top: 340px; width: 72px; height: 36px; font-size: 26px; line-height: 36px; color: var(--ink); }
+.bar { top: 380px; width: 56px; height: 6px; }
+.bar .fill { width: 0; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ff9a3c, #e0480b); }
+#cpu-val { left: 124px; }
+#cpu-bar { left: 132px; }
+#gpu-val { left: 204px; }
+#gpu-bar { left: 212px; }
+#ram-val { left: 284px; }
+#ram-bar { left: 292px; }
+.val.hot { color: #c0200b; }
+#cpu-temp.hot { color: #ffffff; background: #c0200b; border-radius: 4px; }
+.bar.hot .fill { background: linear-gradient(90deg, #ff4a2a, #a00d00); }
