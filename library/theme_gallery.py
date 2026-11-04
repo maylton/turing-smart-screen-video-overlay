@@ -678,7 +678,8 @@ def discover_themes(
         return records
 
     for theme_dir in sorted(
-        (path for path in themes_dir.iterdir() if path.is_dir()),
+        # "--Theme examples" and similar folders hold sample assets, not themes.
+        (path for path in themes_dir.iterdir() if path.is_dir() and not path.name.startswith("--")),
         key=lambda path: path.name.casefold(),
     ):
         yaml_file = find_theme_file(theme_dir)

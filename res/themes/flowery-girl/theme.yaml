@@ -8,10 +8,10 @@ display:
 video:
   ENABLED: true
   MODE: native
-  PATH: /mnt/SDCARD/video/gengar.mp4
+  PATH: /mnt/SDCARD/video/flowery-girl.mp4
   OVERLAY: true
 
-  LOCAL_PATH: gengar.mp4
+  LOCAL_PATH: flowery-girl.mp4
   PREVIEW_BACKGROUND: background.png
   BACKGROUND_FRAME_TIME: 1.0
 STATS:
