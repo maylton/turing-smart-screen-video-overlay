@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Aura de Ki</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="screen" aria-label="Aura de Ki">
+    <!-- Background (native video). The page is translucent: an image or GIF
+         picked in the editor (Fundo) is composited behind it when the video is
+         built. The middle stays clear for the art; readouts sit on the top,
+         the sides and the lower rim. -->
+    <div class="tint"></div>
+    <div class="burst"></div>
+    <svg class="sparks" viewBox="0 0 480 480" aria-hidden="true"><circle class="spark" cx="42" cy="331" r="1.5"/><circle class="spark" cx="425" cy="300" r="1.5"/><circle class="spark" cx="69" cy="301" r="2.5"/><circle class="spark" cx="378" cy="392" r="1.5"/><circle class="spark" cx="72" cy="323" r="2"/><circle class="spark" cx="352" cy="399" r="2"/><circle class="spark" cx="60" cy="393" r="1.5"/><circle class="spark" cx="390" cy="363" r="2.5"/><circle class="spark" cx="44" cy="373" r="2"/><circle class="spark" cx="424" cy="296" r="1.5"/><circle class="spark" cx="62" cy="346" r="1.5"/><circle class="spark" cx="366" cy="299" r="2.5"/><circle class="spark" cx="81" cy="420" r="2"/><circle class="spark" cx="385" cy="393" r="2"/><circle class="spark" cx="122" cy="418" r="3"/><circle class="spark" cx="362" cy="332" r="1.5"/><circle class="spark" cx="96" cy="352" r="2.5"/><circle class="spark" cx="392" cy="367" r="2"/><circle class="spark" cx="121" cy="406" r="1.5"/><circle class="spark" cx="369" cy="412" r="1.5"/><circle class="spark" cx="42" cy="347" r="2.5"/><circle class="spark" cx="374" cy="379" r="1.5"/></svg>
+    <div class="shade top"></div>
+    <div class="shade left"></div>
+    <div class="shade right"></div>
+    <div class="shade bottom"></div>
+    <svg class="arc-track" viewBox="0 0 480 480" aria-hidden="true"><path d="M 54.7 347.0 A 214 214 0 0 0 425.3 347.0"/></svg>
+    <div class="side-label l1">CPU</div>
+    <div class="side-label r1">GPU</div>
+    <div class="power-label">PODER</div>
+
+    <!-- Overlays. -->
+    <div id="time" class="ki-text" data-turing-overlay>--:--</div>
+    <div id="date" data-turing-overlay>--</div>
+    <div id="cpu-val" class="val" data-turing-overlay>--%</div>
+    <div id="cpu-temp" class="sub" data-turing-overlay>--°</div>
+    <div id="gpu-val" class="val" data-turing-overlay>--%</div>
+    <div id="gpu-temp" class="sub" data-turing-overlay>--°</div>
+    <div id="power" class="ki-text" data-turing-overlay>----</div>
+    <svg id="power-arc" viewBox="0 0 480 480" aria-hidden="true" data-turing-overlay><path class="fill" d="M 54.7 347.0 A 214 214 0 0 0 425.3 347.0" stroke-dasharray="448.2" stroke-dashoffset="448.2" data-length="448.2"/></svg>
+  </main>
+  <script src="theme.js"></script>
+</body>
+</html>

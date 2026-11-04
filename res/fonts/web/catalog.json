@@ -202,5 +202,47 @@
    }
   ],
   "license": "press-start-2p/OFL.txt"
+ },
+ {
+  "key": "bangers",
+  "family": "Bangers",
+  "label": "Bangers",
+  "category": "Mangá",
+  "fallback": "sans-serif",
+  "faces": [
+   {
+    "file": "bangers/bangers-400.woff2",
+    "weight": "400"
+   }
+  ],
+  "license": "bangers/OFL.txt"
+ },
+ {
+  "key": "shojumaru",
+  "family": "Shojumaru",
+  "label": "Shojumaru",
+  "category": "Mangá",
+  "fallback": "serif",
+  "faces": [
+   {
+    "file": "shojumaru/shojumaru-400.woff2",
+    "weight": "400"
+   }
+  ],
+  "license": "shojumaru/OFL.txt"
+ },
+ {
+  "key": "cinzel",
+  "family": "Cinzel",
+  "label": "Cinzel",
+  "category": "Clássica",
+  "fallback": "serif",
+  "faces": [
+   {
+    "file": "cinzel/cinzel-400-900.woff2",
+    "weight": "400 900"
+   }
+  ],
+  "license": "cinzel/OFL.txt"
  }
 ]

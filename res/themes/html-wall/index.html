@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Muralha</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="screen" aria-label="Muralha">
+    <!-- Background (native video). The page is translucent: an image picked
+         in the editor (Fundo) is composited behind it when the video is built. -->
+    <div class="sky"></div>
+    <svg class="embers" viewBox="0 0 480 480" aria-hidden="true"><circle class="ember" cx="165" cy="293" r="2"/><circle class="ember" cx="75" cy="414" r="1.6"/><circle class="ember" cx="190" cy="268" r="1.6"/><circle class="ember" cx="196" cy="414" r="1.6"/><circle class="ember" cx="292" cy="359" r="2"/><circle class="ember" cx="97" cy="435" r="2"/><circle class="ember" cx="158" cy="367" r="2"/><circle class="ember" cx="146" cy="300" r="1.6"/><circle class="ember" cx="248" cy="350" r="1.2"/><circle class="ember" cx="344" cy="437" r="1.6"/><circle class="ember" cx="67" cy="363" r="2"/><circle class="ember" cx="108" cy="367" r="1.6"/><circle class="ember" cx="228" cy="376" r="1.6"/><circle class="ember" cx="279" cy="296" r="1.6"/><circle class="ember" cx="68" cy="252" r="2"/><circle class="ember" cx="68" cy="314" r="2"/><circle class="ember" cx="224" cy="359" r="1.6"/><circle class="ember" cx="124" cy="277" r="1.6"/><circle class="ember" cx="364" cy="293" r="1.6"/><circle class="ember" cx="98" cy="403" r="2"/><circle class="ember" cx="306" cy="266" r="2"/><circle class="ember" cx="140" cy="401" r="1.2"/><circle class="ember" cx="178" cy="376" r="2"/><circle class="ember" cx="311" cy="260" r="1.6"/><circle class="ember" cx="402" cy="375" r="1.2"/><circle class="ember" cx="218" cy="411" r="1.2"/></svg>
+    <div class="temps-chip"></div>
+    <div class="banner"></div>
+    <div class="plaques"><span>CPU</span><span>GPU</span><span>RAM</span></div>
+
+    <!-- Overlays. -->
+    <div id="time" data-turing-overlay>--:--</div>
+    <div id="date" data-turing-overlay>--</div>
+    <div id="cpu-val" class="val" data-turing-overlay>--%</div>
+    <div id="gpu-val" class="val" data-turing-overlay>--%</div>
+    <div id="ram-val" class="val" data-turing-overlay>--%</div>
+    <div id="temps" data-turing-overlay>CPU --° · GPU --°</div>
+  </main>
+  <script src="theme.js"></script>
+</body>
+</html>

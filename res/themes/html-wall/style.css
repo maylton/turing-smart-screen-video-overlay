@@ -1,0 +1,69 @@
+/* Muralha: embers rising over the art, with the clock and readouts on
+   dark plates. The page is translucent so an image or GIF chosen in the
+   editor (Fundo) shows through. Font: Cinzel (SIL OFL 1.1). */
+@font-face { font-family: "Cinzel"; src: url("fonts/cinzel/cinzel-400-900.woff2") format("woff2"); font-weight: 400 900; font-display: block; }
+
+* { box-sizing: border-box; }
+html, body { width: 480px; height: 480px; margin: 0; overflow: hidden; background: transparent; }
+body { font-family: "Cinzel", serif; color: #f3e6d0; }
+.screen { position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%; }
+
+.sky { position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(20, 8, 4, 0) 0%, rgba(20, 8, 4, 0) 60%, rgba(15, 5, 2, 0.55) 85%, rgba(10, 3, 1, 0.9) 100%); }
+
+.embers { position: absolute; inset: 0; width: 480px; height: 480px; }
+.ember { fill: #ffb067; opacity: 0; filter: drop-shadow(0 0 3px #ff5a1a); animation: ember 2s linear infinite; }
+@keyframes ember { 0% { transform: translate(0, 0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(14px, -110px); opacity: 0; } }
+.ember:nth-child(1) { animation-delay: 0.000s; }
+.ember:nth-child(2) { animation-delay: -0.077s; }
+.ember:nth-child(3) { animation-delay: -0.154s; }
+.ember:nth-child(4) { animation-delay: -0.231s; }
+.ember:nth-child(5) { animation-delay: -0.308s; }
+.ember:nth-child(6) { animation-delay: -0.385s; }
+.ember:nth-child(7) { animation-delay: -0.462s; }
+.ember:nth-child(8) { animation-delay: -0.538s; }
+.ember:nth-child(9) { animation-delay: -0.615s; }
+.ember:nth-child(10) { animation-delay: -0.692s; }
+.ember:nth-child(11) { animation-delay: -0.769s; }
+.ember:nth-child(12) { animation-delay: -0.846s; }
+.ember:nth-child(13) { animation-delay: -0.923s; }
+.ember:nth-child(14) { animation-delay: -1.000s; }
+.ember:nth-child(15) { animation-delay: -1.077s; }
+.ember:nth-child(16) { animation-delay: -1.154s; }
+.ember:nth-child(17) { animation-delay: -1.231s; }
+.ember:nth-child(18) { animation-delay: -1.308s; }
+.ember:nth-child(19) { animation-delay: -1.385s; }
+.ember:nth-child(20) { animation-delay: -1.462s; }
+.ember:nth-child(21) { animation-delay: -1.538s; }
+.ember:nth-child(22) { animation-delay: -1.615s; }
+.ember:nth-child(23) { animation-delay: -1.692s; }
+.ember:nth-child(24) { animation-delay: -1.769s; }
+.ember:nth-child(25) { animation-delay: -1.846s; }
+.ember:nth-child(26) { animation-delay: -1.923s; }
+
+
+.banner { position: absolute; left: 136px; top: 42px; width: 208px; height: 86px; border-radius: 6px;
+  background: linear-gradient(180deg, rgba(30, 26, 24, 0.75), rgba(16, 12, 10, 0.75)); border: 1px solid rgba(200, 180, 150, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 14px rgba(0, 0, 0, 0.5); }
+.plaques { position: absolute; left: 108px; top: 346px; width: 264px; display: flex; justify-content: space-between; }
+.plaques span { width: 80px; height: 60px; padding-top: 40px; border-radius: 4px; text-align: center; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.2em; color: #d9c7a6; background: linear-gradient(180deg, rgba(20, 16, 14, 0.78), rgba(30, 24, 20, 0.78));
+  border: 1px solid rgba(200, 180, 150, 0.4); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
+.temps-chip { position: absolute; left: 156px; top: 412px; width: 168px; height: 24px; border-radius: 12px;
+  background: rgba(20, 16, 14, 0.78); border: 1px solid rgba(200, 180, 150, 0.35); }
+
+/* Overlays. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; text-align: center; }
+#time { left: 140px; top: 46px; width: 200px; height: 58px; font-size: 50px; font-weight: 900; line-height: 58px;
+  background-image: linear-gradient(180deg, #ffffff 0%, #d8dde2 45%, #8b949c 55%, #e3e7ea 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 0 #000) drop-shadow(0 0 6px rgba(0, 0, 0, 0.7)); }
+#date { left: 150px; top: 104px; width: 180px; height: 18px; font-size: 12px; font-weight: 700; line-height: 18px; letter-spacing: 0.22em; color: #d9c7a6; }
+.val { top: 350px; width: 80px; height: 34px; font-size: 26px; font-weight: 700; line-height: 34px; color: #f3e6d0;
+  text-shadow: 0 2px 0 #000, 0 0 8px rgba(255, 140, 60, 0.35); }
+#cpu-val { left: 108px; }
+#gpu-val { left: 200px; }
+#ram-val { left: 292px; }
+#temps { left: 150px; top: 414px; width: 180px; height: 20px; font-size: 13px; font-weight: 700; line-height: 20px; letter-spacing: 0.1em;
+  color: #e9d6b4; text-shadow: 0 2px 2px #000; }
+.hot { color: #ffb38a !important; text-shadow: 0 2px 0 #000, 0 0 10px rgba(255, 60, 20, 0.9) !important; }
