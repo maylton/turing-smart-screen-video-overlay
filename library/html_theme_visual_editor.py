@@ -385,6 +385,70 @@ def align_visual_style(
     )
 
 
+def move_visual_group(
+    styles: Iterable[HtmlVisualElementStyle],
+    *,
+    dx: int,
+    dy: int,
+    display_width: int,
+    display_height: int,
+) -> list[HtmlVisualElementStyle]:
+    """Move elements together; the delta is clamped so none leaves the canvas."""
+    group = list(styles)
+    if not group:
+        return []
+    min_x = min(style.x for style in group)
+    min_y = min(style.y for style in group)
+    max_right = max(style.x + style.width for style in group)
+    max_bottom = max(style.y + style.height for style in group)
+    dx = max(-min_x, min(int(dx), display_width - max_right))
+    dy = max(-min_y, min(int(dy), display_height - max_bottom))
+    return [replace(style, x=style.x + dx, y=style.y + dy) for style in group]
+
+
+def align_visual_group(
+    styles: Iterable[HtmlVisualElementStyle],
+    alignment: str,
+    *,
+    display_width: int,
+    display_height: int,
+) -> list[HtmlVisualElementStyle]:
+    """Align elements to the edges or center of their common bounding box.
+
+    A single element aligns to the canvas, as before.
+    """
+    group = list(styles)
+    if len(group) <= 1:
+        return [
+            align_visual_style(style, alignment, display_width=display_width, display_height=display_height)
+            for style in group
+        ]
+    alignment = str(alignment).strip().lower()
+    left = min(style.x for style in group)
+    top = min(style.y for style in group)
+    right = max(style.x + style.width for style in group)
+    bottom = max(style.y + style.height for style in group)
+    center_x = (left + right) // 2
+    center_y = (top + bottom) // 2
+    targets = {
+        "left": lambda s: (left, s.y),
+        "horizontal-center": lambda s: (center_x - s.width // 2, s.y),
+        "right": lambda s: (right - s.width, s.y),
+        "top": lambda s: (s.x, top),
+        "vertical-center": lambda s: (s.x, center_y - s.height // 2),
+        "bottom": lambda s: (s.x, bottom - s.height),
+    }
+    if alignment not in targets:
+        raise ValueError(f"unsupported visual alignment: {alignment}")
+    aligned = []
+    for style in group:
+        x, y = targets[alignment](style)
+        aligned.append(
+            place_visual_style(style, x=x, y=y, display_width=display_width, display_height=display_height)
+        )
+    return aligned
+
+
 DUPLICATE_OFFSET_PX = 12
 MAX_Z_INDEX = 9999
 

@@ -47,11 +47,12 @@ from library.html_theme_round_mask import is_probably_round, round_mask_script
 from library.html_theme_visual_editor import (
     HtmlVisualElementStyle,
     VisualStyleHistory,
-    align_visual_style,
+    align_visual_group,
     duplicate_visual_style,
     find_visual_slot,
     load_persisted_visual_element_ids,
     load_visual_styles,
+    move_visual_group,
     nudge_visual_style,
     place_visual_style,
     resize_visual_style,
@@ -77,6 +78,7 @@ SELECT_TITLE_PREFIX = "turing-editor-select:"
 DRAG_TITLE_PREFIX = "turing-editor-drag:"
 RESIZE_TITLE_PREFIX = "turing-editor-resize:"
 NUDGE_TITLE_PREFIX = "turing-editor-nudge:"
+GROUP_TITLE_PREFIX = "turing-editor-group:"
 INSPECTOR_WIDTH = 420
 PREVIEW_FRAME_BORDER_PX = 1
 DRAFT_DELAY_SECONDS = 2
@@ -146,6 +148,8 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self._dirty = False
         self._build_process: subprocess.Popen[str] | None = None
         self._draft_source: int | None = None
+        # Elements selected together with the primary one (Shift+click).
+        self.group_ids: list[str] = []
         self._draft_offered = False
         self._close_confirmed = False
 
@@ -366,6 +370,10 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.grid_check.connect("toggled", lambda *_: self._sync_grid())
         elements_page.append(self.grid_check)
 
+        self.group_label = Gtk.Label(label="Shift+clique na prévia seleciona vários elementos", xalign=0, wrap=True)
+        self.group_label.add_css_class("dim-label")
+        elements_page.append(self.group_label)
+
         self.preview_preset_values = PRESET_KEYS
         self.preview_preset_dropdown = Gtk.DropDown.new_from_strings(PRESET_LABELS)
         self.preview_preset_dropdown.connect(
@@ -502,7 +510,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             button = Gtk.Button(label=label)
             button.connect("clicked", lambda _button, value=name: self._align_selected(value))
             alignment.attach(button, column, 1, 1, 1)
-        layout_page.append(self._field("Alinhamento ao canvas", alignment))
+        layout_page.append(self._field("Alinhamento (à tela; com vários selecionados, entre eles)", alignment))
 
         self.color_entry = Gtk.Entry(placeholder_text="#ffffff")
         self.color_entry.set_max_length(7)
@@ -861,6 +869,8 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
               window.__turingVisualEditorClickInstalled = true;
               window.__turingEditorGrid = 5;
               window.__turingEditorSelected = null;
+              let group = new Set();
+              const groupBoxes = new Map();
               let drag = null;
               let resize = null;
               let suppressClick = false;
@@ -930,7 +940,40 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
               });
               document.body.appendChild(selectionBox);
 
+              const refreshGroup = () => {
+                const primary = window.__turingEditorSelected;
+                for (const [id, frame] of groupBoxes) {
+                  if (!group.has(id)) { frame.remove(); groupBoxes.delete(id); }
+                }
+                for (const id of group) {
+                  const element = document.getElementById(id);
+                  let frame = groupBoxes.get(id);
+                  if (!element || element === primary) { if (frame) frame.style.setProperty('display', 'none', 'important'); continue; }
+                  if (!frame) {
+                    frame = document.createElement('div');
+                    frame.dataset.turingGroupFrame = id;
+                    Object.entries({
+                      position: 'fixed', pointerEvents: 'none', boxSizing: 'border-box',
+                      border: '2px dashed #66e0ff', zIndex: '2147483646'
+                    }).forEach(([name, value]) => frame.style.setProperty(
+                      name.replace(/[A-Z]/g, character => '-' + character.toLowerCase()), value, 'important'));
+                    document.body.appendChild(frame);
+                    groupBoxes.set(id, frame);
+                  }
+                  const rect = element.getBoundingClientRect();
+                  frame.style.setProperty('display', 'block', 'important');
+                  frame.style.setProperty('left', rect.left + 'px', 'important');
+                  frame.style.setProperty('top', rect.top + 'px', 'important');
+                  frame.style.setProperty('width', rect.width + 'px', 'important');
+                  frame.style.setProperty('height', rect.height + 'px', 'important');
+                }
+              };
+              window.__turingEditorSetGroup = ids => {
+                group = new Set(ids || []);
+                refreshGroup();
+              };
               const refreshSelection = () => {
+                refreshGroup();
                 const selected = window.__turingEditorSelected;
                 if (!selected || !selected.isConnected) {
                   selectionBox.style.setProperty('display', 'none', 'important');
@@ -1033,7 +1076,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                     height: Math.max(1, Math.round(rect.height))
                   };
                   suppressClick = true;
-                  resizeHandle.setPointerCapture?.(event.pointerId);
+                  try { resizeHandle.setPointerCapture?.(event.pointerId); } catch (_error) {}
                   emit('turing-editor-resize:', {
                     phase: 'start', id: resize.id,
                     x: resize.x, y: resize.y,
@@ -1045,18 +1088,36 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                 }
                 const element = overlay(event.target);
                 if (!element || !element.id || event.button !== 0) return;
+                if (event.shiftKey) {
+                  // Shift+click adds or removes an element from the group.
+                  suppressClick = true;
+                  emit('turing-editor-group:', {action: 'toggle', id: element.id});
+                  event.preventDefault();
+                  event.stopPropagation();
+                  return;
+                }
                 const rect = element.getBoundingClientRect();
+                const members = group.has(element.id) && group.size > 1
+                  ? [...group].map(id => document.getElementById(id)).filter(Boolean).map(node => {
+                      const box = node.getBoundingClientRect();
+                      return {element: node, id: node.id, x: Math.round(box.left), y: Math.round(box.top),
+                              width: Math.ceil(box.width), height: Math.ceil(box.height)};
+                    })
+                  : null;
                 drag = {
                   element,
                   id: element.id,
                   offsetX: event.clientX - rect.left,
                   offsetY: event.clientY - rect.top,
+                  startX: Math.round(rect.left),
+                  startY: Math.round(rect.top),
                   width: rect.width,
                   height: rect.height,
+                  members,
                   moved: false
                 };
                 suppressClick = false;
-                element.setPointerCapture?.(event.pointerId);
+                try { element.setPointerCapture?.(event.pointerId); } catch (_error) {}
                 emit('turing-editor-drag:', {
                   phase: 'start', id: drag.id,
                   x: Math.round(rect.left), y: Math.round(rect.top)
@@ -1103,13 +1164,27 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                 const canvasHeight = document.documentElement.clientHeight || 480;
                 let x = Math.round((event.clientX - drag.offsetX) / grid) * grid;
                 let y = Math.round((event.clientY - drag.offsetY) / grid) * grid;
-                x = Math.max(0, Math.min(x, canvasWidth - Math.ceil(drag.width)));
-                y = Math.max(0, Math.min(y, canvasHeight - Math.ceil(drag.height)));
-                position(drag.element, x, y);
+                if (drag.members) {
+                  // Move the group by one delta, clamped by its bounding box.
+                  const left = Math.min(...drag.members.map(m => m.x));
+                  const top = Math.min(...drag.members.map(m => m.y));
+                  const right = Math.max(...drag.members.map(m => m.x + m.width));
+                  const bottom = Math.max(...drag.members.map(m => m.y + m.height));
+                  const dx = Math.max(-left, Math.min(x - drag.startX, canvasWidth - right));
+                  const dy = Math.max(-top, Math.min(y - drag.startY, canvasHeight - bottom));
+                  drag.positions = drag.members.map(m => [m.id, m.x + dx, m.y + dy]);
+                  drag.members.forEach(m => position(m.element, m.x + dx, m.y + dy));
+                  x = drag.startX + dx;
+                  y = drag.startY + dy;
+                } else {
+                  x = Math.max(0, Math.min(x, canvasWidth - Math.ceil(drag.width)));
+                  y = Math.max(0, Math.min(y, canvasHeight - Math.ceil(drag.height)));
+                  position(drag.element, x, y);
+                }
                 refreshSelection();
                 drag.moved = true;
                 suppressClick = true;
-                emit('turing-editor-drag:', {phase: 'move', id: drag.id, x, y});
+                emit('turing-editor-drag:', {phase: 'move', id: drag.id, x, y, group: drag.positions || null});
                 event.preventDefault();
                 event.stopPropagation();
               }, true);
@@ -1132,7 +1207,8 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                 const rect = drag.element.getBoundingClientRect();
                 emit('turing-editor-drag:', {
                   phase: 'end', id: drag.id,
-                  x: Math.round(rect.left), y: Math.round(rect.top)
+                  x: Math.round(rect.left), y: Math.round(rect.top),
+                  group: drag.positions || null
                 });
                 drag = null;
                 event.preventDefault();
@@ -1158,10 +1234,15 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                   ArrowLeft: [-1, 0], ArrowRight: [1, 0],
                   ArrowUp: [0, -1], ArrowDown: [0, 1]
                 };
+                if (event.key === 'Escape' && group.size) {
+                  emit('turing-editor-group:', {action: 'clear'});
+                  event.preventDefault();
+                  return;
+                }
                 if (!directions[event.key] || !window.__turingEditorSelected) return;
                 const scale = event.shiftKey ? 10 : 1;
                 emit('turing-editor-nudge:', {
-                  id: window.__turingEditorSelected,
+                  id: window.__turingEditorSelected.id,
                   dx: directions[event.key][0] * scale,
                   dy: directions[event.key][1] * scale
                 });
@@ -1662,9 +1743,11 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
     def _on_preview_title_changed(self, view, _param) -> None:
         title = str(view.get_title() or "")
         if title.startswith(SELECT_TITLE_PREFIX):
+            self._set_group([])
             self._select_element(title[len(SELECT_TITLE_PREFIX) :])
             return
         for prefix, callback in (
+            (GROUP_TITLE_PREFIX, self._handle_group_message),
             (DRAG_TITLE_PREFIX, self._handle_drag_message),
             (RESIZE_TITLE_PREFIX, self._handle_resize_message),
             (NUDGE_TITLE_PREFIX, self._handle_nudge_message),
@@ -1717,9 +1800,62 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         if snapshot is not None:
             self._restore_history(snapshot)
 
+    def _selection_ids(self) -> list[str]:
+        primary = self._selected_id()
+        return [primary] + [i for i in self.group_ids if i != primary and i in self.styles]
+
+    def _set_group(self, ids) -> None:
+        primary = self._selected_id() if self.element_ids else ""
+        self.group_ids = [i for i in dict.fromkeys(ids) if i in self.styles and i != primary]
+        everyone = json.dumps(([primary] if self.group_ids else []) + self.group_ids, ensure_ascii=False)
+        self.backend.evaluate(f"window.__turingEditorSetGroup?.({everyone});")
+        count = len(self.group_ids) + 1
+        self.group_label.set_text(
+            f"{count} elementos selecionados · Shift+clique adiciona ou remove, Esc limpa"
+            if self.group_ids
+            else "Shift+clique na prévia seleciona vários elementos"
+        )
+
+    def _handle_group_message(self, payload: dict[str, object]) -> None:
+        if str(payload.get("action")) == "clear":
+            self._set_group([])
+            return
+        element_id = str(payload.get("id") or "")
+        if element_id not in self.styles or element_id == self._selected_id():
+            return
+        ids = list(self.group_ids)
+        if element_id in ids:
+            ids.remove(element_id)
+        else:
+            ids.append(element_id)
+        self._set_group(ids)
+
+    def _apply_group(self, styles) -> None:
+        for style in styles:
+            self.styles[style.element_id] = style
+            self._apply_style_to_preview(style)
+
     def _handle_drag_message(self, payload: dict[str, object]) -> None:
         element_id = str(payload.get("id") or "")
+        selection = self._selection_ids()
         if not self._select_element(element_id) or element_id not in self.styles:
+            return
+        # Dragging another group member makes it the primary; keep the group.
+        self._set_group(selection if element_id in selection else [])
+        positions = payload.get("group")
+        if positions and str(payload.get("phase")) in {"move", "end"}:
+            for item_id, x, y in positions:
+                if item_id in self.styles:
+                    self.styles[item_id] = place_visual_style(
+                        self.styles[item_id], x=int(x), y=int(y),
+                        display_width=self.manifest.width, display_height=self.manifest.height,
+                    )
+            phase = str(payload.get("phase"))
+            self._load_selected_controls(highlight=phase == "end")
+            self._mark_changed()
+            if phase == "end":
+                self._drag_active = False
+                self._update_history_actions()
             return
         phase = str(payload.get("phase") or "")
         if phase == "start":
@@ -1776,6 +1912,18 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         if not self._select_element(element_id) or element_id not in self.styles:
             return
         self._checkpoint()
+        if self.group_ids:
+            self._apply_group(move_visual_group(
+                [self.styles[i] for i in self._selection_ids()],
+                dx=int(payload.get("dx", 0)),
+                dy=int(payload.get("dy", 0)),
+                display_width=self.manifest.width,
+                display_height=self.manifest.height,
+            ))
+            self._load_selected_controls()
+            self._mark_changed()
+            self._update_history_actions()
+            return
         style = nudge_visual_style(
             self.styles[element_id],
             dx=int(payload.get("dx", 0)),
@@ -1821,31 +1969,34 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
     def _align_selected(self, alignment: str) -> None:
         if not self._loaded_once:
             return
-        element_id = self._selected_id()
         self._checkpoint()
-        style = align_visual_style(
-            self.styles[element_id],
+        self._apply_group(align_visual_group(
+            [self.styles[i] for i in self._selection_ids()],
             alignment,
             display_width=self.manifest.width,
             display_height=self.manifest.height,
-        )
-        self.styles[element_id] = style
-        self._apply_style_to_preview(style)
+        ))
         self._load_selected_controls()
         self._mark_changed()
         self._update_history_actions()
 
     def _highlight_selected(self) -> None:
         selected = json.dumps(self._selected_id(), ensure_ascii=False)
+        group = json.dumps(self._selection_ids() if self.group_ids else [], ensure_ascii=False)
         self.backend.evaluate(
+            # A function scope: a top-level const would fail to redeclare on
+            # the next selection and leave the preview selection stale.
             f"""
-            document.querySelectorAll('[data-turing-overlay]').forEach(element =>
-              element.style.removeProperty('outline'));
-            const selected = document.getElementById({selected});
-            window.__turingEditorSelect?.(selected);
-            if (selected) {{
-              selected.focus?.({{preventScroll: true}});
-            }}
+            (() => {{
+              document.querySelectorAll('[data-turing-overlay]').forEach(element =>
+                element.style.removeProperty('outline'));
+              const selected = document.getElementById({selected});
+              window.__turingEditorSelect?.(selected);
+              window.__turingEditorSetGroup?.({group});
+              if (selected) {{
+                selected.focus?.({{preventScroll: true}});
+              }}
+            }})();
             """
         )
 
