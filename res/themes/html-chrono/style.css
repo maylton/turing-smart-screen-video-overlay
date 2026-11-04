@@ -1,0 +1,58 @@
+/* Cronógrafo: a sunburst watch dial with real hands and CPU/GPU/RAM
+   subdials. Fonts: Michroma and Rajdhani (SIL OFL 1.1, see fonts/). */
+@font-face { font-family: "Michroma"; src: url("fonts/michroma/michroma-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "Rajdhani"; src: url("fonts/rajdhani/rajdhani-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+
+* { box-sizing: border-box; }
+html, body { width: 480px; height: 480px; margin: 0; overflow: hidden; background: #000; }
+body { font-family: "Michroma", sans-serif; color: #e9eef5; }
+.screen { position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #1d3a66 0%, #10223f 55%, #070f1f 100%); }
+
+.sunburst { position: absolute; inset: 0; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.022) 0 1.5deg, rgba(0, 0, 0, 0.03) 1.5deg 3deg); }
+/* Two opposite highlights (a 180° pattern) turn half a turn per 2 s loop. */
+.sheen { position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(rgba(170, 205, 255, 0) 0deg, rgba(170, 205, 255, 0.14) 30deg, rgba(170, 205, 255, 0) 70deg,
+    rgba(170, 205, 255, 0) 180deg, rgba(170, 205, 255, 0.14) 210deg, rgba(170, 205, 255, 0) 250deg, rgba(170, 205, 255, 0) 360deg);
+  animation: sheen 2s linear infinite; }
+@keyframes sheen { to { transform: rotate(180deg); } }
+
+.dial { position: absolute; inset: 0; width: 480px; height: 480px; }
+.mtick { stroke: rgba(220, 230, 245, 0.45); stroke-width: 1.5; }
+.baton { stroke: #cfd6df; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); }
+.lume { stroke: #dfffe9; stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 3px rgba(150, 255, 190, 0.7)); }
+.sub { fill: rgba(5, 12, 26, 0.65); stroke: rgba(207, 214, 223, 0.7); stroke-width: 2; }
+.sub-groove { fill: none; stroke: rgba(255, 255, 255, 0.06); stroke-width: 8; }
+.stick { stroke: rgba(220, 230, 245, 0.55); stroke-width: 1.2; }
+.stick.major { stroke: #e9eef5; stroke-width: 2; }
+.sub-label { fill: rgba(220, 230, 245, 0.7); font-size: 8px; letter-spacing: 0.12em; text-anchor: middle; }
+
+.brand { position: absolute; left: 140px; top: 82px; width: 200px; text-align: center; font-size: 11px; letter-spacing: 0.3em; color: rgba(233, 238, 245, 0.85); }
+/* Open-heart aperture: the balance wheel swings once per 0.5 s. */
+.aperture { position: absolute; left: 216px; top: 118px; width: 48px; height: 48px; border-radius: 50%;
+  background: radial-gradient(circle, #2a2f38, #0b0e14 70%); border: 2px solid #cfd6df; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8); }
+.balance { position: absolute; left: 6px; top: 6px; width: 32px; height: 32px; border-radius: 50%; border: 3px solid #d9b36a;
+  animation: balance 0.5s ease-in-out infinite alternate; }
+.balance span { position: absolute; left: 12px; top: -1px; width: 2px; height: 28px; background: #d9b36a; }
+.balance span + span { transform: rotate(90deg); }
+@keyframes balance { from { transform: rotate(-150deg); } to { transform: rotate(150deg); } }
+.window { position: absolute; left: 204px; top: 176px; width: 72px; height: 24px; border-radius: 4px; background: #f2f4f7;
+  border: 2px solid #9aa4b1; box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.4); }
+
+/* Overlays. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; text-align: center; }
+#hands { left: 0; top: 0; width: 480px; height: 480px; z-index: 900; }
+.hand-body { fill: #dfe5ec; stroke: #7d8794; stroke-width: 0.8; filter: drop-shadow(2px 3px 2px rgba(0, 0, 0, 0.55)); }
+.hand-lume { fill: #e6ffee; }
+.cap { fill: #cfd6df; stroke: #59626e; stroke-width: 1; }
+.cap-dot { fill: #c0392b; }
+.needle path { fill: #ff6a3d; }
+.needle circle { fill: #cfd6df; }
+#date { left: 170px; top: 98px; width: 140px; height: 16px; font-size: 9px; line-height: 16px; letter-spacing: 0.2em; color: #9fb4d4; }
+#cpu-temp { left: 206px; top: 178px; width: 68px; height: 20px; font-family: "Rajdhani", sans-serif; font-weight: 700; font-size: 18px; line-height: 20px; color: #141a22; }
+.sub-val { width: 60px; height: 18px; font-family: "Rajdhani", sans-serif; font-weight: 700; font-size: 16px; line-height: 18px; color: #e9eef5; }
+#cpu-val { left: 110px; top: 254px; }
+#gpu-val { left: 310px; top: 254px; }
+#ram-val { left: 210px; top: 354px; }
+.sub-val.hot, #cpu-temp.hot { color: #ff5a3c; }

@@ -1,0 +1,105 @@
+/* Líquido: a coolant tank whose level follows the CPU temperature.
+   Font: Exo 2 (SIL OFL 1.1, see fonts/). */
+@font-face { font-family: "Exo 2"; src: url("fonts/exo-2/exo-2-400-900.woff2") format("woff2"); font-weight: 400 900; font-display: block; }
+
+* { box-sizing: border-box; }
+html, body { width: 480px; height: 480px; margin: 0; overflow: hidden; background: #000; }
+body { font-family: "Exo 2", sans-serif; color: #eafcff; }
+.screen {
+  position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%;
+  background: radial-gradient(circle at 50% 30%, #0b4a78 0%, #052a4a 45%, #021426 80%, #010a14 100%);
+}
+
+/* Soft light rays from the surface, swaying there and back once per 2 s loop. */
+.rays {
+  position: absolute; left: -60px; top: -40px; width: 600px; height: 420px;
+  background: repeating-linear-gradient(100deg, rgba(120, 220, 255, 0) 0 34px, rgba(120, 220, 255, 0.07) 34px 52px, rgba(120, 220, 255, 0) 52px 90px);
+  -webkit-mask-image: linear-gradient(180deg, #000, transparent 85%);
+  animation: sway 1s ease-in-out infinite alternate;
+}
+@keyframes sway { from { transform: translateX(-14px); } to { transform: translateX(14px); } }
+
+/* A light running around the glass rim: four-fold pattern turned 90° per loop. */
+.rim-glow {
+  position: absolute; left: 110px; top: 114px; width: 260px; height: 260px; border-radius: 50%;
+  background: conic-gradient(rgba(95, 242, 255, 0.9), rgba(95, 242, 255, 0) 40deg, rgba(95, 242, 255, 0) 90deg,
+    rgba(95, 242, 255, 0.9) 90deg, rgba(95, 242, 255, 0) 130deg, rgba(95, 242, 255, 0) 180deg,
+    rgba(95, 242, 255, 0.9) 180deg, rgba(95, 242, 255, 0) 220deg, rgba(95, 242, 255, 0) 270deg,
+    rgba(95, 242, 255, 0.9) 270deg, rgba(95, 242, 255, 0) 310deg, rgba(95, 242, 255, 0) 360deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 124px, #000 125px, #000 129px, transparent 130px);
+  filter: blur(1px);
+  animation: rim 2s linear infinite;
+}
+@keyframes rim { to { transform: rotate(90deg); } }
+
+.glass {
+  position: absolute; left: 118px; top: 122px; width: 244px; height: 244px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, rgba(10, 60, 100, 0.55), rgba(2, 16, 32, 0.85) 75%);
+  border: 3px solid rgba(160, 230, 255, 0.35);
+  box-shadow: 0 0 30px rgba(0, 170, 255, 0.25), inset 0 0 30px rgba(0, 0, 0, 0.6);
+}
+
+.bubbles { position: absolute; inset: 0; width: 480px; height: 480px; }
+.bubble { fill: rgba(200, 245, 255, 0.15); stroke: rgba(220, 250, 255, 0.75); stroke-width: 1; opacity: 0;
+  animation: rise 2s linear infinite; }
+@keyframes rise {
+  0% { transform: translateY(0); opacity: 0; }
+  15% { opacity: 0.9; }
+  80% { opacity: 0.7; }
+  100% { transform: translateY(-150px); opacity: 0; }
+}
+.bubble:nth-child(1) { animation-delay: 0.000s; }
+.bubble:nth-child(2) { animation-delay: -0.077s; }
+.bubble:nth-child(3) { animation-delay: -0.154s; }
+.bubble:nth-child(4) { animation-delay: -0.231s; }
+.bubble:nth-child(5) { animation-delay: -0.308s; }
+.bubble:nth-child(6) { animation-delay: -0.385s; }
+.bubble:nth-child(7) { animation-delay: -0.462s; }
+.bubble:nth-child(8) { animation-delay: -0.538s; }
+.bubble:nth-child(9) { animation-delay: -0.615s; }
+.bubble:nth-child(10) { animation-delay: -0.692s; }
+.bubble:nth-child(11) { animation-delay: -0.769s; }
+.bubble:nth-child(12) { animation-delay: -0.846s; }
+.bubble:nth-child(13) { animation-delay: -0.923s; }
+.bubble:nth-child(14) { animation-delay: -1.000s; }
+.bubble:nth-child(15) { animation-delay: -1.077s; }
+.bubble:nth-child(16) { animation-delay: -1.154s; }
+.bubble:nth-child(17) { animation-delay: -1.231s; }
+.bubble:nth-child(18) { animation-delay: -1.308s; }
+.bubble:nth-child(19) { animation-delay: -1.385s; }
+.bubble:nth-child(20) { animation-delay: -1.462s; }
+.bubble:nth-child(21) { animation-delay: -1.538s; }
+.bubble:nth-child(22) { animation-delay: -1.615s; }
+.bubble:nth-child(23) { animation-delay: -1.692s; }
+.bubble:nth-child(24) { animation-delay: -1.769s; }
+.bubble:nth-child(25) { animation-delay: -1.846s; }
+.bubble:nth-child(26) { animation-delay: -1.923s; }
+
+.scale { position: absolute; inset: 0; width: 480px; height: 480px; }
+.scale .tick { stroke: rgba(160, 230, 255, 0.35); stroke-width: 1.5; }
+.scale .tick.major { stroke: rgba(160, 230, 255, 0.7); }
+.scale text { fill: rgba(160, 230, 255, 0.6); font-size: 9px; font-weight: 600; }
+
+.labels { position: absolute; left: 118px; top: 410px; width: 244px; display: flex; justify-content: space-between; }
+.labels span { width: 76px; text-align: center; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; color: rgba(140, 220, 255, 0.7); }
+
+/* Overlays. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; text-align: center; }
+#tank { left: 118px; top: 122px; width: 244px; height: 244px; z-index: 900; }
+.wave.back { fill: url(#liquid-cool); opacity: 0.45; }
+.wave.front { fill: url(#liquid-cool); opacity: 0.72; }
+#tank.hot .wave { fill: url(#liquid-hot); }
+.gloss { fill: none; stroke: rgba(255, 255, 255, 0.45); stroke-width: 6; stroke-linecap: round; }
+#cpu-temp { left: 150px; top: 196px; width: 180px; height: 76px; font-size: 68px; font-weight: 800; line-height: 76px;
+  color: #ffffff; text-shadow: 0 2px 0 rgba(1, 20, 40, 0.8), 0 0 18px rgba(0, 40, 80, 0.9); }
+#cpu-sub { left: 170px; top: 272px; width: 140px; height: 20px; font-size: 13px; font-weight: 700; line-height: 20px; letter-spacing: 0.2em;
+  color: #d8f8ff; text-shadow: 0 1px 2px rgba(1, 20, 40, 0.9); }
+#time { left: 150px; top: 46px; width: 180px; height: 50px; font-size: 42px; font-weight: 700; line-height: 50px;
+  color: #eafcff; text-shadow: 0 0 14px rgba(95, 242, 255, 0.6); }
+#date { left: 150px; top: 96px; width: 180px; height: 18px; font-size: 12px; font-weight: 600; line-height: 18px; letter-spacing: 0.22em; color: #8fdcff; }
+.val { top: 378px; width: 76px; height: 30px; font-size: 22px; font-weight: 700; line-height: 30px; color: #eafcff; text-shadow: 0 0 10px rgba(95, 242, 255, 0.5); }
+#gpu-val { left: 122px; }
+#ram-val { left: 202px; }
+#gpu-temp { left: 282px; }
+.val.hot { color: #fff0d8; text-shadow: 0 0 12px rgba(255, 110, 60, 0.9); }
+#cpu-temp.hot { color: #ffffff; text-shadow: 0 2px 0 rgba(80, 10, 0, 0.85), 0 0 18px rgba(110, 20, 0, 0.9); }

@@ -1,0 +1,55 @@
+/* Terminal CRT: green phosphor console with rolling scanlines.
+   Font: VT323 (SIL OFL 1.1, see fonts/). */
+@font-face { font-family: "VT323"; src: url("fonts/vt323/vt323-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+
+* { box-sizing: border-box; }
+html, body { width: 480px; height: 480px; margin: 0; overflow: hidden; background: #000; }
+body { font-family: "VT323", monospace; color: #39ff7a; }
+.screen { position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%; background: #020a04; }
+
+.phosphor { position: absolute; inset: 0; background: radial-gradient(circle at 50% 45%, rgba(40, 255, 120, 0.12), rgba(40, 255, 120, 0.03) 60%, transparent 75%); }
+.prompt { position: absolute; left: 0; width: 480px; text-align: center; font-size: 20px; color: rgba(57, 255, 122, 0.6); text-shadow: 0 0 6px rgba(57, 255, 122, 0.5); }
+.prompt.top { top: 62px; }
+.prompt.bottom { top: 392px; }
+.cursor { display: inline-block; width: 10px; height: 16px; vertical-align: -2px; background: #39ff7a; box-shadow: 0 0 6px #39ff7a; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.rule { position: absolute; left: 70px; width: 340px; height: 0; border-top: 2px dashed rgba(57, 255, 122, 0.35); }
+.rule.r1 { top: 196px; }
+.rule.r2 { top: 312px; }
+.rows { position: absolute; inset: 0; }
+.row { position: absolute; left: 70px; width: 340px; height: 24px; }
+#row-cpu { top: 206px; }
+#row-gpu { top: 242px; }
+#row-ram { top: 278px; }
+.label { position: absolute; left: 6px; top: 0; font-size: 24px; line-height: 24px; color: rgba(57, 255, 122, 0.75); text-shadow: 0 0 6px rgba(57, 255, 122, 0.5); }
+.frame { position: absolute; left: 54px; top: 1px; width: 200px; height: 22px; border: 2px solid rgba(57, 255, 122, 0.55);
+  background: repeating-linear-gradient(90deg, rgba(57, 255, 122, 0.12) 0 8px, transparent 8px 12px); background-origin: content-box; padding: 3px; }
+
+/* Scanlines are static; a brighter band rolls down once per 2 s loop. */
+.scanlines { position: absolute; inset: 0; background: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0) 0 2px, rgba(0, 0, 0, 0.35) 2px 3px); }
+.band { position: absolute; left: 0; top: -120px; width: 480px; height: 110px;
+  background: linear-gradient(180deg, transparent, rgba(57, 255, 122, 0.08) 60%, rgba(160, 255, 190, 0.14) 92%, transparent);
+  animation: roll 2s linear infinite; }
+@keyframes roll { to { transform: translateY(710px); } }
+.vignette { position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 70px 20px rgba(0, 0, 0, 0.85); }
+
+/* Overlays. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; }
+.crt { color: #7dffa6; text-shadow: 0 0 4px rgba(57, 255, 122, 0.9), 0 0 12px rgba(57, 255, 122, 0.45); }
+.crt.dim { color: #39ff7a; opacity: 0.85; }
+#time { left: 120px; top: 86px; width: 240px; height: 84px; font-size: 96px; line-height: 84px; text-align: center; }
+#date { left: 120px; top: 168px; width: 240px; height: 22px; font-size: 22px; line-height: 22px; text-align: center; letter-spacing: 0.08em; }
+.bar { left: 129px; width: 190px; height: 18px; }
+#cpu-bar { top: 209px; }
+#cpu-val { top: 206px; }
+#gpu-bar { top: 245px; }
+#gpu-val { top: 242px; }
+#ram-bar { top: 281px; }
+#ram-val { top: 278px; }
+.bar .fill { width: 0; height: 18px; background: repeating-linear-gradient(90deg, #5dff92 0 8px, transparent 8px 12px);
+  filter: drop-shadow(0 0 4px rgba(57, 255, 122, 0.9)); }
+.val { left: 332px; width: 76px; height: 24px; font-size: 26px; line-height: 24px; text-align: right; }
+#temps { left: 90px; top: 322px; width: 300px; height: 26px; font-size: 26px; line-height: 26px; text-align: center; }
+#net { left: 100px; top: 352px; width: 280px; height: 22px; font-size: 21px; line-height: 22px; text-align: center; }
+.hot { color: #ffd27a !important; text-shadow: 0 0 4px rgba(255, 176, 0, 0.95), 0 0 12px rgba(255, 140, 0, 0.5) !important; }
+.bar.hot .fill { background: repeating-linear-gradient(90deg, #ffbf3a 0 8px, transparent 8px 12px); filter: drop-shadow(0 0 4px rgba(255, 176, 0, 0.9)); }
