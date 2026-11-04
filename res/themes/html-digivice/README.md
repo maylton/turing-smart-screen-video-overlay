@@ -9,6 +9,7 @@ and RAM with 16-cell pixel bars, and a status line that blinks
   and the scanlines are built into `html-digivice.mp4`; the clock, values,
   bars and status line are overlays.
 - Font: VT323 (latin subset), SIL Open Font License 1.1; see `fonts/`.
-- The background is the first frame of a user-supplied Digivice GIF. The
-  artwork belongs to its rights holders and is not covered by this
-  project's license.
+- Background: the first frame of an AI-generated, Digivice-style image
+  supplied by the theme author, scaled to cover the round screen (the
+  second frame of the original animation, with red symbols over the LCD,
+  is not used).
