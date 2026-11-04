@@ -1,0 +1,68 @@
+/* HUD Holográfico: sci-fi heads-up display. Fonts: Oxanium and Share Tech
+   Mono (SIL OFL 1.1, see fonts/). */
+@font-face { font-family: "Oxanium"; src: url("fonts/oxanium/oxanium-400-800.woff2") format("woff2"); font-weight: 400 800; font-display: block; }
+@font-face { font-family: "Share Tech Mono"; src: url("fonts/share-tech-mono/share-tech-mono-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+
+* { box-sizing: border-box; }
+html, body { width: 480px; height: 480px; margin: 0; overflow: hidden; background: #000; }
+body { font-family: "Oxanium", sans-serif; color: #2ee6ff; }
+.mono { font-family: "Share Tech Mono", monospace; }
+.screen {
+  position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%;
+  background: radial-gradient(circle, #04161d 0%, #020a0e 60%, #000 100%);
+}
+.grid {
+  position: absolute; inset: 0; opacity: 0.35;
+  background:
+    linear-gradient(rgba(46, 230, 255, 0.12) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, rgba(46, 230, 255, 0.12) 1px, transparent 1px) 0 0 / 24px 24px;
+  -webkit-mask-image: radial-gradient(circle, #000 40%, transparent 72%);
+  mask-image: radial-gradient(circle, #000 40%, transparent 72%);
+}
+/* Radar sweep: one turn per 4 s loop. */
+.sweep {
+  position: absolute; inset: 20px; border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(46, 230, 255, 0.28), rgba(46, 230, 255, 0) 60deg, rgba(46, 230, 255, 0) 360deg);
+  animation: spin 4s linear infinite;
+}
+.layer { position: absolute; inset: 0; width: 480px; height: 480px; fill: none; }
+/* Rotations stay a multiple of each ring's symmetry so the loop is seamless. */
+.ring-outer circle { stroke: #2ee6ff; stroke-width: 4; stroke-dasharray: 34 8.8; /* 32 segments of 11.25 deg */ opacity: 0.7; }
+.ring-outer { animation: spin 4s linear infinite; }
+.ring-brackets path { stroke: #ffb020; stroke-width: 3; stroke-linecap: square; }
+.ring-brackets { animation: spin-back 4s linear infinite; }
+.ring-ticks line { stroke: rgba(46, 230, 255, 0.55); stroke-width: 1.5; }
+.ring-ticks { animation: spin 4s steps(18) infinite; } /* 5 deg steps, 90 deg per loop */
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(90deg); } }
+@keyframes spin-back { from { transform: rotate(0deg); } to { transform: rotate(-120deg); } }
+.sweep { animation-name: spin-full; }
+@keyframes spin-full { to { transform: rotate(360deg); } }
+
+.label { position: absolute; font-family: "Share Tech Mono", monospace; font-size: 12px; letter-spacing: 0.2em; color: rgba(46, 230, 255, 0.7); text-align: center; }
+.label-cpu { left: 170px; top: 178px; width: 140px; }
+.label-net { left: 170px; top: 372px; width: 140px; color: rgba(255, 176, 32, 0.75); }
+.panel {
+  position: absolute; top: 204px; width: 76px; height: 72px;
+  border: 1px solid rgba(46, 230, 255, 0.45); background: linear-gradient(rgba(46, 230, 255, 0.08), rgba(46, 230, 255, 0.08)), rgba(2, 10, 14, 0.85);
+  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+.panel b { position: absolute; left: 8px; top: 3px; font-family: "Share Tech Mono", monospace; font-weight: 400; font-size: 11px; letter-spacing: 0.2em; color: #ffb020; }
+.panel-left { left: 40px; }
+.panel-right { left: 364px; }
+
+/* Overlays. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; text-align: center; }
+#cpu-meter { left: 0; top: 0; width: 480px; height: 480px; z-index: 900; }
+.seg { stroke: rgba(46, 230, 255, 0.14); stroke-width: 6; }
+.seg.on { stroke: #2ee6ff; }
+.seg.on.warn { stroke: #ffb020; }
+.seg.on.hot { stroke: #ff3b3b; }
+#time { left: 180px; top: 64px; width: 120px; height: 30px; font-size: 26px; line-height: 30px; color: #bff7ff; letter-spacing: 0.08em; text-shadow: 0 0 8px rgba(46, 230, 255, 0.8); }
+#cpu-val { left: 165px; top: 198px; width: 150px; height: 76px; font-size: 68px; line-height: 76px; font-weight: 700; color: #e9fcff; text-shadow: 0 0 6px #2ee6ff, 0 0 18px rgba(46, 230, 255, 0.7); }
+#cpu-temp { left: 190px; top: 278px; width: 100px; height: 22px; font-size: 16px; line-height: 22px; color: #ffb020; }
+.side { width: 76px; height: 30px; top: 222px; font-size: 24px; line-height: 30px; font-weight: 700; color: #e9fcff; text-shadow: 0 0 8px rgba(46, 230, 255, 0.7); }
+.side-sub { width: 76px; height: 18px; top: 252px; font-size: 14px; line-height: 18px; color: #7fe9ff; }
+#gpu-val, #gpu-temp { left: 40px; }
+#ram-val, #ram-used { left: 364px; }
+#net { left: 140px; top: 390px; width: 200px; height: 22px; font-size: 16px; line-height: 22px; color: #ffd27a; }
+.hot-text { color: #ff5a4a !important; text-shadow: 0 0 10px rgba(255, 59, 59, 0.8) !important; }

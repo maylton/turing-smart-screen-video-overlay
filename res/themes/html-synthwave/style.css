@@ -1,0 +1,91 @@
+/* Synthwave: retro sunset with a perspective grid. Fonts: Orbitron and
+   Audiowide (SIL OFL 1.1, see fonts/). */
+@font-face { font-family: "Orbitron"; src: url("fonts/orbitron/orbitron-400-900.woff2") format("woff2"); font-weight: 400 900; font-display: block; }
+@font-face { font-family: "Audiowide"; src: url("fonts/audiowide/audiowide-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+
+* { box-sizing: border-box; }
+html, body { width: 480px; height: 480px; margin: 0; overflow: hidden; background: #000; }
+body { font-family: "Audiowide", sans-serif; color: #fff; }
+.screen { position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%; background: #0d0221; }
+
+.sky { position: absolute; left: 0; top: 0; width: 480px; height: 276px;
+  background: linear-gradient(180deg, #0d0221 0%, #2a0845 38%, #7b1fa2 70%, #ff4f8b 92%, #ff9e5e 100%); }
+.stars { position: absolute; inset: 0; width: 480px; height: 480px; }
+.star { fill: #fff; }
+.star.s1 { animation: twinkle 2s ease-in-out infinite; }
+.star.s2 { animation: twinkle 2s ease-in-out infinite reverse; }
+@keyframes twinkle { 50% { opacity: 0.2; } }
+
+/* Striped sun: the gaps move down one period per 2 s loop. */
+.sun {
+  position: absolute; left: 136px; top: 116px; width: 208px; height: 208px; border-radius: 50%;
+  background: linear-gradient(180deg, #fff176 0%, #ffb74d 35%, #ff4f8b 75%, #d81b9a 100%);
+  box-shadow: 0 0 40px rgba(255, 79, 139, 0.7), 0 0 90px rgba(255, 158, 94, 0.35);
+  -webkit-mask-image: linear-gradient(180deg, #000 40%, transparent 40%), repeating-linear-gradient(180deg, #000 0 9px, transparent 9px 14px);
+  -webkit-mask-size: 100% 100%, 100% 14px;
+  -webkit-mask-repeat: no-repeat, repeat;
+  -webkit-mask-composite: source-over;
+  animation: sun-stripes 2s linear infinite;
+}
+@keyframes sun-stripes { from { -webkit-mask-position: 0 0, 0 0; } to { -webkit-mask-position: 0 0, 0 14px; } }
+
+.mountains { position: absolute; inset: 0; width: 480px; height: 480px; }
+.mountains path { fill: #1a0633; stroke: #ff4fd8; stroke-width: 1.5; filter: drop-shadow(0 0 4px #ff4fd8); }
+
+/* Perspective floor drawn in 2D (the video renderer ignores 3D
+   transforms): lines converge on the horizon, and each horizontal line
+   moves to the next one's position per 2 s loop, so the motion is seamless. */
+.floor { position: absolute; left: 0; top: 276px; width: 480px; height: 204px; background: linear-gradient(180deg, #1a0633, #0d0221); }
+.verticals { position: absolute; inset: 0; width: 480px; height: 480px; }
+.verticals line { stroke: rgba(255, 79, 216, 0.85); stroke-width: 1.6; }
+.hlines { position: absolute; left: 0; top: 0; width: 480px; height: 480px; }
+.hline { position: absolute; left: 0; width: 480px; background: #00e5ff; box-shadow: 0 0 6px rgba(0, 229, 255, 0.8); animation: 2s linear infinite; }
+.h0 { top: 276.0px; height: 1.00px; opacity: 0.25; animation-name: h0; }
+@keyframes h0 { to { top: 277.3px; height: 1.18px; opacity: 0.31; } }
+.h1 { top: 277.3px; height: 1.18px; opacity: 0.31; animation-name: h1; }
+@keyframes h1 { to { top: 281.4px; height: 1.37px; opacity: 0.38; } }
+.h2 { top: 281.4px; height: 1.37px; opacity: 0.38; animation-name: h2; }
+@keyframes h2 { to { top: 288.7px; height: 1.55px; opacity: 0.44; } }
+.h3 { top: 288.7px; height: 1.55px; opacity: 0.44; animation-name: h3; }
+@keyframes h3 { to { top: 299.3px; height: 1.73px; opacity: 0.50; } }
+.h4 { top: 299.3px; height: 1.73px; opacity: 0.50; animation-name: h4; }
+@keyframes h4 { to { top: 313.2px; height: 1.92px; opacity: 0.56; } }
+.h5 { top: 313.2px; height: 1.92px; opacity: 0.56; animation-name: h5; }
+@keyframes h5 { to { top: 330.6px; height: 2.10px; opacity: 0.62; } }
+.h6 { top: 330.6px; height: 2.10px; opacity: 0.62; animation-name: h6; }
+@keyframes h6 { to { top: 351.4px; height: 2.28px; opacity: 0.69; } }
+.h7 { top: 351.4px; height: 2.28px; opacity: 0.69; animation-name: h7; }
+@keyframes h7 { to { top: 375.9px; height: 2.47px; opacity: 0.75; } }
+.h8 { top: 375.9px; height: 2.47px; opacity: 0.75; animation-name: h8; }
+@keyframes h8 { to { top: 403.9px; height: 2.65px; opacity: 0.81; } }
+.h9 { top: 403.9px; height: 2.65px; opacity: 0.81; animation-name: h9; }
+@keyframes h9 { to { top: 435.6px; height: 2.83px; opacity: 0.88; } }
+.h10 { top: 435.6px; height: 2.83px; opacity: 0.88; animation-name: h10; }
+@keyframes h10 { to { top: 470.9px; height: 3.02px; opacity: 0.94; } }
+.h11 { top: 470.9px; height: 3.02px; opacity: 0.94; animation-name: h11; }
+@keyframes h11 { to { top: 510.0px; height: 3.20px; opacity: 1.00; } }
+
+.horizon { position: absolute; left: 0; top: 274px; width: 480px; height: 4px; background: #ff9ef0; box-shadow: 0 0 14px #ff4fd8, 0 0 30px #ff4fd8; }
+
+.chips { position: absolute; left: 90px; top: 338px; width: 300px; display: flex; justify-content: space-between; }
+.chip { position: relative; width: 92px; height: 56px; border-radius: 10px; background: rgba(13, 2, 33, 0.82);
+  border: 1px solid rgba(255, 79, 216, 0.7); box-shadow: 0 0 10px rgba(255, 79, 216, 0.45); }
+.chip span { position: absolute; left: 0; bottom: 5px; width: 92px; text-align: center; font-size: 10px; letter-spacing: 0.25em; color: #ffb3f0; }
+
+/* Overlays. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; text-align: center; }
+#time {
+  left: 90px; top: 56px; width: 300px; height: 76px; font-family: "Orbitron", sans-serif; font-weight: 900; font-size: 64px; line-height: 76px;
+  background-image: linear-gradient(180deg, #ffffff 0%, #ffe7ff 35%, #ff4fd8 62%, #3d1cff 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(3px 3px 0 #140026) drop-shadow(0 0 10px rgba(255, 79, 216, 0.75));
+}
+#date { left: 140px; top: 132px; width: 200px; height: 20px; font-size: 13px; line-height: 20px; letter-spacing: 0.3em; color: #ffd6fa; text-shadow: 0 0 8px #ff4fd8; }
+.val { top: 343px; width: 92px; height: 30px; font-size: 22px; line-height: 30px; }
+.val-cyan { color: #e6fdff; text-shadow: 0 0 3px #fff, 0 0 8px #00e5ff, 0 0 16px #00e5ff; }
+.val-pink { color: #ffe6fb; text-shadow: 0 0 3px #fff, 0 0 8px #ff4fd8, 0 0 16px #ff4fd8; }
+#cpu-val { left: 90px; }
+#gpu-val { left: 194px; }
+#ram-val { left: 298px; }
+#temps { left: 120px; top: 404px; width: 240px; height: 20px; font-size: 13px; line-height: 20px; letter-spacing: 0.12em; color: #9ff6ff; text-shadow: 0 0 6px #00e5ff; }
+.val.hot { color: #fff1d6 !important; text-shadow: 0 0 3px #fff, 0 0 8px #ff9e5e, 0 0 16px #ff4f4f !important; }
