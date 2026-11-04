@@ -594,7 +594,13 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         )
 
     def _on_import_theme(self, *_args) -> None:
-        show_import_theme_dialog(self, self._import_theme_from_path)
+        show_import_theme_dialog(
+            self,
+            self._import_theme_from_path,
+            on_error=lambda message: self.status_label.set_text(
+                f"Não foi possível importar o tema: {message}"
+            ),
+        )
 
     def _import_theme_from_path(self, source_path: str) -> None:
         try:
