@@ -1,0 +1,148 @@
+/* Digivice: LCD readout on the gray screen of a Digivice.
+   VT323 is bundled (SIL OFL 1.1, see fonts/). It has no block or arrow
+   glyphs, so the bars and the arrow are drawn with CSS. */
+@font-face {
+  font-family: "VT323";
+  src: url("fonts/vt323-latin.woff2") format("woff2");
+  font-display: block;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  width: 480px;
+  height: 480px;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+body {
+  font-family: "VT323", monospace;
+  color: #1a1c1d;
+}
+
+.screen {
+  position: relative;
+  width: 480px;
+  height: 480px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #111;
+}
+
+/* First frame of the Digivice GIF, scaled to cover the round screen. Its
+   gray LCD spans x 78-408, y 82-397. */
+.bg {
+  position: absolute;
+  inset: 0;
+  width: 480px;
+  height: 480px;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.lcd,
+.lcd-text {
+  text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.big { font-size: 34px; line-height: 37px; letter-spacing: 1px; }
+.small { font-size: 26px; line-height: 28px; letter-spacing: 0.5px; }
+.right { text-align: right; }
+.center { text-align: center; }
+.value { font-weight: 700; }
+
+.sys-link {
+  position: absolute;
+  left: 92px;
+  top: 96px;
+  height: 37px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 34px;
+  line-height: 37px;
+  letter-spacing: 1px;
+}
+
+.arrow {
+  width: 13px;
+  height: 16px;
+  background: #1a1c1d;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  filter: drop-shadow(1px 1px 0 rgba(255, 255, 255, 0.3));
+  animation: blink 1.5s linear infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.rule {
+  position: absolute;
+  left: 92px;
+  width: 302px;
+  height: 2px;
+  background: #1a1c1d;
+  box-shadow: 1px 1px 0 rgba(255, 255, 255, 0.3);
+}
+.rule-top { top: 137px; }
+.rule-bottom { top: 339px; }
+
+.label {
+  position: absolute;
+  left: 92px;
+  font-size: 26px;
+  line-height: 28px;
+  letter-spacing: 0.5px;
+}
+.cpu-label { top: 149px; }
+.gpu-label { top: 213px; }
+.ram-label { top: 277px; }
+
+/* Text bars of the mock (█ filled, ▒ empty) as 16 CSS cells. */
+.blocks {
+  display: flex;
+  gap: 3px;
+}
+.blocks i {
+  flex: 0 0 16px;
+  height: 100%;
+  background:
+    repeating-conic-gradient(#1a1c1d 0 25%, transparent 0 50%) 0 0 / 4px 4px;
+  opacity: 0.45;
+}
+.blocks i.on {
+  background: #1a1c1d;
+  opacity: 1;
+  box-shadow: 1px 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.status-hidden { visibility: hidden; }
+
+.scanlines {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  opacity: 0.6;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%) 0 0 / 100% 4px;
+}
+
+/* Overlay geometry, in page coordinates: the same position: fixed boxes
+   the visual editor writes, so saving there never reflows the layout. */
+/* Above the scanlines, as on the device, where overlays sit on the video. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; }
+#sys-time { left: 274px; top: 96px; width: 120px; height: 37px; }
+#cpu-val { left: 136px; top: 149px; width: 80px; height: 28px; }
+#cpu-temp { left: 294px; top: 149px; width: 100px; height: 28px; }
+#cpu-bar { left: 92px; top: 179px; width: 301px; height: 22px; }
+#gpu-val { left: 136px; top: 213px; width: 80px; height: 28px; }
+#gpu-temp { left: 294px; top: 213px; width: 100px; height: 28px; }
+#gpu-bar { left: 92px; top: 243px; width: 301px; height: 22px; }
+#ram-val { left: 136px; top: 277px; width: 80px; height: 28px; }
+#ram-gb { left: 294px; top: 277px; width: 100px; height: 28px; }
+#ram-bar { left: 92px; top: 307px; width: 301px; height: 22px; }
+#status-msg { left: 92px; top: 346px; width: 302px; height: 37px; }
