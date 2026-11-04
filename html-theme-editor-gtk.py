@@ -33,6 +33,15 @@ from library.html_theme_components import (
 from library.html_theme_engine import WebKitGtkBackend, build_snapshot_script
 from library.html_editor_drafts import clear_draft, load_draft, write_draft
 from library.live_display_reload import active_html_theme, request_monitor_reload
+from library.html_editor_preview_data import (
+    CUSTOM_FIELDS,
+    PRESET_KEYS,
+    PRESET_LABELS,
+    binding_value,
+    custom_data,
+    format_field_value,
+    preset_data,
+)
 from library.html_editor_zoom import DEFAULT_ZOOM, step_zoom, zoom_label, zoomed_size
 from library.html_theme_round_mask import is_probably_round, round_mask_script
 from library.html_theme_visual_editor import (
@@ -91,64 +100,9 @@ def _color_to_hex(value: str) -> str:
     return "#ffffff"
 
 
-def _preview_snapshot(preset: str = "normal") -> SensorSnapshot:
-    preset = str(preset or "normal").strip().lower()
-    if preset == "maximum":
-        data = {
-            "cpu": {
-                "usage": 100,
-                "temperature": 99,
-                "frequency": 5.9,
-                "load": [32.0, 31.5, 30.0],
-            },
-            "gpu": {
-                "usage": 100,
-                "temperature": 99,
-                "vramUsed": 99.9,
-                "vramTotal": 128,
-            },
-            "memory": {"usage": 100, "used": 128.0, "total": 128},
-            "disk": {"usage": 100},
-            "network": {"download": 999.9, "upload": 999.9},
-            "weather": {
-                "temperature": "49.9°C",
-                "description": "Tempestade com trovoadas fortes",
-            },
-            "system": {"time": "23:59:59"},
-        }
-    elif preset == "unavailable":
-        data = {
-            "cpu": {},
-            "gpu": {},
-            "memory": {},
-            "disk": {},
-            "network": {},
-            "weather": {},
-            "system": {"time": "--:--"},
-        }
-    else:
-        data = {
-            "cpu": {
-                "usage": 62,
-                "temperature": 49,
-                "frequency": 4.7,
-                "load": [1.25, 1.1, 0.95],
-            },
-            "gpu": {
-                "usage": 71,
-                "temperature": 58,
-                "vramUsed": 9.2,
-                "vramTotal": 16,
-            },
-            "memory": {"usage": 45, "used": 14.5, "total": 32},
-            "disk": {"usage": 54},
-            "network": {"download": 18.4, "upload": 2.8},
-            "weather": {
-                "temperature": "24.0°C",
-                "description": "Parcialmente nublado",
-            },
-            "system": {"time": time.strftime("%H:%M:%S")},
-        }
+def _preview_snapshot(preset: str = "normal", data: dict | None = None) -> SensorSnapshot:
+    if data is None:
+        data = preset_data(preset)
     return SensorSnapshot(
         schema_version=1,
         timestamp=time.time(),
@@ -412,10 +366,8 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.grid_check.connect("toggled", lambda *_: self._sync_grid())
         elements_page.append(self.grid_check)
 
-        self.preview_preset_values = ("normal", "maximum", "unavailable")
-        self.preview_preset_dropdown = Gtk.DropDown.new_from_strings(
-            ("Valores normais", "Valores máximos", "Sensores indisponíveis")
-        )
+        self.preview_preset_values = PRESET_KEYS
+        self.preview_preset_dropdown = Gtk.DropDown.new_from_strings(PRESET_LABELS)
         self.preview_preset_dropdown.connect(
             "notify::selected",
             self._on_preview_preset_changed,
@@ -423,6 +375,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         elements_page.append(
             self._field("Dados de teste", self.preview_preset_dropdown)
         )
+        elements_page.append(self._build_custom_preview_panel())
 
         self.overlay_mode_check = Gtk.CheckButton(
             label="Mostrar somente o overlay enviado ao dispositivo"
@@ -781,6 +734,70 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.status_label.set_text(f"Tema exportado: {exported}")
         self._toast("Pacote .theme exportado")
 
+    def _build_custom_preview_panel(self) -> Gtk.Widget:
+        """Fields that override single bindings in "Valores personalizados".
+
+        A number field accepts comma or dot decimals; any other text is sent
+        as text, and an empty field makes that sensor unavailable.
+        """
+        self._custom_base = "normal"
+        self._custom_initialized = False
+        self._custom_source: int | None = None
+        self.custom_entries: dict[str, Gtk.Entry] = {}
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        hint = Gtk.Label(
+            label="Números aceitam vírgula ou ponto. Deixe um campo vazio para simular o sensor indisponível.",
+            xalign=0,
+            wrap=True,
+        )
+        hint.add_css_class("dim-label")
+        box.append(hint)
+        grid = Gtk.Grid(column_spacing=8, row_spacing=6)
+        for row, field in enumerate(CUSTOM_FIELDS):
+            label = Gtk.Label(label=field.label, xalign=0)
+            label.set_hexpand(True)
+            entry = Gtk.Entry(width_chars=12)
+            entry.set_tooltip_text(field.binding)
+            entry.connect("changed", lambda *_: self._schedule_custom_preview())
+            grid.attach(label, 0, row, 1, 1)
+            grid.attach(entry, 1, row, 1, 1)
+            self.custom_entries[field.binding] = entry
+        box.append(grid)
+        restore = Gtk.Button(label="Restaurar valores normais")
+        restore.connect("clicked", lambda *_: self._fill_custom_fields("normal"))
+        box.append(restore)
+        self.custom_preview_panel = Gtk.Expander(label="Editar valores de teste", expanded=True)
+        self.custom_preview_panel.set_child(box)
+        self.custom_preview_panel.set_visible(False)
+        return self.custom_preview_panel
+
+    def _fill_custom_fields(self, preset: str) -> None:
+        source = preset_data(preset)
+        for binding, entry in self.custom_entries.items():
+            entry.set_text(format_field_value(binding_value(source, binding)))
+        self._custom_base = preset
+        self._custom_initialized = True
+
+    def _schedule_custom_preview(self) -> None:
+        if self._preview_preset() != "custom" or not self._loaded_once:
+            return
+        if self._custom_source is not None:
+            GLib.source_remove(self._custom_source)
+
+        def apply() -> bool:
+            self._custom_source = None
+            self._apply_preview_snapshot()
+            return False
+
+        self._custom_source = GLib.timeout_add(250, apply)
+
+    def _preview_data(self) -> dict:
+        preset = self._preview_preset()
+        if preset != "custom":
+            return preset_data(preset)
+        values = {binding: entry.get_text() for binding, entry in self.custom_entries.items()}
+        return custom_data(preset_data(self._custom_base), values)
+
     def _preview_preset(self) -> str:
         selected = min(
             self.preview_preset_dropdown.get_selected(),
@@ -796,11 +813,18 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                 callback(error)
 
         self.backend.evaluate(
-            build_snapshot_script(_preview_snapshot(self._preview_preset())),
+            build_snapshot_script(_preview_snapshot(data=self._preview_data())),
             finished,
         )
 
     def _on_preview_preset_changed(self, *_args) -> None:
+        preset = self._preview_preset()
+        if preset == "custom" and not self._custom_initialized:
+            # Start from the data the preview was showing.
+            self._fill_custom_fields(getattr(self, "_last_fixed_preset", "normal"))
+        elif preset != "custom":
+            self._last_fixed_preset = preset
+        self.custom_preview_panel.set_visible(preset == "custom")
         if not self._loaded_once:
             return
         self._apply_preview_snapshot(
