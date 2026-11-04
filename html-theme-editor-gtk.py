@@ -22,7 +22,7 @@ import gi
 gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
-from gi.repository import Adw, Gio, GLib, Gtk, WebKit
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, WebKit
 
 from library.html_theme_authoring import discover_overlay_candidates
 from library.html_theme_components import (
@@ -31,6 +31,7 @@ from library.html_theme_components import (
     render_widget_runtime_script,
 )
 from library.html_theme_engine import WebKitGtkBackend, build_snapshot_script
+from library.html_editor_zoom import DEFAULT_ZOOM, step_zoom, zoom_label, zoomed_size
 from library.html_theme_round_mask import is_probably_round, round_mask_script
 from library.html_theme_visual_editor import (
     HtmlVisualElementStyle,
@@ -64,6 +65,8 @@ SELECT_TITLE_PREFIX = "turing-editor-select:"
 DRAG_TITLE_PREFIX = "turing-editor-drag:"
 RESIZE_TITLE_PREFIX = "turing-editor-resize:"
 NUDGE_TITLE_PREFIX = "turing-editor-nudge:"
+INSPECTOR_WIDTH = 420
+PREVIEW_FRAME_BORDER_PX = 1
 
 
 def _color_to_hex(value: str) -> str:
@@ -148,6 +151,18 @@ def _preview_snapshot(preset: str = "normal") -> SensorSnapshot:
     )
 
 
+class PreviewFrame(Gtk.Frame):
+    """Frame whose natural size is its minimum, i.e. the zoomed preview.
+
+    WebKitWebView keeps reporting the largest size it has been given as its
+    natural size, so after zooming out the frame would stay stretched.
+    """
+
+    def do_measure(self, orientation, for_size):
+        minimum, _natural, _min_baseline, _nat_baseline = Gtk.Frame.do_measure(self, orientation, for_size)
+        return minimum, minimum, -1, -1
+
+
 class HtmlThemeEditorWindow(Adw.ApplicationWindow):
     def __init__(self, application: Adw.Application, manifest: ThemeManifest):
         super().__init__(application=application)
@@ -171,8 +186,8 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self._build_process: subprocess.Popen[str] | None = None
 
         self.set_title(f"Editor HTML — {manifest.name}")
-        self.set_default_size(1040, 680)
-        self.set_size_request(900, 620)
+        self.set_default_size(1120, 720)
+        self.set_size_request(960, 620)
         self.connect("close-request", self._on_close_request)
 
         self.toast_overlay = Adw.ToastOverlay()
@@ -209,12 +224,35 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.duplicate_action.set_enabled(False)
         self.add_action(self.duplicate_action)
         application.set_accels_for_action("win.duplicate", ["<Primary>d"])
+        self.preview_zoom = DEFAULT_ZOOM
+        for name, direction, accels in (
+            ("zoom-in", +1, ["<Primary>plus", "<Primary>equal", "<Primary>KP_Add"]),
+            ("zoom-out", -1, ["<Primary>minus", "<Primary>KP_Subtract"]),
+            ("zoom-reset", 0, ["<Primary>0", "<Primary>KP_0"]),
+        ):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", lambda *_a, d=direction: self._step_preview_zoom(d))
+            self.add_action(action)
+            application.set_accels_for_action(f"win.{name}", accels)
         undo_button = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text="Desfazer")
         undo_button.set_action_name("win.undo")
         header.pack_start(undo_button)
         redo_button = Gtk.Button(icon_name="edit-redo-symbolic", tooltip_text="Refazer")
         redo_button.set_action_name("win.redo")
         header.pack_start(redo_button)
+
+        zoom_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        zoom_box.add_css_class("linked")
+        zoom_out_button = Gtk.Button(icon_name="zoom-out-symbolic", tooltip_text="Diminuir zoom (Ctrl+−)")
+        zoom_out_button.set_action_name("win.zoom-out")
+        zoom_box.append(zoom_out_button)
+        self.zoom_reset_button = Gtk.Button(label=zoom_label(DEFAULT_ZOOM), tooltip_text="Tamanho real (Ctrl+0)")
+        self.zoom_reset_button.set_action_name("win.zoom-reset")
+        zoom_box.append(self.zoom_reset_button)
+        zoom_in_button = Gtk.Button(icon_name="zoom-in-symbolic", tooltip_text="Aumentar zoom (Ctrl++)")
+        zoom_in_button.set_action_name("win.zoom-in")
+        zoom_box.append(zoom_in_button)
+        header.pack_start(zoom_box)
         import_button = Gtk.Button(label="Importar tema")
         import_button.set_tooltip_text("Importar pacote .theme ou .zip")
         import_button.connect("clicked", self._on_import_theme)
@@ -235,11 +273,29 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         )
         toolbar.set_content(body)
 
-        preview_frame = Gtk.Frame()
+        # The preview scrolls when zoomed past the space left by the inspector.
+        self.preview_scroller = Gtk.ScrolledWindow()
+        self.preview_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        # The canvas takes the free space; the inspector keeps its width.
+        self.preview_scroller.set_hexpand(True)
+        self.preview_scroller.set_vexpand(True)
+        zoom_scroll = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        zoom_scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        zoom_scroll.connect("scroll", self._on_preview_scroll)
+        self.preview_scroller.add_controller(zoom_scroll)
+        body.append(self.preview_scroller)
+
+        preview_frame = PreviewFrame()
         preview_frame.set_halign(Gtk.Align.CENTER)
         preview_frame.set_valign(Gtk.Align.CENTER)
         preview_frame.set_size_request(manifest.width, manifest.height)
-        body.append(preview_frame)
+        self.preview_frame = preview_frame
+        # The scrolled viewport stretches its child; the center box keeps the
+        # frame at the preview size and centered when zoomed out.
+        preview_center = Gtk.CenterBox()
+        preview_center.set_center_widget(preview_frame)
+        self.preview_scroller.set_child(preview_center)
+        self._sync_preview_scroller_size(manifest.width, manifest.height)
 
         self.backend = WebKitGtkBackend(manifest)
         self.backend.set_transparent_background()
@@ -266,10 +322,14 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             margin_start=4,
             margin_end=4,
         )
-        inspector_panel.set_size_request(350, -1)
-        inspector_panel.set_hexpand(True)
         inspector_panel.set_vexpand(True)
-        body.append(inspector_panel)
+        # The clamp caps the inspector's natural width (long help labels would
+        # otherwise claim the space the canvas needs).
+        inspector_clamp = Adw.Clamp(maximum_size=INSPECTOR_WIDTH, tightening_threshold=INSPECTOR_WIDTH)
+        inspector_clamp.set_size_request(INSPECTOR_WIDTH, -1)
+        inspector_clamp.set_hexpand(False)
+        inspector_clamp.set_child(inspector_panel)
+        body.append(inspector_clamp)
 
         self.element_model = Gtk.StringList.new(self.element_ids)
         self.element_dropdown = Gtk.DropDown(model=self.element_model)
@@ -286,6 +346,16 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.inspector_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         inspector_switcher = Gtk.StackSwitcher()
         inspector_switcher.set_stack(self.inspector_stack)
+        # libadwaita gives each text tab a 100 px minimum; six of them made
+        # the inspector ~800 px wide and left the canvas no room.
+        inspector_switcher.add_css_class("turing-inspector-tabs")
+        tabs_css = Gtk.CssProvider()
+        tabs_css.load_from_string(
+            ".turing-inspector-tabs > button { min-width: 0; padding-left: 10px; padding-right: 10px; }"
+        )
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), tabs_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
         inspector_switcher.set_halign(Gtk.Align.CENTER)
         inspector_panel.append(inspector_switcher)
         inspector_panel.append(self.inspector_stack)
@@ -1422,6 +1492,35 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self._mark_changed()
         self._update_history_actions()
         self._toast(f"Cópia criada: {copy.element_id}")
+
+    def _step_preview_zoom(self, direction: int) -> None:
+        zoom = step_zoom(self.preview_zoom, direction)
+        if zoom == self.preview_zoom:
+            return
+        self.preview_zoom = zoom
+        width, height = zoomed_size(self.manifest.width, self.manifest.height, zoom)
+        # Page zoom keeps the page at manifest size in CSS pixels, so drag,
+        # resize and the color picker keep working in theme coordinates.
+        self.backend.view.set_zoom_level(zoom)
+        self.backend.view.set_size_request(width, height)
+        self.preview_frame.set_size_request(width, height)
+        self._sync_preview_scroller_size(width, height)
+        self.zoom_reset_button.set_label(zoom_label(zoom))
+
+    def _sync_preview_scroller_size(self, width: int, height: int) -> None:
+        # Never claim less than the zoomed preview up to its actual-size
+        # footprint, so a tiled or narrow window cannot squeeze it away; past
+        # that, the preview scrolls instead of widening the window.
+        border = PREVIEW_FRAME_BORDER_PX * 2
+        self.preview_scroller.set_min_content_width(min(width, self.manifest.width) + border)
+        self.preview_scroller.set_min_content_height(min(height, self.manifest.height) + border)
+
+    def _on_preview_scroll(self, controller, _dx: float, dy: float) -> bool:
+        state = controller.get_current_event_state()
+        if not state & Gdk.ModifierType.CONTROL_MASK or dy == 0:
+            return False
+        self._step_preview_zoom(-1 if dy > 0 else +1)
+        return True
 
     def _on_save_shortcut(self) -> None:
         if self._loaded_once and self.save_button.get_sensitive():
