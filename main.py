@@ -26,6 +26,7 @@ try:
     from library.display_shutdown import power_off_and_close_display
     from library.log import logger
     scheduler = None
+    from library.live_display_reload import LIVE_RELOAD_SIGNAL
     from library.runtime import DeviceBusyError, DeviceLock
     from library.tray_icon import load_pystray_image
 except Exception as exc:
@@ -169,8 +170,22 @@ def on_reload_renderer(_tray_icon, _item) -> None:
         logger.error("Renderer reload failed: %s", exc)
 
 
+def on_refresh_signal(_signum, _frame=None) -> None:
+    """SIGUSR1 from the theme editor: show the theme it just saved.
+
+    Only the HTML worker is restarted (see HtmlWorkerRunner.refresh); the
+    monitor keeps the device lock and the display stays connected.
+    """
+    controller = _RENDERER_CONTROLLER
+    if controller is None or not controller.refresh():
+        logger.info("Theme refresh requested, but the active renderer cannot reload in place")
+        return
+    logger.info("Theme refresh requested by the editor")
+
+
 def install_signal_handlers() -> None:
     atexit.register(on_clean_exit)
+    signal.signal(LIVE_RELOAD_SIGNAL, on_refresh_signal)
     signal.signal(signal.SIGINT, on_signal_caught)
     signal.signal(signal.SIGTERM, on_signal_caught)
     signal.signal(signal.SIGQUIT, on_signal_caught)

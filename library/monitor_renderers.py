@@ -16,6 +16,8 @@ from library.renderer_lifecycle import RendererSelection
 
 
 HTML_WORKER_RESTART_DELAYS_SECONDS = (1.0, 2.0, 5.0, 10.0, 30.0)
+# A requested reload restarts the worker without counting as a failure.
+HTML_WORKER_RELOAD_DELAY_SECONDS = 0.5
 HTML_WORKER_STABLE_SECONDS = 60.0
 HTML_WORKER_GRACEFUL_STOP_SECONDS = 5.0
 HTML_WORKER_FORCE_STOP_SECONDS = 2.0
@@ -62,6 +64,7 @@ class HtmlWorkerRunner:
         self._command: list[str] = []
         self._environment: dict[str, str] | None = None
         self._stopping = threading.Event()
+        self._reload_requested = threading.Event()
 
     def _spawn(self) -> subprocess.Popen:
         process = subprocess.Popen(
@@ -101,6 +104,23 @@ class HtmlWorkerRunner:
                 self.process = None
             raise RuntimeError(f"HTML renderer worker exited during startup ({code})")
 
+    def refresh(self) -> bool:
+        """Restart the worker so it renders the theme saved on disk.
+
+        The worker is killed rather than stopped: a clean stop powers the
+        display off, and the new worker would then race the display's USB
+        re-enumeration. Killed, it leaves the native video playing and the
+        restart takes about 6 s with the display staying connected.
+        Reloading the page inside the running worker is not used because
+        WebKit then stops delivering snapshots.
+        """
+        process = self.process
+        if process is None or process.poll() is not None:
+            return False
+        self._reload_requested.set()
+        process.kill()
+        return True
+
     def stop(self) -> None:
         self._stopping.set()
         process, self.process = self.process, None
@@ -126,6 +146,17 @@ class HtmlWorkerRunner:
             last_code = int(process.wait())
             if self._stopping.is_set() or self.process is not process:
                 return int(last_code)
+
+            if self._reload_requested.is_set():
+                self._reload_requested.clear()
+                logger.info("Restarting HTML renderer worker to show the saved theme")
+                if self._stopping.wait(HTML_WORKER_RELOAD_DELAY_SECONDS):
+                    return int(last_code)
+                try:
+                    self._spawn()
+                except Exception as exc:
+                    logger.error("Could not restart HTML renderer worker: %s", exc)
+                continue
 
             uptime = time.monotonic() - started
             if uptime >= HTML_WORKER_STABLE_SECONDS:

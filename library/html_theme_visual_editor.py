@@ -538,6 +538,11 @@ def _style_from_mapping(value: Mapping[str, object]) -> HtmlVisualElementStyle:
         raise ThemeValidationError(f"invalid visual editor element: {exc}") from exc
 
 
+def visual_style_from_dict(value: Mapping[str, object]) -> HtmlVisualElementStyle:
+    """Inverse of ``HtmlVisualElementStyle.as_dict``."""
+    return _style_from_mapping(value)
+
+
 def metadata_path(manifest: ThemeManifest) -> Path:
     return manifest.root / EDITOR_METADATA_FILENAME
 

@@ -25,6 +25,7 @@ from library.html_hybrid import (
     validate_native_video,
 )
 from library.html_native_video_sink import HtmlNativeVideoSink
+from library.main_loop_watchdog import MainLoopWatchdog
 from library.real_sensor_source import RealSensorSource
 from library.rev_c_integrated_sink import (
     MAX_REGIONS_PER_CYCLE,
@@ -40,6 +41,10 @@ from library.theme_engine import ThemeManifest, ThemeValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 SUPPORTED_NATIVE_VIDEO_SIZES = {'2.1"', '2.8"'}
+# Captures complete every refresh interval (about 1 s). WebKit can stop
+# delivering snapshots while the GTK loop keeps running; past this the
+# worker exits and the supervisor restarts it.
+CAPTURE_STALL_SECONDS = 30
 
 
 def schedule_once(glib, delay_ms, callback, source_ids) -> int:
@@ -198,6 +203,7 @@ def run(theme: Path) -> int:
             if self.closing:
                 return False
             self.closing = True
+            watchdog.disarm()
             for source_id in tuple(self.source_ids):
                 try: GLib.source_remove(source_id)
                 except Exception: pass
@@ -219,67 +225,76 @@ def run(theme: Path) -> int:
             self.capture_busy = True
 
             def finished(payload, error):
-                self.capture_busy = False
-                if self.closing:
-                    return
-                if error is not None or payload is None:
-                    self.fail(f"HTML frame capture failed: {error}")
-                    return
                 try:
-                    frame = decode_png_frame(payload, (480, 480))
-                    if hybrid_spec is not None:
-                        if self.sink is not None:
-                            self.sink.check_health()
-                        if (
-                            self.last_overlay is not None
-                            and overlay_frames_equal(self.last_overlay, frame)
-                        ):
-                            return
-                        if self.sink is None:
-                            self.sink = HtmlNativeVideoSink(
-                                frame,
-                                hybrid_spec,
-                                port=port,
-                                brightness=brightness,
-                                refresh_interval=1.0 / manifest.refresh_rate,
-                            )
-                        else:
-                            self.sink.submit(frame)
-                        self.last_overlay = frame.copy()
-                        if diagnostic_dir:
-                            analysis = self.diagnostic_pipeline.process(frame)
-                            write_frame_artifacts(Path(diagnostic_dir), frame, analysis)
-                    elif self.sink is None:
-                        pipeline = FramePipeline(pixel_threshold=0)
-                        analysis = pipeline.process(frame)
-                        transport = transport_engine.submit(frame, analysis)
-                        protocol = protocol_engine.submit(transport)
-                        parity = compare_with_production_driver(frame, transport, protocol)
-                        self.sink = IntegratedRevCSink(frame, protocol, parity, port=port)
-                        self.planner = BudgetedFramePlanner(
-                            frame,
-                            atomic_regions=manifest.atomic_regions,
-                            initial_sequence=analysis.sequence,
-                            pixel_threshold=4,
-                        )
-                    else:
-                        plan = self.planner.plan(
-                            frame,
-                            max_regions=MAX_REGIONS_PER_CYCLE,
-                            max_wire_bytes=MAX_WIRE_BYTES_PER_CYCLE,
-                        )
-                        transport = transport_engine.submit(frame, plan.analysis)
-                        protocol = protocol_engine.submit(transport)
-                        parity = compare_with_production_driver(frame, transport, protocol)
-                        self.sink.submit(frame, transport, protocol, parity)
-                        self.planner.commit(frame, plan)
-                    if diagnostic_dir and hybrid_spec is None:
-                        write_frame_artifacts(Path(diagnostic_dir), frame, plan.analysis if self.planner and 'plan' in locals() else analysis)
-                except Exception as exc:
-                    self.fail(f"HTML renderer stopped safely: {exc}")
+                    self._capture_finished(payload, error)
+                finally:
+                    # Counted after the work, so a capture that blocks the
+                    # main loop is what the watchdog sees.
+                    if self.sink is not None:
+                        watchdog.beat()
 
             engine.snapshot_png_bytes(finished)
             return True
+
+        def _capture_finished(self, payload, error):
+            self.capture_busy = False
+            if self.closing:
+                return
+            if error is not None or payload is None:
+                self.fail(f"HTML frame capture failed: {error}")
+                return
+            try:
+                frame = decode_png_frame(payload, (480, 480))
+                if hybrid_spec is not None:
+                    if self.sink is not None:
+                        self.sink.check_health()
+                    if (
+                        self.last_overlay is not None
+                        and overlay_frames_equal(self.last_overlay, frame)
+                    ):
+                        return
+                    if self.sink is None:
+                        self.sink = HtmlNativeVideoSink(
+                            frame,
+                            hybrid_spec,
+                            port=port,
+                            brightness=brightness,
+                            refresh_interval=1.0 / manifest.refresh_rate,
+                        )
+                    else:
+                        self.sink.submit(frame)
+                    self.last_overlay = frame.copy()
+                    if diagnostic_dir:
+                        analysis = self.diagnostic_pipeline.process(frame)
+                        write_frame_artifacts(Path(diagnostic_dir), frame, analysis)
+                elif self.sink is None:
+                    pipeline = FramePipeline(pixel_threshold=0)
+                    analysis = pipeline.process(frame)
+                    transport = transport_engine.submit(frame, analysis)
+                    protocol = protocol_engine.submit(transport)
+                    parity = compare_with_production_driver(frame, transport, protocol)
+                    self.sink = IntegratedRevCSink(frame, protocol, parity, port=port)
+                    self.planner = BudgetedFramePlanner(
+                        frame,
+                        atomic_regions=manifest.atomic_regions,
+                        initial_sequence=analysis.sequence,
+                        pixel_threshold=4,
+                    )
+                else:
+                    plan = self.planner.plan(
+                        frame,
+                        max_regions=MAX_REGIONS_PER_CYCLE,
+                        max_wire_bytes=MAX_WIRE_BYTES_PER_CYCLE,
+                    )
+                    transport = transport_engine.submit(frame, plan.analysis)
+                    protocol = protocol_engine.submit(transport)
+                    parity = compare_with_production_driver(frame, transport, protocol)
+                    self.sink.submit(frame, transport, protocol, parity)
+                    self.planner.commit(frame, plan)
+                if diagnostic_dir and hybrid_spec is None:
+                    write_frame_artifacts(Path(diagnostic_dir), frame, plan.analysis if self.planner and 'plan' in locals() else analysis)
+            except Exception as exc:
+                self.fail(f"HTML renderer stopped safely: {exc}")
 
         def _apply_sensor_snapshot(self, snapshot, collection_error):
             self.sensor_update_busy = False
@@ -380,7 +395,9 @@ def run(theme: Path) -> int:
                 if source_id is not None:
                     self.source_ids.add(source_id)
 
+    watchdog = MainLoopWatchdog(CAPTURE_STALL_SECONDS)
     worker = Worker()
+    watchdog.start()
     status = int(worker.run([]))
     return status or worker.exit_code
 

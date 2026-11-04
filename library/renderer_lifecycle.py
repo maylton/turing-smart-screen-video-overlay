@@ -130,6 +130,13 @@ class RendererController:
             self._condition.notify_all()
             return self.state
 
+    def refresh(self) -> bool:
+        """Reload the active theme in place, when the renderer supports it."""
+        with self._condition:
+            runner = self._runner
+        refresh = getattr(runner, "refresh", None)
+        return bool(refresh()) if callable(refresh) else False
+
     def stop(self) -> RendererState:
         with self._condition:
             runner, self._runner = self._runner, None

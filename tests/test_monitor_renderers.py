@@ -63,6 +63,50 @@ def selection() -> RendererSelection:
 
 
 class HtmlWorkerRunnerTests(unittest.TestCase):
+    def test_refresh_kills_a_running_worker(self):
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))
+        process = mock.Mock()
+        process.poll.return_value = None
+        runner.process = process
+        self.assertTrue(runner.refresh())
+        process.kill.assert_called_once_with()
+        process.terminate.assert_not_called()
+
+    def test_requested_reload_restarts_without_a_failure_warning(self):
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))
+        first = FakeProcess(code=-9)
+        second = FakeProcess(code=0)
+        runner.process = first
+        runner._reload_requested.set()
+        spawned = []
+
+        def spawn():
+            spawned.append(second)
+            runner.process = second
+            runner._stopping.set()
+            return second
+
+        runner._spawn = spawn
+        with (
+            mock.patch("library.monitor_renderers.HTML_WORKER_RELOAD_DELAY_SECONDS", 0.0),
+            mock.patch("library.monitor_renderers.logger") as logger,
+        ):
+            runner.wait()
+
+        self.assertEqual(spawned, [second])
+        self.assertFalse(runner._reload_requested.is_set())
+        logger.warning.assert_not_called()
+        logger.info.assert_called_once()
+
+    def test_refresh_without_a_live_worker(self):
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))
+        self.assertFalse(runner.refresh())
+        exited = mock.Mock()
+        exited.poll.return_value = 1
+        runner.process = exited
+        self.assertFalse(runner.refresh())
+        exited.kill.assert_not_called()
+
     def test_unexpected_worker_exit_is_restarted(self):
         runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))
         first = FakeProcess(code=1)

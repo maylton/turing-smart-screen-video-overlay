@@ -31,6 +31,8 @@ from library.html_theme_components import (
     render_widget_runtime_script,
 )
 from library.html_theme_engine import WebKitGtkBackend, build_snapshot_script
+from library.html_editor_drafts import clear_draft, load_draft, write_draft
+from library.live_display_reload import active_html_theme, request_monitor_reload
 from library.html_editor_zoom import DEFAULT_ZOOM, step_zoom, zoom_label, zoomed_size
 from library.html_theme_round_mask import is_probably_round, round_mask_script
 from library.html_theme_visual_editor import (
@@ -60,6 +62,7 @@ from library.theme_gallery import (
 
 ROOT = Path(__file__).resolve().parent
 THEMES_DIR = ROOT / "res" / "themes"
+CONFIG_FILE = ROOT / "config.yaml"
 BUILD_SCRIPT = ROOT / "html-theme-build-video.py"
 SELECT_TITLE_PREFIX = "turing-editor-select:"
 DRAG_TITLE_PREFIX = "turing-editor-drag:"
@@ -67,6 +70,10 @@ RESIZE_TITLE_PREFIX = "turing-editor-resize:"
 NUDGE_TITLE_PREFIX = "turing-editor-nudge:"
 INSPECTOR_WIDTH = 420
 PREVIEW_FRAME_BORDER_PX = 1
+DRAFT_DELAY_SECONDS = 2
+DUPLICATE_AUTHOR_ELEMENT_HINT = (
+    "Este elemento faz parte do HTML do tema; só elementos adicionados no editor podem ser duplicados"
+)
 
 
 def _color_to_hex(value: str) -> str:
@@ -184,6 +191,9 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self._resize_active = False
         self._dirty = False
         self._build_process: subprocess.Popen[str] | None = None
+        self._draft_source: int | None = None
+        self._draft_offered = False
+        self._close_confirmed = False
 
         self.set_title(f"Editor HTML — {manifest.name}")
         self.set_default_size(1120, 720)
@@ -221,7 +231,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         application.set_accels_for_action("win.save", ["<Primary>s"])
         self.duplicate_action = Gio.SimpleAction.new("duplicate", None)
         self.duplicate_action.connect("activate", lambda *_: self._on_duplicate_element())
-        self.duplicate_action.set_enabled(False)
+        # Always enabled so Ctrl+D can explain why an element was not copied.
         self.add_action(self.duplicate_action)
         application.set_accels_for_action("win.duplicate", ["<Primary>d"])
         self.preview_zoom = DEFAULT_ZOOM
@@ -447,7 +457,8 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             label="Duplicar elemento",
             tooltip_text="Cria uma cópia do elemento selecionado (Ctrl+D)",
         )
-        self.duplicate_element_button.set_action_name("win.duplicate")
+        self.duplicate_element_button.set_sensitive(False)
+        self.duplicate_element_button.connect("clicked", lambda *_: self._on_duplicate_element())
         elements_page.append(self.duplicate_element_button)
 
         self.remove_element_button = Gtk.Button(label="Remover elemento")
@@ -650,6 +661,16 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.build_button.connect("clicked", lambda *_: self._save(True))
         self.build_button.set_sensitive(False)
         actions.attach(self.build_button, 1, 1, 1, 1)
+
+        # Only offered for the theme the monitor shows: after saving, the
+        # monitor restarts its HTML renderer (about 6 s, display stays on).
+        self.live_display_check = Gtk.CheckButton(
+            label="Atualizar a tela física ao salvar",
+            active=True,
+            tooltip_text="Depois de salvar, a tela física pisca e mostra o novo layout em cerca de 6 segundos",
+        )
+        self.live_display_check.set_visible(self._is_active_display_theme())
+        actions.attach(self.live_display_check, 0, 2, 2, 1)
 
         self.backend.load()
 
@@ -1284,6 +1305,9 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             flush=True,
         )
         self._load_selected_controls()
+        if not self._draft_offered:
+            self._draft_offered = True
+            GLib.idle_add(lambda: self._offer_draft_recovery() or False)
 
     def _selected_id(self) -> str:
         selected = min(self.element_dropdown.get_selected(), len(self.element_ids) - 1)
@@ -1464,7 +1488,10 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         if not self._loaded_once:
             return
         style = self.styles.get(self._selected_id())
-        if style is None or not style.is_generated:
+        if style is None:
+            return
+        if not style.is_generated:
+            self._toast(DUPLICATE_AUTHOR_ELEMENT_HINT)
             return
         try:
             copy = duplicate_visual_style(
@@ -1583,7 +1610,12 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self.text_align_dropdown.set_selected(
                 self.text_align_values.index(style.text_align)
             )
-            self.duplicate_action.set_enabled(style.is_generated)
+            self.duplicate_element_button.set_sensitive(style.is_generated)
+            self.duplicate_element_button.set_tooltip_text(
+                "Cria uma cópia do elemento selecionado (Ctrl+D)"
+                if style.is_generated
+                else DUPLICATE_AUTHOR_ELEMENT_HINT
+            )
             self.remove_element_button.set_label(
                 "Excluir elemento criado"
                 if style.is_generated
@@ -1632,6 +1664,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
 
     def _mark_changed(self) -> None:
         self._dirty = True
+        self._schedule_draft()
         self.save_button.set_sensitive(True)
         self.build_button.set_sensitive(self.manifest.native_video_overlay is not None)
         self.status_label.set_text("Alterações ainda não salvas")
@@ -2045,6 +2078,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self._highlight_selected()
 
     def _on_reset(self, *_args) -> None:
+        self._discard_draft()
         self._loaded_once = False
         self._drag_active = False
         self._resize_active = False
@@ -2075,11 +2109,33 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self._toast("Falha ao salvar o tema")
             return False
         self._dirty = False
+        self._discard_draft()
         self.status_label.set_text("Layout salvo; o vídeo precisa ser reconstruído")
         self._toast("Layout HTML salvo com backup")
         if build:
             self._start_build()
+        elif self.live_display_check.get_visible() and self.live_display_check.get_active():
+            self._update_physical_display()
         return True
+
+    def _is_active_display_theme(self) -> bool:
+        try:
+            in_themes_dir = self.manifest.root.resolve().parent == THEMES_DIR.resolve()
+        except OSError:
+            return False
+        return in_themes_dir and active_html_theme(CONFIG_FILE) == self.manifest.root.name
+
+    def _update_physical_display(self) -> None:
+        try:
+            requested = request_monitor_reload()
+        except Exception as exc:
+            print(f"Could not ask the monitor to reload: {exc}", file=sys.stderr, flush=True)
+            requested = False
+        if requested:
+            self.status_label.set_text("Layout salvo; atualizando a tela física…")
+            self._toast("Atualizando a tela física")
+        else:
+            self._toast("O monitor não está em execução; inicie-o para ver o tema na tela")
 
     def _start_build(self) -> None:
         if self._build_process is not None:
@@ -2131,8 +2187,110 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         if self._build_process is not None and self._build_process.poll() is None:
             self._toast("Aguarde a geração do vídeo terminar")
             return True
+        if self._dirty and self._loaded_once and not self._close_confirmed:
+            self._confirm_close()
+            return True
+        self._cancel_pending_draft()
         self.backend.close()
         return False
+
+    def _confirm_close(self) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Salvar as alterações antes de fechar?",
+            body="Se você fechar sem salvar, as alterações deste tema serão perdidas.",
+        )
+        dialog.add_response("cancel", "Cancelar")
+        dialog.add_response("discard", "Descartar")
+        dialog.add_response("save", "Salvar")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+
+        def on_response(_dialog, response: str) -> None:
+            if response == "save" and not self._save(False):
+                return
+            if response == "discard":
+                self._discard_draft()
+            if response in {"save", "discard"}:
+                self._close_confirmed = True
+                self.close()
+
+        dialog.connect("response", on_response)
+        dialog.present(self)
+
+    # Drafts protect unsaved work against crashes and closed sessions. They
+    # are written outside the theme folder (see library/html_editor_drafts.py).
+    def _schedule_draft(self) -> None:
+        self._cancel_pending_draft()
+        self._draft_source = GLib.timeout_add_seconds(DRAFT_DELAY_SECONDS, self._write_draft_now)
+
+    def _cancel_pending_draft(self) -> None:
+        if self._draft_source is not None:
+            GLib.source_remove(self._draft_source)
+            self._draft_source = None
+
+    def _write_draft_now(self) -> bool:
+        self._draft_source = None
+        if self._dirty and self._loaded_once:
+            try:
+                write_draft(self.manifest, [self.styles[i] for i in self.element_ids if i in self.styles])
+            except Exception as exc:
+                print(f"Could not write editor draft: {exc}", file=sys.stderr, flush=True)
+        return False
+
+    def _discard_draft(self) -> None:
+        self._cancel_pending_draft()
+        try:
+            clear_draft(self.manifest)
+        except OSError as exc:
+            print(f"Could not remove editor draft: {exc}", file=sys.stderr, flush=True)
+
+    def _offer_draft_recovery(self) -> None:
+        try:
+            draft = load_draft(self.manifest, self.styles.values())
+        except Exception as exc:
+            print(f"Could not read editor draft: {exc}", file=sys.stderr, flush=True)
+            return
+        if draft is None:
+            return
+        when = draft.saved_at.astimezone().strftime("%d/%m/%Y %H:%M")
+        body = f"Há alterações deste tema que não foram salvas, de {when}."
+        if not draft.matches_saved_theme:
+            body += " O tema foi salvo depois disso; recuperar substitui essa versão no editor."
+        dialog = Adw.AlertDialog(heading="Recuperar alterações não salvas?", body=body)
+        dialog.add_response("discard", "Descartar rascunho")
+        dialog.add_response("restore", "Recuperar")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("restore", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("restore")
+        dialog.set_close_response("restore")
+
+        def on_response(_dialog, response: str) -> None:
+            if response == "restore":
+                self._restore_draft(draft.styles)
+            else:
+                self._discard_draft()
+
+        dialog.connect("response", on_response)
+        dialog.present(self)
+
+    def _restore_draft(self, draft_styles) -> None:
+        # Overlays written in the theme HTML always exist; keep their current
+        # style when the draft predates them. Editor-created widgets follow
+        # the draft, including ones it removed.
+        current = dict(self.styles)
+        restored = {
+            style.element_id: style
+            for style in draft_styles
+            if style.is_generated or style.element_id in current
+        }
+        for element_id, style in current.items():
+            if not style.is_generated and element_id not in restored:
+                restored[element_id] = style
+        self._checkpoint()
+        self._restore_history(tuple(restored.values()))
+        self._toast("Rascunho recuperado; salve para manter as alterações")
 
 
 class HtmlThemeEditorApplication(Adw.Application):
