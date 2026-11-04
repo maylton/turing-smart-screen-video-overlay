@@ -67,6 +67,9 @@ RESIZE_TITLE_PREFIX = "turing-editor-resize:"
 NUDGE_TITLE_PREFIX = "turing-editor-nudge:"
 INSPECTOR_WIDTH = 420
 PREVIEW_FRAME_BORDER_PX = 1
+DUPLICATE_AUTHOR_ELEMENT_HINT = (
+    "Este elemento faz parte do HTML do tema; só elementos adicionados no editor podem ser duplicados"
+)
 
 
 def _color_to_hex(value: str) -> str:
@@ -221,7 +224,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         application.set_accels_for_action("win.save", ["<Primary>s"])
         self.duplicate_action = Gio.SimpleAction.new("duplicate", None)
         self.duplicate_action.connect("activate", lambda *_: self._on_duplicate_element())
-        self.duplicate_action.set_enabled(False)
+        # Always enabled so Ctrl+D can explain why an element was not copied.
         self.add_action(self.duplicate_action)
         application.set_accels_for_action("win.duplicate", ["<Primary>d"])
         self.preview_zoom = DEFAULT_ZOOM
@@ -447,7 +450,8 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             label="Duplicar elemento",
             tooltip_text="Cria uma cópia do elemento selecionado (Ctrl+D)",
         )
-        self.duplicate_element_button.set_action_name("win.duplicate")
+        self.duplicate_element_button.set_sensitive(False)
+        self.duplicate_element_button.connect("clicked", lambda *_: self._on_duplicate_element())
         elements_page.append(self.duplicate_element_button)
 
         self.remove_element_button = Gtk.Button(label="Remover elemento")
@@ -1464,7 +1468,10 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         if not self._loaded_once:
             return
         style = self.styles.get(self._selected_id())
-        if style is None or not style.is_generated:
+        if style is None:
+            return
+        if not style.is_generated:
+            self._toast(DUPLICATE_AUTHOR_ELEMENT_HINT)
             return
         try:
             copy = duplicate_visual_style(
@@ -1583,7 +1590,12 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self.text_align_dropdown.set_selected(
                 self.text_align_values.index(style.text_align)
             )
-            self.duplicate_action.set_enabled(style.is_generated)
+            self.duplicate_element_button.set_sensitive(style.is_generated)
+            self.duplicate_element_button.set_tooltip_text(
+                "Cria uma cópia do elemento selecionado (Ctrl+D)"
+                if style.is_generated
+                else DUPLICATE_AUTHOR_ELEMENT_HINT
+            )
             self.remove_element_button.set_label(
                 "Excluir elemento criado"
                 if style.is_generated
