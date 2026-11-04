@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Anéis Orbitais</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="screen" aria-label="Anéis Orbitais">
+    <!-- Background (native video): ambient light, ticks, ring tracks, glass. -->
+    <div class="ambient"></div>
+    <svg class="static" viewBox="0 0 480 480" aria-hidden="true">
+      <circle class="track track-cpu" cx="240" cy="240" r="196"/>
+      <circle class="track track-gpu" cx="240" cy="240" r="168"/>
+      <circle class="track track-ram" cx="240" cy="240" r="140"/>
+      <line class="tick major" x1="240.0" y1="12.0" x2="240.0" y2="20.0"/>
+      <line class="tick" x1="263.8" y1="13.2" x2="263.4" y2="17.2"/>
+      <line class="tick" x1="287.4" y1="17.0" x2="286.6" y2="20.9"/>
+      <line class="tick" x1="310.5" y1="23.2" x2="309.2" y2="27.0"/>
+      <line class="tick" x1="332.7" y1="31.7" x2="331.1" y2="35.4"/>
+      <line class="tick" x1="354.0" y1="42.5" x2="352.0" y2="46.0"/>
+      <line class="tick" x1="374.0" y1="55.5" x2="371.7" y2="58.8"/>
+      <line class="tick" x1="392.6" y1="70.6" x2="389.9" y2="73.5"/>
+      <line class="tick" x1="409.4" y1="87.4" x2="406.5" y2="90.1"/>
+      <line class="tick" x1="424.5" y1="106.0" x2="421.2" y2="108.3"/>
+      <line class="tick" x1="437.5" y1="126.0" x2="434.0" y2="128.0"/>
+      <line class="tick" x1="448.3" y1="147.3" x2="444.6" y2="148.9"/>
+      <line class="tick" x1="456.8" y1="169.5" x2="453.0" y2="170.8"/>
+      <line class="tick" x1="463.0" y1="192.6" x2="459.1" y2="193.4"/>
+      <line class="tick" x1="466.8" y1="216.2" x2="462.8" y2="216.6"/>
+      <line class="tick major" x1="468.0" y1="240.0" x2="460.0" y2="240.0"/>
+      <line class="tick" x1="466.8" y1="263.8" x2="462.8" y2="263.4"/>
+      <line class="tick" x1="463.0" y1="287.4" x2="459.1" y2="286.6"/>
+      <line class="tick" x1="456.8" y1="310.5" x2="453.0" y2="309.2"/>
+      <line class="tick" x1="448.3" y1="332.7" x2="444.6" y2="331.1"/>
+      <line class="tick" x1="437.5" y1="354.0" x2="434.0" y2="352.0"/>
+      <line class="tick" x1="424.5" y1="374.0" x2="421.2" y2="371.7"/>
+      <line class="tick" x1="409.4" y1="392.6" x2="406.5" y2="389.9"/>
+      <line class="tick" x1="392.6" y1="409.4" x2="389.9" y2="406.5"/>
+      <line class="tick" x1="374.0" y1="424.5" x2="371.7" y2="421.2"/>
+      <line class="tick" x1="354.0" y1="437.5" x2="352.0" y2="434.0"/>
+      <line class="tick" x1="332.7" y1="448.3" x2="331.1" y2="444.6"/>
+      <line class="tick" x1="310.5" y1="456.8" x2="309.2" y2="453.0"/>
+      <line class="tick" x1="287.4" y1="463.0" x2="286.6" y2="459.1"/>
+      <line class="tick" x1="263.8" y1="466.8" x2="263.4" y2="462.8"/>
+      <line class="tick major" x1="240.0" y1="468.0" x2="240.0" y2="460.0"/>
+      <line class="tick" x1="216.2" y1="466.8" x2="216.6" y2="462.8"/>
+      <line class="tick" x1="192.6" y1="463.0" x2="193.4" y2="459.1"/>
+      <line class="tick" x1="169.5" y1="456.8" x2="170.8" y2="453.0"/>
+      <line class="tick" x1="147.3" y1="448.3" x2="148.9" y2="444.6"/>
+      <line class="tick" x1="126.0" y1="437.5" x2="128.0" y2="434.0"/>
+      <line class="tick" x1="106.0" y1="424.5" x2="108.3" y2="421.2"/>
+      <line class="tick" x1="87.4" y1="409.4" x2="90.1" y2="406.5"/>
+      <line class="tick" x1="70.6" y1="392.6" x2="73.5" y2="389.9"/>
+      <line class="tick" x1="55.5" y1="374.0" x2="58.8" y2="371.7"/>
+      <line class="tick" x1="42.5" y1="354.0" x2="46.0" y2="352.0"/>
+      <line class="tick" x1="31.7" y1="332.7" x2="35.4" y2="331.1"/>
+      <line class="tick" x1="23.2" y1="310.5" x2="27.0" y2="309.2"/>
+      <line class="tick" x1="17.0" y1="287.4" x2="20.9" y2="286.6"/>
+      <line class="tick" x1="13.2" y1="263.8" x2="17.2" y2="263.4"/>
+      <line class="tick major" x1="12.0" y1="240.0" x2="20.0" y2="240.0"/>
+      <line class="tick" x1="13.2" y1="216.2" x2="17.2" y2="216.6"/>
+      <line class="tick" x1="17.0" y1="192.6" x2="20.9" y2="193.4"/>
+      <line class="tick" x1="23.2" y1="169.5" x2="27.0" y2="170.8"/>
+      <line class="tick" x1="31.7" y1="147.3" x2="35.4" y2="148.9"/>
+      <line class="tick" x1="42.5" y1="126.0" x2="46.0" y2="128.0"/>
+      <line class="tick" x1="55.5" y1="106.0" x2="58.8" y2="108.3"/>
+      <line class="tick" x1="70.6" y1="87.4" x2="73.5" y2="90.1"/>
+      <line class="tick" x1="87.4" y1="70.6" x2="90.1" y2="73.5"/>
+      <line class="tick" x1="106.0" y1="55.5" x2="108.3" y2="58.8"/>
+      <line class="tick" x1="126.0" y1="42.5" x2="128.0" y2="46.0"/>
+      <line class="tick" x1="147.3" y1="31.7" x2="148.9" y2="35.4"/>
+      <line class="tick" x1="169.5" y1="23.2" x2="170.8" y2="27.0"/>
+      <line class="tick" x1="192.6" y1="17.0" x2="193.4" y2="20.9"/>
+      <line class="tick" x1="216.2" y1="13.2" x2="216.6" y2="17.2"/>
+    </svg>
+    <div class="glass"></div>
+    <div class="legend">
+      <span class="key key-cpu">CPU</span>
+      <span class="key key-gpu">GPU</span>
+      <span class="key key-ram">RAM</span>
+    </div>
+
+    <!-- Overlays: rings and readouts, fixed geometry in style.css. -->
+    <svg id="rings" viewBox="0 0 480 480" aria-hidden="true" data-turing-overlay>
+      <defs>
+      <linearGradient id="grad-cpu" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff3b6b"/><stop offset="1" stop-color="#ff9a62"/></linearGradient>
+      <linearGradient id="grad-gpu" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b6ff4a"/><stop offset="1" stop-color="#2fe08a"/></linearGradient>
+      <linearGradient id="grad-ram" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#39d0ff"/><stop offset="1" stop-color="#8a7dff"/></linearGradient>
+      </defs>
+      <circle class="arc arc-cpu" cx="240" cy="240" r="196" stroke="url(#grad-cpu)" stroke-dasharray="1231.5" stroke-dashoffset="1231.5" data-circumference="1231.5"/>
+      <circle class="arc arc-gpu" cx="240" cy="240" r="168" stroke="url(#grad-gpu)" stroke-dasharray="1055.6" stroke-dashoffset="1055.6" data-circumference="1055.6"/>
+      <circle class="arc arc-ram" cx="240" cy="240" r="140" stroke="url(#grad-ram)" stroke-dasharray="879.6" stroke-dashoffset="879.6" data-circumference="879.6"/>
+    </svg>
+    <div id="time" data-turing-overlay>--:--</div>
+    <div id="date" data-turing-overlay>--</div>
+    <div id="cpu-val" class="val" data-turing-overlay>--%</div>
+    <div id="gpu-val" class="val" data-turing-overlay>--%</div>
+    <div id="ram-val" class="val" data-turing-overlay>--%</div>
+  </main>
+  <script src="theme.js"></script>
+</body>
+</html>

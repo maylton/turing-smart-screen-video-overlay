@@ -1,0 +1,56 @@
+/* Anéis Orbitais: concentric activity rings around a frosted-glass core.
+   Fonts: Space Grotesk and Inter (SIL OFL 1.1, see fonts/). */
+@font-face { font-family: "Space Grotesk"; src: url("fonts/space-grotesk/space-grotesk-400-700.woff2") format("woff2"); font-weight: 400 700; font-display: block; }
+@font-face { font-family: "Inter"; src: url("fonts/inter/inter-400-800.woff2") format("woff2"); font-weight: 400 800; font-display: block; }
+
+* { box-sizing: border-box; }
+html, body { width: 480px; height: 480px; margin: 0; overflow: hidden; background: #05060a; }
+body { font-family: "Inter", sans-serif; color: #f4f6fb; }
+
+.screen {
+  position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #12141c 0%, #07080c 70%, #030305 100%);
+}
+
+/* A soft light orbiting behind the glass; one turn per 4 s video loop. */
+.ambient {
+  position: absolute; inset: 40px; border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(255, 59, 107, 0.35), rgba(57, 208, 255, 0.1) 120deg,
+    rgba(47, 224, 138, 0.3) 220deg, rgba(138, 125, 255, 0.12) 300deg, rgba(255, 59, 107, 0.35));
+  filter: blur(36px);
+  animation: orbit 4s linear infinite;
+}
+@keyframes orbit { to { transform: rotate(360deg); } }
+
+.static { position: absolute; inset: 0; width: 480px; height: 480px; }
+.track { fill: none; stroke-width: 20; stroke: rgba(255, 255, 255, 0.06); }
+.track-cpu { stroke: rgba(255, 59, 107, 0.16); }
+.track-gpu { stroke: rgba(47, 224, 138, 0.14); }
+.track-ram { stroke: rgba(57, 208, 255, 0.14); }
+.tick { stroke: rgba(255, 255, 255, 0.18); stroke-width: 1.5; stroke-linecap: round; }
+.tick.major { stroke: rgba(255, 255, 255, 0.55); stroke-width: 2.5; }
+
+.glass {
+  position: absolute; left: 116px; top: 116px; width: 248px; height: 248px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -18px 40px rgba(0, 0, 0, 0.35), 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.legend { position: absolute; left: 150px; top: 318px; width: 180px; display: flex; justify-content: space-between; }
+.key { width: 52px; text-align: center; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: rgba(255, 255, 255, 0.55); }
+.key::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; vertical-align: 1px; }
+.key-cpu::before { background: #ff5f6d; }
+.key-gpu::before { background: #5df08a; }
+.key-ram::before { background: #4fc8ff; }
+
+/* Overlays. */
+[data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; }
+#rings { left: 0; top: 0; width: 480px; height: 480px; z-index: 900; }
+.arc { fill: none; stroke-width: 20; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 240px 240px; }
+#time { left: 140px; top: 178px; width: 200px; height: 70px; text-align: center; font-family: "Space Grotesk", sans-serif; font-size: 64px; line-height: 70px; font-weight: 600; letter-spacing: -0.02em; }
+#date { left: 140px; top: 250px; width: 200px; height: 22px; text-align: center; font-size: 15px; line-height: 22px; font-weight: 500; color: #9aa3b5; }
+.val { top: 288px; width: 52px; height: 26px; text-align: center; font-family: "Space Grotesk", sans-serif; font-size: 20px; line-height: 26px; font-weight: 700; }
+#cpu-val { left: 150px; color: #ff7a6d; }
+#gpu-val { left: 214px; color: #6ff59a; }
+#ram-val { left: 278px; color: #62cfff; }
