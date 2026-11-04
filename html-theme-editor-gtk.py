@@ -32,7 +32,7 @@ from library.html_theme_components import (
 )
 from library.html_theme_engine import WebKitGtkBackend, build_snapshot_script
 from library.html_editor_drafts import clear_draft, load_draft, write_draft
-from library.live_display_reload import active_html_theme, request_monitor_reload
+from library.live_display_reload import active_html_theme, request_monitor_reload, request_theme_resync
 from library.html_editor_preview_data import (
     CUSTOM_FIELDS,
     PRESET_KEYS,
@@ -2616,6 +2616,19 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         else:
             self._toast("O monitor não está em execução; inicie-o para ver o tema na tela")
 
+    def _send_video_to_display(self) -> None:
+        """The display plays its own copy of the video: upload the new one."""
+        try:
+            requested = request_theme_resync()
+        except Exception as exc:
+            print(f"Could not ask the app to send the video: {exc}", file=sys.stderr, flush=True)
+            requested = False
+        if requested:
+            self.status_label.set_text("Vídeo gerado; enviando para a tela física…")
+            self._toast("Enviando o novo vídeo para a tela")
+        else:
+            self._toast("Vídeo gerado; aplique o tema na galeria para enviá-lo à tela")
+
     def _start_build(self) -> None:
         if self._build_process is not None:
             return
@@ -2656,6 +2669,8 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         if process.returncode == 0:
             self.status_label.set_text("Vídeo gerado e pronto para sincronização")
             self._toast("Vídeo do tema gerado")
+            if self._is_active_display_theme():
+                self._send_video_to_display()
         else:
             detail = (stderr or stdout or "erro desconhecido").strip().splitlines()[-1]
             self.status_label.set_text(f"Falha ao gerar vídeo: {detail}")

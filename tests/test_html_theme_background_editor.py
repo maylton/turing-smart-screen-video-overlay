@@ -46,7 +46,7 @@ class HtmlThemeBackgroundEditorTests(unittest.TestCase):
         script = _preview_image_script(
             "data:image/png;base64,cHJldmlldw==",
             "cover",
-            "center",
+            (50.0, 50.0),
         )
         self.assertIn("document.createElement('img')", script)
         self.assertNotIn("createElement('video')", script)
@@ -54,6 +54,10 @@ class HtmlThemeBackgroundEditorTests(unittest.TestCase):
         self.assertNotIn("autoplay", script)
         self.assertNotIn("muted", script)
         self.assertNotIn("currentTime", script)
+
+    def test_preview_script_uses_free_framing_offsets(self):
+        script = _preview_image_script("data:image/png;base64,cHJldmlldw==", "cover", (12.5, 80.0))
+        self.assertIn("12.50% 80.00%", script)
 
     def test_background_editor_source_contains_no_media_playback(self):
         source = Path("library/html_theme_background_editor.py").read_text(

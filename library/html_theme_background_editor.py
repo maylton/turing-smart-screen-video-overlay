@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from library.html_background_video import (
+    POSITION_OFFSETS,
     SUPPORTED_FITS,
     SUPPORTED_POSITIONS,
     extract_preview_frame,
@@ -106,26 +107,20 @@ def _clear_preview_script() -> str:
 def _preview_image_script(
     data_uri: str,
     fit: str,
-    position: str,
+    offsets: tuple[float, float],
 ) -> str:
     """Build a WebKit-safe preview script using only an inert image element."""
     payload = json.dumps(
         {
             "source": data_uri,
             "fit": fit,
-            "position": position,
+            "objectPosition": f"{float(offsets[0]):.2f}% {float(offsets[1]):.2f}%",
         },
         ensure_ascii=True,
     )
     return f"""
     (() => {{
       const config = {payload};
-      const positions = {{
-        center: '50% 50%', 'top-left': '0% 0%', top: '50% 0%',
-        'top-right': '100% 0%', left: '0% 50%', right: '100% 50%',
-        'bottom-left': '0% 100%', bottom: '50% 100%',
-        'bottom-right': '100% 100%'
-      }};
       const body = document.body;
       if (!body) return;
       if (!window.__turingBackgroundPreviewState) {{
@@ -147,7 +142,7 @@ def _preview_image_script(
       Object.entries({{
         position: 'fixed', inset: '0', width: '480px', height: '480px',
         objectFit: config.fit === 'stretch' ? 'fill' : config.fit,
-        objectPosition: positions[config.position] || '50% 50%',
+        objectPosition: config.objectPosition || '50% 50%',
         pointerEvents: 'none', userSelect: 'none', zIndex: '-1'
       }}).forEach(([name, value]) => image.style.setProperty(
         name.replace(/[A-Z]/g, character => '-' + character.toLowerCase()),
@@ -237,6 +232,30 @@ def _attach_background_page(window, Gtk, GLib) -> None:
     page.append(Gtk.Label(label="Posição", xalign=0))
     page.append(position_dropdown)
 
+    # Free framing: drag the frame over the source, or use the sliders.
+    framing_label = Gtk.Label(label="Enquadramento: arraste o quadro sobre o fundo", xalign=0, wrap=True)
+    page.append(framing_label)
+    framing_area = Gtk.DrawingArea()
+    framing_area.set_content_width(240)
+    framing_area.set_content_height(160)
+    framing_area.set_halign(Gtk.Align.START)
+    page.append(framing_area)
+
+    def offset_slider(label: str) -> Gtk.Scale:
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 100.0, 1.0)
+        scale.set_value(50.0)
+        scale.set_digits(0)
+        scale.set_draw_value(True)
+        scale.set_hexpand(True)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.append(Gtk.Label(label=label, xalign=0, width_chars=10))
+        row.append(scale)
+        page.append(row)
+        return scale
+
+    offset_x_scale = offset_slider("Horizontal")
+    offset_y_scale = offset_slider("Vertical")
+
     loop_check = Gtk.CheckButton(label="Repetir o vídeo até o fim do tema")
     loop_check.set_active(True)
     page.append(loop_check)
@@ -266,6 +285,9 @@ def _attach_background_page(window, Gtk, GLib) -> None:
     page.append(remove_button)
 
     state = {
+        "frame_pixbuf": None,
+        "frame_key": None,
+        "drag_origin": None,
         "updating": False,
         "preview_key": None,
         "preview_uri": None,
@@ -277,6 +299,95 @@ def _attach_background_page(window, Gtk, GLib) -> None:
         callback = getattr(window, "_toast", None)
         if callable(callback):
             callback(message)
+
+    def offsets() -> tuple[float, float]:
+        return (round(offset_x_scale.get_value(), 2), round(offset_y_scale.get_value(), 2))
+
+    def set_offsets(x: float, y: float) -> None:
+        offset_x_scale.set_value(max(0.0, min(100.0, x)))
+        offset_y_scale.set_value(max(0.0, min(100.0, y)))
+
+    def frame_geometry(width: int, height: int):
+        """Source rectangle and the visible 480x480 window inside it, scaled to the area."""
+        pixbuf = state["frame_pixbuf"]
+        if pixbuf is None:
+            return None
+        source_w, source_h = pixbuf.get_width(), pixbuf.get_height()
+        scale = min(width / source_w, height / source_h)
+        draw_w, draw_h = source_w * scale, source_h * scale
+        left, top = (width - draw_w) / 2, (height - draw_h) / 2
+        fit = _dropdown_value(fit_dropdown, fit_values)
+        if fit != "cover":
+            return left, top, draw_w, draw_h, None
+        side = min(draw_w, draw_h)
+        x_pct, y_pct = offsets()
+        window_x = left + (draw_w - side) * x_pct / 100.0
+        window_y = top + (draw_h - side) * y_pct / 100.0
+        return left, top, draw_w, draw_h, (window_x, window_y, side)
+
+    def draw_framing(_area, cr, width: int, height: int) -> None:
+        geometry = frame_geometry(width, height)
+        if geometry is None:
+            return
+        from gi.repository import Gdk
+
+        left, top, draw_w, draw_h, window_rect = geometry
+        pixbuf = state["frame_pixbuf"]
+        cr.save()
+        cr.translate(left, top)
+        cr.scale(draw_w / pixbuf.get_width(), draw_h / pixbuf.get_height())
+        Gdk.cairo_set_source_pixbuf(cr, pixbuf, 0, 0)
+        cr.paint()
+        cr.restore()
+        if window_rect is None:
+            return
+        x, y, side = window_rect
+        # Dim what stays off screen, outline the visible round window.
+        cr.set_source_rgba(0, 0, 0, 0.55)
+        cr.rectangle(left, top, draw_w, draw_h)
+        cr.arc_negative(x + side / 2, y + side / 2, side / 2, 2 * 3.141592653589793, 0)
+        cr.set_fill_rule(1)  # even-odd
+        cr.fill()
+        cr.set_source_rgba(0.4, 0.88, 1.0, 0.95)
+        cr.set_line_width(2)
+        cr.rectangle(x + 1, y + 1, side - 2, side - 2)
+        cr.stroke()
+
+    framing_area.set_draw_func(draw_framing)
+
+    def load_frame(uri: str | None, key) -> None:
+        if not uri:
+            state["frame_pixbuf"] = None
+            state["frame_key"] = None
+        elif state["frame_key"] != key:
+            from gi.repository import GdkPixbuf
+
+            loader = GdkPixbuf.PixbufLoader()
+            loader.write(base64.b64decode(uri.split(",", 1)[1]))
+            loader.close()
+            state["frame_pixbuf"] = loader.get_pixbuf()
+            state["frame_key"] = key
+        framing_area.queue_draw()
+
+    def drag_begin(_gesture, _x, _y) -> None:
+        state["drag_origin"] = offsets()
+
+    def drag_update(_gesture, dx: float, dy: float) -> None:
+        origin = state["drag_origin"]
+        geometry = frame_geometry(framing_area.get_width(), framing_area.get_height())
+        if origin is None or geometry is None or geometry[4] is None:
+            return
+        _left, _top, draw_w, draw_h, (_x, _y, side) = geometry
+        spare_w, spare_h = draw_w - side, draw_h - side
+        set_offsets(
+            origin[0] + (dx / spare_w * 100.0 if spare_w > 0.5 else 0.0),
+            origin[1] + (dy / spare_h * 100.0 if spare_h > 0.5 else 0.0),
+        )
+
+    drag = Gtk.GestureDrag()
+    drag.connect("drag-begin", drag_begin)
+    drag.connect("drag-update", drag_update)
+    framing_area.add_controller(drag)
 
     def current_config():
         try:
@@ -305,6 +416,7 @@ def _attach_background_page(window, Gtk, GLib) -> None:
                 file_label.set_text("Nenhum fundo selecionado")
                 _set_dropdown(fit_dropdown, fit_values, "cover")
                 _set_dropdown(position_dropdown, position_values, "center")
+                set_offsets(50.0, 50.0)
                 loop_check.set_active(True)
                 start_spin.set_value(0.0)
                 sync_video_controls(selected_kind())
@@ -313,6 +425,7 @@ def _attach_background_page(window, Gtk, GLib) -> None:
             file_label.set_text(f"{label}: {config.source_path}")
             _set_dropdown(fit_dropdown, fit_values, config.fit)
             _set_dropdown(position_dropdown, position_values, config.position)
+            set_offsets(*config.offsets)
             loop_check.set_active(config.loop)
             start_spin.set_value(config.start_time)
             sync_video_controls(config.kind)
@@ -339,6 +452,7 @@ def _attach_background_page(window, Gtk, GLib) -> None:
             state["preview_uri"] = None
             backend.evaluate(_clear_preview_script())
             preview_label.set_text("Sem prévia de fundo")
+            load_frame(None, None)
             return
 
         source, kind = source_info
@@ -353,11 +467,12 @@ def _attach_background_page(window, Gtk, GLib) -> None:
                     timestamp=timestamp,
                 )
                 state["preview_key"] = key
+            load_frame(str(state["preview_uri"]), key)
             backend.evaluate(
                 _preview_image_script(
                     str(state["preview_uri"]),
                     _dropdown_value(fit_dropdown, fit_values),
-                    _dropdown_value(position_dropdown, position_values),
+                    offsets(),
                 )
             )
             preview_label.set_text(
@@ -446,6 +561,8 @@ def _attach_background_page(window, Gtk, GLib) -> None:
                 position=_dropdown_value(position_dropdown, position_values),
                 loop=loop_check.get_active(),
                 start_time=start_spin.get_value(),
+                offset_x=offsets()[0],
+                offset_y=offsets()[1],
             )
             window._turing_background_selected_source = None
             window._turing_background_selected_kind = None
@@ -484,8 +601,20 @@ def _attach_background_page(window, Gtk, GLib) -> None:
     save_button.connect("clicked", lambda *_args: persist(build=False))
     build_button.connect("clicked", lambda *_args: persist(build=True))
     remove_button.connect("clicked", remove)
-    fit_dropdown.connect("notify::selected", schedule_preview)
-    position_dropdown.connect("notify::selected", schedule_preview)
+    def preset_selected(*_args) -> None:
+        if state["updating"]:
+            return
+        set_offsets(*POSITION_OFFSETS[_dropdown_value(position_dropdown, position_values)])
+        schedule_preview()
+
+    def offsets_changed(*_args) -> None:
+        framing_area.queue_draw()
+        schedule_preview()
+
+    fit_dropdown.connect("notify::selected", offsets_changed)
+    position_dropdown.connect("notify::selected", preset_selected)
+    offset_x_scale.connect("value-changed", offsets_changed)
+    offset_y_scale.connect("value-changed", offsets_changed)
     start_spin.connect("value-changed", schedule_preview)
 
     update_controls()

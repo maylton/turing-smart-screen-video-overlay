@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from library.html_background_video import (
+    background_filter,
     HtmlBackgroundMedia,
     HtmlBackgroundVideo,
     image_pipe_ffmpeg_command,
@@ -238,6 +239,43 @@ class HtmlBackgroundVideoTests(unittest.TestCase):
             )
             with self.assertRaises(ThemeValidationError):
                 load_background_media(manifest, require_file=False)
+
+    def test_free_framing_offsets_drive_crop_and_are_saved(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary) / "theme"
+            manifest = self.make_theme(root)
+            selected = Path(temporary) / "loop.gif"
+            selected.write_bytes(b"gif")
+            updated = save_background_video(
+                manifest, source=selected, fit="cover", position="center",
+                loop=True, start_time=0, offset_x=72.5, offset_y=10,
+            )
+            saved = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+            video = saved["nativeVideoOverlay"]["backgroundVideo"]
+            self.assertEqual((video["offsetX"], video["offsetY"]), (72.5, 10.0))
+            background = load_background_media(updated)
+            self.assertEqual(background.offsets, (72.5, 10.0))
+            graph = background_filter(background, width=480, height=480, fps=24, duration=2)
+            self.assertIn("crop=480:480:(iw-ow)*0.7250:(ih-oh)*0.1000", graph)
+
+    def test_named_position_still_frames_without_offsets(self):
+        background = HtmlBackgroundVideo("assets/source.mp4", fit="cover", position="bottom-right")
+        self.assertEqual(background.offsets, (100.0, 100.0))
+        graph = background_filter(background, width=480, height=480, fps=24, duration=2)
+        self.assertIn("crop=480:480:(iw-ow)*1.0000:(ih-oh)*1.0000", graph)
+        contain = HtmlBackgroundVideo("assets/source.mp4", fit="contain", position="left")
+        self.assertIn("pad=480:480:(ow-iw)*0.0000:(oh-ih)*0.5000", background_filter(contain, width=480, height=480, fps=24, duration=2))
+
+    def test_offsets_out_of_range_are_rejected(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary) / "theme"
+            manifest = self.make_theme(
+                root, background_image={"sourcePath": "assets/a.png", "offsetX": 140},
+            )
+            (root / "assets").mkdir()
+            (root / "assets" / "a.png").write_bytes(b"png")
+            with self.assertRaises(ThemeValidationError):
+                load_background_media(manifest)
 
 
 if __name__ == "__main__":
