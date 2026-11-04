@@ -180,6 +180,7 @@ def run(theme: Path) -> int:
             self.capture_busy = False
             self.sensor_update_busy = False
             self.closing = False
+            self.reloading = False
             self.source_ids = set()
             self.last_overlay = None
             self.diagnostic_pipeline = FramePipeline(pixel_threshold=4)
@@ -214,7 +215,8 @@ def run(theme: Path) -> int:
             return False
 
         def capture(self):
-            if self.closing or self.capture_busy:
+            # While the page reloads, a snapshot would send a blank overlay.
+            if self.closing or self.capture_busy or self.reloading:
                 return not self.closing
             self.capture_busy = True
 
@@ -301,7 +303,7 @@ def run(theme: Path) -> int:
             return False
 
         def update_sensors(self):
-            if self.closing or self.sensor_update_busy:
+            if self.closing or self.sensor_update_busy or self.reloading:
                 return not self.closing
             self.sensor_update_busy = True
 
@@ -350,6 +352,40 @@ def run(theme: Path) -> int:
             except OSError:
                 pass
 
+        def reload_page(self, *_args):
+            """SIGUSR1: reload the saved theme files into the page.
+
+            The serial session and the native video keep running; only the
+            HTML/CSS layer is reloaded, then sensors are applied before the
+            next capture. Changes to the native video itself still need a
+            theme activation.
+            """
+            if self.closing or self.reloading:
+                return True
+            try:
+                fresh = ThemeManifest.load(manifest.root)
+            except Exception as exc:
+                print(f"Theme reload skipped, saved theme is invalid: {exc}", file=sys.stderr, flush=True)
+                return True
+            print("Reloading theme page after save", file=sys.stderr, flush=True)
+            self.reloading = True
+            engine.load(fresh)
+            if hybrid_spec is not None:
+                engine.set_transparent_background()
+                engine.evaluate(overlay_layer_script(OVERLAY_SELECTOR), self._page_reloaded)
+            else:
+                engine.evaluate("true", self._page_reloaded)
+            return True
+
+        def _page_reloaded(self, error=None):
+            self.reloading = False
+            if self.closing:
+                return
+            if error is not None:
+                self.fail(f"HTML layer configuration failed after reload: {error}")
+                return
+            self.update_sensors()
+
         def start_updates(self, error=None):
             if error is not None:
                 self.fail(f"HTML layer configuration failed: {error}")
@@ -379,6 +415,9 @@ def run(theme: Path) -> int:
                 source_id = unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self.stop)
                 if source_id is not None:
                     self.source_ids.add(source_id)
+            source_id = unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self.reload_page)
+            if source_id is not None:
+                self.source_ids.add(source_id)
 
     worker = Worker()
     status = int(worker.run([]))

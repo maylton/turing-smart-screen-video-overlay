@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 import subprocess
 import threading
 import unittest
@@ -63,6 +64,23 @@ def selection() -> RendererSelection:
 
 
 class HtmlWorkerRunnerTests(unittest.TestCase):
+    def test_refresh_signals_a_running_worker(self):
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))
+        process = mock.Mock()
+        process.poll.return_value = None
+        runner.process = process
+        self.assertTrue(runner.refresh())
+        process.send_signal.assert_called_once_with(signal.SIGUSR1)
+
+    def test_refresh_without_a_live_worker(self):
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))
+        self.assertFalse(runner.refresh())
+        exited = mock.Mock()
+        exited.poll.return_value = 1
+        runner.process = exited
+        self.assertFalse(runner.refresh())
+        exited.send_signal.assert_not_called()
+
     def test_unexpected_worker_exit_is_restarted(self):
         runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))
         first = FakeProcess(code=1)

@@ -32,6 +32,7 @@ from library.html_theme_components import (
 )
 from library.html_theme_engine import WebKitGtkBackend, build_snapshot_script
 from library.html_editor_drafts import clear_draft, load_draft, write_draft
+from library.live_display_reload import active_html_theme, request_monitor_reload
 from library.html_editor_zoom import DEFAULT_ZOOM, step_zoom, zoom_label, zoomed_size
 from library.html_theme_round_mask import is_probably_round, round_mask_script
 from library.html_theme_visual_editor import (
@@ -61,6 +62,7 @@ from library.theme_gallery import (
 
 ROOT = Path(__file__).resolve().parent
 THEMES_DIR = ROOT / "res" / "themes"
+CONFIG_FILE = ROOT / "config.yaml"
 BUILD_SCRIPT = ROOT / "html-theme-build-video.py"
 SELECT_TITLE_PREFIX = "turing-editor-select:"
 DRAG_TITLE_PREFIX = "turing-editor-drag:"
@@ -659,6 +661,16 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.build_button.connect("clicked", lambda *_: self._save(True))
         self.build_button.set_sensitive(False)
         actions.attach(self.build_button, 1, 1, 1, 1)
+
+        # Only offered for the theme the monitor shows: after saving, the
+        # monitor reloads the page in place (serial session and video stay up).
+        self.live_display_check = Gtk.CheckButton(
+            label="Atualizar a tela física ao salvar",
+            active=True,
+            tooltip_text="Depois de salvar, a tela física mostra o novo layout em poucos segundos",
+        )
+        self.live_display_check.set_visible(self._is_active_display_theme())
+        actions.attach(self.live_display_check, 0, 2, 2, 1)
 
         self.backend.load()
 
@@ -2102,7 +2114,28 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self._toast("Layout HTML salvo com backup")
         if build:
             self._start_build()
+        elif self.live_display_check.get_visible() and self.live_display_check.get_active():
+            self._update_physical_display()
         return True
+
+    def _is_active_display_theme(self) -> bool:
+        try:
+            in_themes_dir = self.manifest.root.resolve().parent == THEMES_DIR.resolve()
+        except OSError:
+            return False
+        return in_themes_dir and active_html_theme(CONFIG_FILE) == self.manifest.root.name
+
+    def _update_physical_display(self) -> None:
+        try:
+            requested = request_monitor_reload()
+        except Exception as exc:
+            print(f"Could not ask the monitor to reload: {exc}", file=sys.stderr, flush=True)
+            requested = False
+        if requested:
+            self.status_label.set_text("Layout salvo; atualizando a tela física…")
+            self._toast("Atualizando a tela física")
+        else:
+            self._toast("O monitor não está em execução; inicie-o para ver o tema na tela")
 
     def _start_build(self) -> None:
         if self._build_process is not None:

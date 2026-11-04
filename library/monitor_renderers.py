@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -100,6 +101,14 @@ class HtmlWorkerRunner:
             if self.process is process:
                 self.process = None
             raise RuntimeError(f"HTML renderer worker exited during startup ({code})")
+
+    def refresh(self) -> bool:
+        """Ask the worker to reload the saved theme page (SIGUSR1)."""
+        process = self.process
+        if process is None or process.poll() is not None:
+            return False
+        process.send_signal(signal.SIGUSR1)
+        return True
 
     def stop(self) -> None:
         self._stopping.set()

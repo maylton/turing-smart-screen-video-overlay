@@ -28,6 +28,29 @@ class FakeRunner:
         return 0
 
 
+class RefreshableRunner(FakeRunner):
+    def refresh(self):
+        self.events.append("refresh")
+        return True
+
+
+class RendererRefreshTests(unittest.TestCase):
+    def test_refresh_reaches_a_runner_that_supports_it(self):
+        events = []
+        controller = RendererController({"html": lambda _selection: RefreshableRunner(events)})
+        controller.start(type("S", (), {"engine": "html", "theme": "t"})())
+        self.assertTrue(controller.refresh())
+        self.assertEqual(events, ["start", "refresh"])
+
+    def test_refresh_is_false_for_runners_without_it_or_when_idle(self):
+        events = []
+        controller = RendererController({"yaml": lambda _selection: FakeRunner(events)})
+        self.assertFalse(controller.refresh())
+        controller.start(type("S", (), {"engine": "yaml", "theme": "t"})())
+        self.assertFalse(controller.refresh())
+        self.assertEqual(events, ["start"])
+
+
 class RendererLifecycleTests(unittest.TestCase):
     def make_html_theme(self, root: Path, name="html-demo"):
         theme = root / name
