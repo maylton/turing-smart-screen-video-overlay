@@ -2,9 +2,8 @@
 """Ask a running monitor to show a freshly saved HTML theme.
 
 The theme editor saves the layout, then signals the monitor process that
-owns the display. main.py forwards the request to the HTML worker, which
-reloads the theme page in place; the serial session and the native video
-keep running. No serial access happens here.
+owns the display. main.py restarts only its HTML worker, which renders the
+saved files; the display stays connected. No serial access happens here.
 """
 
 from __future__ import annotations

@@ -173,8 +173,8 @@ def on_reload_renderer(_tray_icon, _item) -> None:
 def on_refresh_signal(_signum, _frame=None) -> None:
     """SIGUSR1 from the theme editor: show the theme it just saved.
 
-    The HTML worker reloads its page in place. Restarting the renderer
-    instead would power the display off and race its USB re-enumeration.
+    Only the HTML worker is restarted (see HtmlWorkerRunner.refresh); the
+    monitor keeps the device lock and the display stays connected.
     """
     controller = _RENDERER_CONTROLLER
     if controller is None or not controller.refresh():

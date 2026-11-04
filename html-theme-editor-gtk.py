@@ -663,11 +663,11 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         actions.attach(self.build_button, 1, 1, 1, 1)
 
         # Only offered for the theme the monitor shows: after saving, the
-        # monitor reloads the page in place (serial session and video stay up).
+        # monitor restarts its HTML renderer (about 6 s, display stays on).
         self.live_display_check = Gtk.CheckButton(
             label="Atualizar a tela física ao salvar",
             active=True,
-            tooltip_text="Depois de salvar, a tela física mostra o novo layout em poucos segundos",
+            tooltip_text="Depois de salvar, a tela física pisca e mostra o novo layout em cerca de 6 segundos",
         )
         self.live_display_check.set_visible(self._is_active_display_theme())
         actions.attach(self.live_display_check, 0, 2, 2, 1)
