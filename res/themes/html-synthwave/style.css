@@ -67,6 +67,9 @@ body { font-family: "Audiowide", sans-serif; color: #fff; }
 
 .horizon { position: absolute; left: 0; top: 274px; width: 480px; height: 4px; background: #ff9ef0; box-shadow: 0 0 14px #ff4fd8, 0 0 30px #ff4fd8; }
 
+/* Dark chip behind the date: it sits on the bright top of the sun. */
+.date-chip { position: absolute; left: 146px; top: 130px; width: 188px; height: 24px; border-radius: 12px;
+  background: rgba(13, 2, 33, 0.85); border: 1px solid rgba(255, 79, 216, 0.7); box-shadow: 0 0 10px rgba(255, 79, 216, 0.45); }
 .chips { position: absolute; left: 90px; top: 338px; width: 300px; display: flex; justify-content: space-between; }
 .chip { position: relative; width: 92px; height: 56px; border-radius: 10px; background: rgba(13, 2, 33, 0.82);
   border: 1px solid rgba(255, 79, 216, 0.7); box-shadow: 0 0 10px rgba(255, 79, 216, 0.45); }
@@ -80,7 +83,7 @@ body { font-family: "Audiowide", sans-serif; color: #fff; }
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   filter: drop-shadow(3px 3px 0 #140026) drop-shadow(0 0 10px rgba(255, 79, 216, 0.75));
 }
-#date { left: 140px; top: 132px; width: 200px; height: 20px; font-size: 13px; line-height: 20px; letter-spacing: 0.3em; color: #ffd6fa; text-shadow: 0 0 8px #ff4fd8; }
+#date { left: 140px; top: 132px; width: 200px; height: 20px; font-size: 13px; line-height: 20px; letter-spacing: 0.24em; color: #ffe6fb; text-shadow: 0 0 6px #ff4fd8; }
 .val { top: 343px; width: 92px; height: 30px; font-size: 22px; line-height: 30px; }
 .val-cyan { color: #e6fdff; text-shadow: 0 0 3px #fff, 0 0 8px #00e5ff, 0 0 16px #00e5ff; }
 .val-pink { color: #ffe6fb; text-shadow: 0 0 3px #fff, 0 0 8px #ff4fd8, 0 0 16px #ff4fd8; }

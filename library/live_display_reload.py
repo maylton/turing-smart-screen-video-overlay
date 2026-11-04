@@ -4,6 +4,11 @@
 The theme editor saves the layout, then signals the monitor process that
 owns the display. main.py restarts only its HTML worker, which renders the
 saved files; the display stays connected. No serial access happens here.
+
+A rebuilt native video is different: the display plays its own copy from
+its storage, so the file has to be uploaded again. The editor then asks the
+GTK app that started the monitor to re-apply the active theme (the same
+stop, upload and restart path as "Use theme" in the gallery).
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from pathlib import Path
 from library.runtime import get_runtime_state
 
 LIVE_RELOAD_SIGNAL = signal.SIGUSR1
+THEME_RESYNC_SIGNAL = signal.SIGUSR2
 
 
 def active_html_theme(config_path: Path) -> str:
@@ -70,6 +76,38 @@ def request_monitor_reload(lock_path: Path | None = None) -> bool:
         return False
     try:
         os.kill(pid, LIVE_RELOAD_SIGNAL)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
+def parent_pid(pid: int, proc_root: Path = Path("/proc")) -> int | None:
+    try:
+        status = (Path(proc_root) / str(pid) / "status").read_text(encoding="ascii")
+    except OSError:
+        return None
+    match = re.search(r"(?m)^PPid:\s*(\d+)$", status)
+    value = int(match.group(1)) if match else 0
+    return value if value > 1 else None
+
+
+def request_theme_resync(
+    lock_path: Path | None = None,
+    proc_root: Path = Path("/proc"),
+) -> bool:
+    """Ask the GTK app that owns the monitor to re-apply the active theme.
+
+    False when no monitor runs, or its parent is not an app that handles
+    the request (for example a monitor started from a terminal).
+    """
+    pid = running_monitor_pid(lock_path)
+    if pid is None:
+        return False
+    app_pid = parent_pid(pid, proc_root)
+    if app_pid is None or not catches_signal(app_pid, THEME_RESYNC_SIGNAL, proc_root):
+        return False
+    try:
+        os.kill(app_pid, THEME_RESYNC_SIGNAL)
     except (ProcessLookupError, PermissionError):
         return False
     return True

@@ -1008,6 +1008,35 @@ class RuntimeMixin:
         self.theme_video_builds: set[str] = set()
         super().__init__(application)
         GLib.timeout_add_seconds(2, self.refresh_runtime_status)
+        # The HTML editor sends THEME_RESYNC_SIGNAL after rebuilding the
+        # active theme's native video: the display plays its own copy, so
+        # the new file must be uploaded like "Use theme" does.
+        try:
+            from library.glib_signals import unix_signal_add
+            from library.live_display_reload import THEME_RESYNC_SIGNAL
+
+            unix_signal_add(GLib.PRIORITY_DEFAULT, THEME_RESYNC_SIGNAL, self.on_theme_resync_signal)
+        except Exception as exc:
+            print(f"[theme-video-sync] resync signal unavailable: {exc}", file=sys.stderr, flush=True)
+
+    def on_theme_resync_signal(self) -> bool:
+        GLib.idle_add(self.resync_active_theme_video)
+        return True
+
+    def resync_active_theme_video(self) -> bool:
+        from library.theme_gallery import discover_themes, read_current_renderer_theme
+
+        name = read_current_renderer_theme()
+        record = next(
+            (item for item in discover_themes(only_compatible=False) if item.name == name),
+            None,
+        )
+        if record is None or not record.selectable:
+            self.toast(f"Could not re-apply {name or 'the active theme'} after the video was rebuilt")
+            return False
+        self.toast(f"Video rebuilt for {record.name}; sending it to the display…")
+        self.apply_set_current_theme_from_gallery(record)
+        return False
 
     def update_runtime_status(self):
         state = self.runtime_controller.state()

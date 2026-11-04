@@ -310,6 +310,21 @@ def replace_current_theme_name(
     _atomic_config_write(config_file, new_content)
 
 
+# HTML themes declare a resolution, not a display size. Rev. C 2.1" and 2.8"
+# panels are both round 480x480.
+HTML_DISPLAY_SIZES_BY_RESOLUTION = {
+    (480, 480): ("2.1", "2.8"),
+}
+
+
+def html_theme_display_size(resolution: tuple[int, int] | None, selected_size: str = "") -> str:
+    """Display size for an HTML theme: the selected one when it fits, else the first match."""
+    sizes = HTML_DISPLAY_SIZES_BY_RESOLUTION.get(tuple(resolution or ()), ())
+    if not sizes:
+        return ""
+    return selected_size if selected_size in sizes else sizes[0]
+
+
 def theme_display_size_from_yaml(yaml_file: Path | None) -> str:
     if yaml_file is None:
         return ""
@@ -671,7 +686,8 @@ def discover_themes(
     only_compatible: bool = True,
 ) -> list[ThemeRecord]:
     current_theme = read_current_renderer_theme(config_file)
-    target_display_size = selected_display_size(config_file) if only_compatible else ""
+    selected_size = selected_display_size(config_file)
+    target_display_size = selected_size if only_compatible else ""
     records: list[ThemeRecord] = []
 
     if not themes_dir.is_dir():
@@ -718,6 +734,12 @@ def discover_themes(
                             preview_file = generated_preview
             except ThemeValidationError as exc:
                 manifest_issue = f"Invalid manifest: {exc}"
+
+        if engine == "html" and not display_size:
+            display_size = html_theme_display_size(resolution, selected_size)
+            html_sizes = HTML_DISPLAY_SIZES_BY_RESOLUTION.get(tuple(resolution or ()), ())
+            if only_compatible and target_display_size and html_sizes and target_display_size not in html_sizes:
+                continue
 
         if only_compatible and target_display_size and engine == "yaml" and display_size != target_display_size:
             continue

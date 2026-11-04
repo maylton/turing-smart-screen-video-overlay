@@ -27,6 +27,18 @@ SUPPORTED_POSITIONS = (
     "bottom",
     "bottom-right",
 )
+# Where each named position sits in the free space, in percent (0 = left/top).
+POSITION_OFFSETS = {
+    "center": (50.0, 50.0),
+    "top-left": (0.0, 0.0),
+    "top": (50.0, 0.0),
+    "top-right": (100.0, 0.0),
+    "left": (0.0, 50.0),
+    "right": (100.0, 50.0),
+    "bottom-left": (0.0, 100.0),
+    "bottom": (50.0, 100.0),
+    "bottom-right": (100.0, 100.0),
+}
 SUPPORTED_VIDEO_SUFFIXES = {
     ".mp4",
     ".m4v",
@@ -66,6 +78,10 @@ class HtmlBackgroundMedia:
     position: str = "center"
     loop: bool = True
     start_time: float = 0.0
+    # Free framing: share of the spare width/height left of/above the frame
+    # (0-100). None keeps the named ``position``.
+    offset_x: float | None = None
+    offset_y: float | None = None
 
     def __post_init__(self) -> None:
         inferred = media_kind_for_path(self.source_path)
@@ -77,9 +93,22 @@ class HtmlBackgroundMedia:
                 f"background media kind {kind!r} does not match {Path(self.source_path).suffix}"
             )
         object.__setattr__(self, "kind", kind)
+        for name in ("offset_x", "offset_y"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _offset_value(value, name))
         if kind == "image":
             object.__setattr__(self, "loop", True)
             object.__setattr__(self, "start_time", 0.0)
+
+    @property
+    def offsets(self) -> tuple[float, float]:
+        """Framing in percent of the spare space, (horizontal, vertical)."""
+        default_x, default_y = POSITION_OFFSETS.get(self.position, (50.0, 50.0))
+        return (
+            default_x if self.offset_x is None else self.offset_x,
+            default_y if self.offset_y is None else self.offset_y,
+        )
 
     @property
     def is_video(self) -> bool:
@@ -123,6 +152,23 @@ def _manifest_payload(manifest: ThemeManifest) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ThemeValidationError("manifest.json must contain an object")
     return payload
+
+
+def _offset_value(value: Any, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ThemeValidationError(f"{field} must be a number")
+    number = float(value)
+    if not math.isfinite(number) or not 0.0 <= number <= 100.0:
+        raise ThemeValidationError(f"{field} must be between 0 and 100")
+    return round(number, 2)
+
+
+def _read_offsets(value: dict[str, Any], field: str) -> tuple[float | None, float | None]:
+    offsets = []
+    for key in ("offsetX", "offsetY"):
+        raw = value.get(key)
+        offsets.append(None if raw is None else _offset_value(raw, f"{field}.{key}"))
+    return offsets[0], offsets[1]
 
 
 def _validate_common_settings(value: dict[str, Any], field: str) -> tuple[str, str]:
@@ -170,12 +216,15 @@ def load_background_media(
         raise ThemeValidationError(f"background {kind} source was not found: {source_path}")
 
     fit, position = _validate_common_settings(value, field)
+    offset_x, offset_y = _read_offsets(value, field)
     if kind == "image":
         return HtmlBackgroundMedia(
             source_path=source_path,
             kind="image",
             fit=fit,
             position=position,
+            offset_x=offset_x,
+            offset_y=offset_y,
         )
 
     loop = value.get("loop", True)
@@ -196,6 +245,8 @@ def load_background_media(
         position=position,
         loop=loop,
         start_time=start_time,
+        offset_x=offset_x,
+        offset_y=offset_y,
     )
 
 
@@ -250,8 +301,14 @@ def save_background_media(
     position: str = "center",
     loop: bool = True,
     start_time: float = 0.0,
+    offset_x: float | None = None,
+    offset_y: float | None = None,
 ) -> ThemeManifest:
-    """Copy/replace a background source and persist compilation settings."""
+    """Copy/replace a background source and persist compilation settings.
+
+    ``offset_x``/``offset_y`` (0-100) frame the source freely; without them
+    the named ``position`` is used.
+    """
     if manifest.engine != "html" or manifest.native_video_overlay is None:
         raise ThemeValidationError(
             "background media requires an HTML native-video theme"
@@ -267,6 +324,11 @@ def save_background_media(
     start_time = float(start_time)
     if not math.isfinite(start_time) or start_time < 0:
         raise ThemeValidationError("background video start time is invalid")
+    offsets = {}
+    if offset_x is not None:
+        offsets["offsetX"] = _offset_value(offset_x, "background offset x")
+    if offset_y is not None:
+        offsets["offsetY"] = _offset_value(offset_y, "background offset y")
 
     payload = _manifest_payload(manifest)
     native = payload.get("nativeVideoOverlay")
@@ -320,6 +382,7 @@ def save_background_media(
             "sourcePath": source_path,
             "fit": fit,
             "position": position,
+            **offsets,
         }
     else:
         native["backgroundVideo"] = {
@@ -328,6 +391,7 @@ def save_background_media(
             "position": position,
             "loop": loop,
             "startTime": start_time,
+            **offsets,
         }
     _atomic_write_json(manifest.root / "manifest.json", payload)
     return ThemeManifest.load(manifest.root)
@@ -341,6 +405,8 @@ def save_background_video(
     position: str = "center",
     loop: bool = True,
     start_time: float = 0.0,
+    offset_x: float | None = None,
+    offset_y: float | None = None,
 ) -> ThemeManifest:
     return save_background_media(
         manifest,
@@ -350,6 +416,8 @@ def save_background_video(
         position=position,
         loop=loop,
         start_time=start_time,
+        offset_x=offset_x,
+        offset_y=offset_y,
     )
 
 
@@ -359,6 +427,8 @@ def save_background_image(
     source: Path | None = None,
     fit: str = "cover",
     position: str = "center",
+    offset_x: float | None = None,
+    offset_y: float | None = None,
 ) -> ThemeManifest:
     return save_background_media(
         manifest,
@@ -366,6 +436,8 @@ def save_background_image(
         media_kind="image",
         fit=fit,
         position=position,
+        offset_x=offset_x,
+        offset_y=offset_y,
     )
 
 
@@ -405,25 +477,12 @@ def remove_background_media(manifest: ThemeManifest) -> ThemeManifest:
     return _remove_background_kind(manifest, value.kind)
 
 
-def _anchor_expression(position: str, *, crop: bool) -> tuple[str, str]:
-    horizontal, vertical = {
-        "center": ("center", "center"),
-        "top-left": ("start", "start"),
-        "top": ("center", "start"),
-        "top-right": ("end", "start"),
-        "left": ("start", "center"),
-        "right": ("end", "center"),
-        "bottom-left": ("start", "end"),
-        "bottom": ("center", "end"),
-        "bottom-right": ("end", "end"),
-    }[position]
+def _anchor_expression(background: HtmlBackgroundMedia, *, crop: bool) -> tuple[str, str]:
+    """FFmpeg x/y for crop (cover) or pad (contain) from the framing offsets."""
+    horizontal, vertical = (value / 100.0 for value in background.offsets)
     if crop:
-        x = {"start": "0", "center": "(iw-ow)/2", "end": "iw-ow"}[horizontal]
-        y = {"start": "0", "center": "(ih-oh)/2", "end": "ih-oh"}[vertical]
-    else:
-        x = {"start": "0", "center": "(ow-iw)/2", "end": "ow-iw"}[horizontal]
-        y = {"start": "0", "center": "(oh-ih)/2", "end": "oh-ih"}[vertical]
-    return x, y
+        return f"(iw-ow)*{horizontal:.4f}", f"(ih-oh)*{vertical:.4f}"
+    return f"(ow-iw)*{horizontal:.4f}", f"(oh-ih)*{vertical:.4f}"
 
 
 def background_filter(
@@ -437,13 +496,13 @@ def background_filter(
     if background.fit == "stretch":
         framing = f"scale={width}:{height}"
     elif background.fit == "contain":
-        x, y = _anchor_expression(background.position, crop=False)
+        x, y = _anchor_expression(background, crop=False)
         framing = (
             f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
             f"pad={width}:{height}:{x}:{y}:color=black"
         )
     else:
-        x, y = _anchor_expression(background.position, crop=True)
+        x, y = _anchor_expression(background, crop=True)
         framing = (
             f"scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height}:{x}:{y}"
