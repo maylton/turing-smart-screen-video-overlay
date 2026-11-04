@@ -238,7 +238,10 @@ Cada item de `elements` aceita:
 `gpu-usage`, `ram-usage`, `ram-used`, `cpu-load`, `disk-usage`,
 `weather-temperature`, `weather-condition`, `time`, `date` e as barras
 `cpu-usage-bar`, `gpu-usage-bar`, `ram-usage-bar`, `disk-usage-bar`,
-`cpu-temperature-bar`, `gpu-temperature-bar`. Para outros bindings, deixe
+`cpu-temperature-bar`, `gpu-temperature-bar`. As formas decorativas usam `shape-squircle`,
+`shape-circle`, `shape-square`, `shape-rounded-rectangle`, `shape-pill`,
+`shape-line-horizontal` e `shape-line-vertical`, com binding `$timestamp` e
+formatter `shape`; o editor desenha a geometria. Para outros bindings, deixe
 `componentType` vazio e informe binding, formatter, amostra e tipo.
 
 Formatadores aceitos:
@@ -260,7 +263,15 @@ Formatadores aceitos:
 | `fps` | quadros por segundo |
 | `load` | carga com duas casas |
 | `time` | hora `HH:MM` |
-| `date` | data local baseada no timestamp |
+| `date` | data numérica local, `02/08/2026` |
+| `date-short` | data curta com ano de dois dígitos, `02/08/26` |
+| `date-long` | data por extenso, `2 de agosto de 2026` |
+| `date-full` | dia da semana e data por extenso, `domingo, 2 de agosto de 2026` |
+| `date-compact` | dia e mês abreviado em caixa alta, `02 AGO` |
+| `date-iso` | ano-mês-dia, `2026-08-02` |
+| `date-weekday` | só o dia da semana, `DOMINGO` |
+| `date-month-day` | dia sem zero inicial e mês abreviado, `2 AGO` |
+| `shape` | sem texto; usado pelas formas decorativas |
 | `bar-percent` | preenchimento de barra entre 0 e 100 |
 
 Veja `docs/HTML_OVERLAY_DOCUMENT.md` para o contrato canônico e o
