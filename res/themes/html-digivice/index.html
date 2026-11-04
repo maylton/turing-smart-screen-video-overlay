@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=480,height=480,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Digivice</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="screen" aria-label="Digivice system monitor">
+    <img class="bg" src="digivice-background.png" alt="">
+
+    <!-- The frame's circuit line art (extracted from the background) with a
+         breathing glow and a light sweeping around the screen. -->
+    <img class="circuit circuit-glow" src="circuit-lines.png" alt="">
+    <img class="circuit circuit-sweep" src="circuit-lines.png" alt="">
+
+    <!-- Static LCD layer (part of the background video). -->
+    <div class="lcd">
+      <div class="sys-link"><span class="arrow"></span>SYS_LINK</div>
+      <div class="rule rule-top"></div>
+      <div class="label cpu-label">CPU</div>
+      <div class="label gpu-label">GPU</div>
+      <div class="label ram-label">RAM</div>
+      <div class="rule rule-bottom"></div>
+    </div>
+
+    <!-- Dynamic overlays: direct children of the screen with fixed geometry
+         (style.css), so the visual editor can move them without reflow. -->
+    <div id="sys-time" class="lcd-text big right" data-turing-overlay>00:00</div>
+    <div id="cpu-val" class="lcd-text small value" data-turing-overlay>--%</div>
+    <div id="cpu-temp" class="lcd-text small right" data-turing-overlay>--°C</div>
+    <div id="cpu-bar" class="blocks" data-turing-overlay><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="gpu-val" class="lcd-text small value" data-turing-overlay>--%</div>
+    <div id="gpu-temp" class="lcd-text small right" data-turing-overlay>--°C</div>
+    <div id="gpu-bar" class="blocks" data-turing-overlay><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="ram-val" class="lcd-text small value" data-turing-overlay>--%</div>
+    <div id="ram-gb" class="lcd-text small right" data-turing-overlay>--G</div>
+    <div id="ram-bar" class="blocks" data-turing-overlay><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="status-msg" class="lcd-text big center" data-turing-overlay>DIGI-SOUL: ESTAVEL</div>
+
+    <div class="scanlines"></div>
+  </main>
+  <script src="theme.js"></script>
+</body>
+</html>
