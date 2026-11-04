@@ -16,6 +16,7 @@ from library.html_theme_components import (
     WIDGET_RUNTIME_FILENAME,
     generated_widget_ids,
     get_html_widget_component,
+    next_widget_id,
     render_widget_runtime_script,
     update_generated_widget_block,
 )
@@ -377,6 +378,60 @@ def align_visual_style(
     x, y = positions[alignment]
     return place_visual_style(
         style,
+        x=x,
+        y=y,
+        display_width=display_width,
+        display_height=display_height,
+    )
+
+
+DUPLICATE_OFFSET_PX = 12
+MAX_Z_INDEX = 9999
+
+
+def _duplicate_element_id(style: HtmlVisualElementStyle, existing: set[str]) -> str:
+    if style.component_type:
+        return next_widget_id(style.component_type, existing)
+    for number in range(1, 10_000):
+        candidate = f"{style.element_id}-copy" if number == 1 else f"{style.element_id}-copy-{number}"
+        if candidate not in existing:
+            return candidate
+    raise ThemeValidationError(f"too many copies of #{style.element_id}")
+
+
+def duplicate_visual_style(
+    style: HtmlVisualElementStyle,
+    styles: Iterable[HtmlVisualElementStyle],
+    *,
+    display_width: int,
+    display_height: int,
+    offset: int = DUPLICATE_OFFSET_PX,
+) -> HtmlVisualElementStyle:
+    """Copy a generated element with a new id, offset and on top of the rest.
+
+    Only elements created by the editor can be duplicated: author-written
+    overlays are HTML nodes in index.html that the editor does not create.
+    """
+    if not style.is_generated:
+        raise ThemeValidationError(f"#{style.element_id} is part of the theme HTML and cannot be duplicated")
+    others = list(styles)
+    element_id = _duplicate_element_id(style, {other.element_id for other in others})
+
+    # Prefer down-right; step back up-left when the copy would hit the edge.
+    x, y = style.x + offset, style.y + offset
+    if x + style.width > display_width:
+        x = style.x - offset
+    if y + style.height > display_height:
+        y = style.y - offset
+    top = max((other.z_index for other in others), default=style.z_index)
+    copy = replace(
+        style,
+        element_id=element_id,
+        visible=True,
+        z_index=min(MAX_Z_INDEX, top + 1),
+    )
+    return place_visual_style(
+        copy,
         x=x,
         y=y,
         display_width=display_width,
