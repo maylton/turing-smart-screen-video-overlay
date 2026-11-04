@@ -42,6 +42,12 @@ from library.html_editor_preview_data import (
     format_field_value,
     preset_data,
 )
+from library.html_editor_rulers import (
+    RULER_THICKNESS_PX,
+    cursor_position,
+    ruler_ticks,
+    selection_span,
+)
 from library.html_editor_zoom import DEFAULT_ZOOM, step_zoom, zoom_label, zoomed_size
 from library.html_theme_round_mask import is_probably_round, round_mask_script
 from library.html_theme_visual_editor import (
@@ -81,6 +87,7 @@ NUDGE_TITLE_PREFIX = "turing-editor-nudge:"
 GROUP_TITLE_PREFIX = "turing-editor-group:"
 INSPECTOR_WIDTH = 420
 PREVIEW_FRAME_BORDER_PX = 1
+PREVIEW_REPAINT_DELAYS_MS = (250, 1000)
 DRAFT_DELAY_SECONDS = 2
 DUPLICATE_AUTHOR_ELEMENT_HINT = (
     "Este elemento faz parte do HTML do tema; só elementos adicionados no editor podem ser duplicados"
@@ -112,6 +119,98 @@ def _preview_snapshot(preset: str = "normal", data: dict | None = None) -> Senso
         data=data,
         errors={},
     )
+
+
+class PreviewRuler(Gtk.DrawingArea):
+    """Ruler along one edge of the preview, in theme pixels.
+
+    Shows ticks for the current zoom, a band over the selected element(s)
+    and a marker at the cursor.
+    """
+
+    def __init__(self, orientation: Gtk.Orientation, length: int):
+        super().__init__()
+        self.horizontal = orientation == Gtk.Orientation.HORIZONTAL
+        self.length = int(length)
+        self.zoom = 1.0
+        self.cursor: int | None = None
+        self.span: tuple[int, int] | None = None
+        self.add_css_class("turing-preview-ruler")
+        self.set_draw_func(self._draw)
+        self.set_zoom(1.0)
+
+    def set_zoom(self, zoom: float) -> None:
+        self.zoom = zoom
+        size = round(self.length * zoom)
+        if self.horizontal:
+            self.set_content_width(size)
+            self.set_content_height(RULER_THICKNESS_PX)
+        else:
+            self.set_content_width(RULER_THICKNESS_PX)
+            self.set_content_height(size)
+        self.queue_draw()
+
+    def set_cursor(self, position: int | None) -> None:
+        if position != self.cursor:
+            self.cursor = position
+            self.queue_draw()
+
+    def set_span(self, span: tuple[int, int] | None) -> None:
+        if span != self.span:
+            self.span = span
+            self.queue_draw()
+
+    def _draw(self, _area, cr, width: int, height: int) -> None:
+        color = self.get_color()
+        fg = (color.red, color.green, color.blue)
+        thickness = height if self.horizontal else width
+        cr.set_source_rgba(*fg, 0.06)
+        cr.paint()
+        if self.span is not None:
+            start, end = (round(v * self.zoom) for v in self.span)
+            cr.set_source_rgba(0.4, 0.88, 1.0, 0.28)
+            if self.horizontal:
+                cr.rectangle(start, 0, max(1, end - start), height)
+            else:
+                cr.rectangle(0, start, width, max(1, end - start))
+            cr.fill()
+        cr.set_line_width(1)
+        cr.select_font_face("monospace")
+        cr.set_font_size(9)
+        for tick in ruler_ticks(self.length, self.zoom):
+            offset = round(tick.position * self.zoom) + 0.5
+            mark = thickness * (0.55 if tick.major else 0.25)
+            cr.set_source_rgba(*fg, 0.65 if tick.major else 0.35)
+            if self.horizontal:
+                cr.move_to(offset, height)
+                cr.line_to(offset, height - mark)
+            else:
+                cr.move_to(width, offset)
+                cr.line_to(width - mark, offset)
+            cr.stroke()
+            if tick.label:
+                cr.set_source_rgba(*fg, 0.75)
+                if self.horizontal:
+                    cr.move_to(offset + 2, 9)
+                    cr.show_text(tick.label)
+                else:
+                    cr.save()
+                    cr.translate(9, offset - 2)
+                    cr.rotate(-1.5707963)
+                    cr.move_to(0, 0)
+                    cr.show_text(tick.label)
+                    cr.restore()
+        if self.cursor is not None:
+            offset = round(self.cursor * self.zoom) + 0.5
+            cr.set_source_rgba(1.0, 0.45, 0.3, 0.95)
+            cr.set_line_width(1.5)
+            if self.horizontal:
+                cr.move_to(offset, 0)
+                cr.line_to(offset, height)
+            else:
+                cr.move_to(0, offset)
+                cr.line_to(width, offset)
+            cr.stroke()
 
 
 class PreviewFrame(Gtk.Frame):
@@ -221,6 +320,11 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         zoom_in_button.set_action_name("win.zoom-in")
         zoom_box.append(zoom_in_button)
         header.pack_start(zoom_box)
+        # Theme pixel under the cursor; empty outside the preview.
+        self.cursor_label = Gtk.Label(width_chars=15, xalign=0)
+        self.cursor_label.add_css_class("dim-label")
+        self.cursor_label.add_css_class("numeric")
+        header.pack_start(self.cursor_label)
         import_button = Gtk.Button(label="Importar tema")
         import_button.set_tooltip_text("Importar pacote .theme ou .zip")
         import_button.connect("clicked", self._on_import_theme)
@@ -260,8 +364,22 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.preview_frame = preview_frame
         # The scrolled viewport stretches its child; the center box keeps the
         # frame at the preview size and centered when zoomed out.
+        # Rulers sit beside the frame, offset by its border so 0 lines up
+        # with the first theme pixel.
+        border = PREVIEW_FRAME_BORDER_PX
+        self.top_ruler = PreviewRuler(Gtk.Orientation.HORIZONTAL, manifest.width)
+        self.top_ruler.set_margin_start(border)
+        self.left_ruler = PreviewRuler(Gtk.Orientation.VERTICAL, manifest.height)
+        self.left_ruler.set_margin_top(border)
+        for ruler in (self.top_ruler, self.left_ruler):
+            ruler.set_halign(Gtk.Align.START)
+            ruler.set_valign(Gtk.Align.START)
+        preview_grid = Gtk.Grid()
+        preview_grid.attach(self.top_ruler, 1, 0, 1, 1)
+        preview_grid.attach(self.left_ruler, 0, 1, 1, 1)
+        preview_grid.attach(preview_frame, 1, 1, 1, 1)
         preview_center = Gtk.CenterBox()
-        preview_center.set_center_widget(preview_frame)
+        preview_center.set_center_widget(preview_grid)
         self.preview_scroller.set_child(preview_center)
         self._sync_preview_scroller_size(manifest.width, manifest.height)
 
@@ -281,6 +399,10 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.backend.view.connect("load-changed", self._on_preview_load_changed)
         self.backend.view.connect("notify::title", self._on_preview_title_changed)
         preview_frame.set_child(self.backend.view)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self._on_preview_motion)
+        motion.connect("leave", self._on_preview_leave)
+        self.backend.view.add_controller(motion)
 
         inspector_panel = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -862,6 +984,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         if error is not None:
             self.status_label.set_text(f"Falha ao atualizar a prévia: {error}")
             return
+        self._repaint_preview_when_ready()
         self.backend.evaluate(
             """
             (() => {
@@ -1637,13 +1760,53 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.backend.view.set_size_request(width, height)
         self.preview_frame.set_size_request(width, height)
         self._sync_preview_scroller_size(width, height)
+        self.top_ruler.set_zoom(zoom)
+        self.left_ruler.set_zoom(zoom)
         self.zoom_reset_button.set_label(zoom_label(zoom))
+
+    def _repaint_preview_when_ready(self) -> None:
+        """Make the first preview paint cover the whole page.
+
+        After loading, the software-rendered WebView painted only part of
+        the page; the rest appeared piece by piece as overlays changed, or
+        all at once after a zoom change. A redraw from the page (CSS) does
+        not help, but a zoom change does, so nudge the zoom and restore it,
+        once after load and once after slow images have decoded.
+        """
+        def nudge() -> bool:
+            view = self.backend.view
+            view.set_zoom_level(self.preview_zoom + 0.01)
+            GLib.idle_add(lambda: view.set_zoom_level(self.preview_zoom) or False)
+            return False
+
+        for delay in PREVIEW_REPAINT_DELAYS_MS:
+            GLib.timeout_add(delay, nudge)
+
+    def _on_preview_motion(self, _controller, x: float, y: float) -> None:
+        position = cursor_position(x, y, self.preview_zoom, self.manifest.width, self.manifest.height)
+        self.top_ruler.set_cursor(position[0] if position else None)
+        self.left_ruler.set_cursor(position[1] if position else None)
+        self.cursor_label.set_text(f"X {position[0]} · Y {position[1]}" if position else "")
+
+    def _on_preview_leave(self, *_args) -> None:
+        self.top_ruler.set_cursor(None)
+        self.left_ruler.set_cursor(None)
+        self.cursor_label.set_text("")
+
+    def _sync_ruler_selection(self) -> None:
+        boxes = [
+            (s.x, s.y, s.width, s.height)
+            for s in (self.styles.get(i) for i in self._selection_ids())
+            if s is not None
+        ]
+        self.top_ruler.set_span(selection_span(boxes, "x"))
+        self.left_ruler.set_span(selection_span(boxes, "y"))
 
     def _sync_preview_scroller_size(self, width: int, height: int) -> None:
         # Never claim less than the zoomed preview up to its actual-size
         # footprint, so a tiled or narrow window cannot squeeze it away; past
         # that, the preview scrolls instead of widening the window.
-        border = PREVIEW_FRAME_BORDER_PX * 2
+        border = PREVIEW_FRAME_BORDER_PX * 2 + RULER_THICKNESS_PX
         self.preview_scroller.set_min_content_width(min(width, self.manifest.width) + border)
         self.preview_scroller.set_min_content_height(min(height, self.manifest.height) + border)
 
@@ -1729,6 +1892,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         finally:
             self._updating_controls = False
         self._sync_effect_control_sensitivity()
+        self._sync_ruler_selection()
         if highlight:
             self._highlight_selected()
 
@@ -1809,6 +1973,7 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.group_ids = [i for i in dict.fromkeys(ids) if i in self.styles and i != primary]
         everyone = json.dumps(([primary] if self.group_ids else []) + self.group_ids, ensure_ascii=False)
         self.backend.evaluate(f"window.__turingEditorSetGroup?.({everyone});")
+        self._sync_ruler_selection()
         count = len(self.group_ids) + 1
         self.group_label.set_text(
             f"{count} elementos selecionados · Shift+clique adiciona ou remove, Esc limpa"
