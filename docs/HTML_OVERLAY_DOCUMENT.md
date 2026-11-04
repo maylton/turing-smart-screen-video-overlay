@@ -40,7 +40,7 @@ dimensions must match the HTML theme manifest.
 {
   "format": "turing-html-overlays",
   "formatVersion": 1,
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "display": {
     "width": 480,
     "height": 480
@@ -73,7 +73,17 @@ dimensions must match the HTML theme manifest.
       "outlineWidth": 0,
       "outlineColor": "#000000",
       "glowRadius": 0,
-      "glowColor": "#ffffff"
+      "glowColor": "#ffffff",
+      "fontFamily": "",
+      "letterSpacing": 0,
+      "textTransform": "none",
+      "glowStyle": "soft",
+      "shadowX": 0,
+      "shadowY": 0,
+      "shadowBlur": 0,
+      "shadowColor": "#000000",
+      "gradientMidColor": "",
+      "barStyle": "solid"
     }
   ]
 }
@@ -84,6 +94,23 @@ the element/style fields understood by the editor. Schema 5 stores `binding`,
 `formatter`, and `sample` explicitly. Catalog components still provide safe
 defaults, while converted themes may use validated snapshot paths without
 adding a new hard-coded component for every legacy YAML metric.
+
+Schema 6 adds fonts and richer effects. They apply only to elements with
+`effectsManaged: true`, and documents from schemas 1–5 load with the neutral
+defaults shown above:
+
+- `fontFamily`: empty (the theme's font) or a key from `res/fonts/catalog.json`.
+  Saving copies the font files and their license into the theme's `fonts/`.
+- `letterSpacing`: −4 to 24 px. `textTransform`: `none` or `uppercase`.
+- `glowStyle`: `soft` (one halo), `neon` (white core plus three widening halos)
+  or `bloom` (three halos up to twice the radius).
+- `shadowX`, `shadowY` (−20 to 20 px), `shadowBlur` (0–40 px) and
+  `shadowColor`: an offset shadow drawn under the glow.
+- `gradientMidColor`: optional middle stop, empty for a two-color gradient.
+- `barStyle` (bars): `solid`, `striped`, `segmented` (LED blocks) or `glossy`.
+
+Gradient text uses `filter: drop-shadow()` for its shadow and glow, because a
+`text-shadow` would show through the transparent glyph fill.
 
 `generatedWidget` controls ownership of the HTML node. When true, the editor
 derives the local widget markup from this document. Existing authored HTML

@@ -30,6 +30,17 @@ class VisualStylePreset:
     outline_color: str = "#000000"
     glow_radius: int = 0
     glow_color: str = "#ffffff"
+    # Schema 6 properties (fonts and rich effects).
+    font_family: str = ""
+    letter_spacing: int = 0
+    text_transform: str = "none"
+    glow_style: str = "soft"
+    shadow_x: int = 0
+    shadow_y: int = 0
+    shadow_blur: int = 0
+    shadow_color: str = "#000000"
+    gradient_mid_color: str = ""
+    bar_style: str = "solid"
 
 
 _TEXT_PRESETS = (
@@ -241,6 +252,165 @@ _BAR_PRESETS = (
 )
 
 
+# Presets built on fonts and rich effects. Common display techniques:
+# neon tubes are a thin white core under widening colored halos; chrome and
+# gold are three-stop vertical gradients with a dark hard shadow; pixel and
+# LCD styles keep blur at zero; condensed display faces read best for large
+# numbers on a 480 px screen.
+_RICH_TEXT_PRESETS = (
+    VisualStylePreset(
+        key="text-neon-tube", label="Neon · Tubo rosa", kind="text",
+        description="Letreiro neon: núcleo branco e halos rosa em camadas (Audiowide).",
+        font_size=40, font_weight=400, color="#ffe6f6", font_family="audiowide",
+        glow_radius=24, glow_color="#ff3dbb", glow_style="neon", letter_spacing=2,
+    ),
+    VisualStylePreset(
+        key="text-neon-blue", label="Neon · Tubo azul", kind="text",
+        description="Neon frio com núcleo branco e halo ciano (Orbitron).",
+        font_size=40, font_weight=700, color="#e6fbff", font_family="orbitron",
+        glow_radius=22, glow_color="#18c8ff", glow_style="neon", letter_spacing=1,
+    ),
+    VisualStylePreset(
+        key="text-synthwave-chrome", label="Synthwave · Cromado", kind="text",
+        description="Degradê vertical de 3 cores com sombra dura roxa (Orbitron, caixa alta).",
+        font_size=44, font_weight=900, color="#ffffff", font_family="orbitron",
+        text_transform="uppercase", letter_spacing=2,
+        gradient_enabled=True, gradient_direction="vertical",
+        gradient_start_color="#ffe7ff", gradient_mid_color="#ff4fd8", gradient_end_color="#3d1cff",
+        shadow_x=3, shadow_y=3, shadow_blur=0, shadow_color="#140026",
+        glow_radius=10, glow_color="#ff4fd8", glow_style="soft",
+    ),
+    VisualStylePreset(
+        key="text-gold-metal", label="Metal · Ouro", kind="text",
+        description="Ouro escovado: degradê claro-escuro-claro e sombra marrom (Exo 2).",
+        font_size=44, font_weight=800, color="#ffd76a", font_family="exo-2",
+        gradient_enabled=True, gradient_direction="vertical",
+        gradient_start_color="#fff3c4", gradient_mid_color="#c9901c", gradient_end_color="#ffe28a",
+        shadow_x=0, shadow_y=2, shadow_blur=2, shadow_color="#3b2300", outline_width=1, outline_color="#4a2c00",
+    ),
+    VisualStylePreset(
+        key="text-pixel-arcade", label="Pixel · Arcade 8-bit", kind="text",
+        description="Fonte pixel com sombra dura deslocada, sem desfoque (Press Start 2P).",
+        font_size=22, font_weight=400, color="#ffe14d", font_family="press-start-2p",
+        text_transform="uppercase", shadow_x=3, shadow_y=3, shadow_blur=0, shadow_color="#c0203a",
+    ),
+    VisualStylePreset(
+        key="text-lcd-classic", label="LCD · Cristal líquido", kind="text",
+        description="Segmentos escuros de LCD com sombra clara sutil (VT323).",
+        font_size=36, font_weight=400, color="#1a1c1d", font_family="vt323", letter_spacing=1,
+        shadow_x=1, shadow_y=1, shadow_blur=0, shadow_color="#c9d1d6",
+    ),
+    VisualStylePreset(
+        key="text-terminal", label="Terminal · Fósforo verde", kind="text",
+        description="Monitor CRT: verde fósforo com brilho bloom (Share Tech Mono).",
+        font_size=28, font_weight=400, color="#7dff9a", font_family="share-tech-mono",
+        glow_radius=10, glow_color="#18ff5a", glow_style="bloom",
+    ),
+    VisualStylePreset(
+        key="text-hud", label="HUD · Tático", kind="text",
+        description="Rótulo de HUD em caixa alta e espaçado, com contorno fino (Rajdhani).",
+        font_size=26, font_weight=700, color="#9ff3ff", font_family="rajdhani",
+        text_transform="uppercase", letter_spacing=3, outline_width=1, outline_color="#02161d",
+        glow_radius=6, glow_color="#00d5ff",
+    ),
+    VisualStylePreset(
+        key="text-big-numbers", label="Números · Condensado", kind="text",
+        description="Números altos e condensados com sombra suave para leitura à distância (Bebas Neue).",
+        font_size=72, font_weight=400, color="#ffffff", font_family="bebas-neue", letter_spacing=1,
+        shadow_x=0, shadow_y=4, shadow_blur=10, shadow_color="#000000",
+    ),
+    VisualStylePreset(
+        key="text-fire", label="Fogo · Brasa", kind="text",
+        description="Degradê amarelo-laranja-vermelho com halo bloom quente (Oxanium).",
+        font_size=42, font_weight=800, color="#ffb02e", font_family="oxanium",
+        gradient_enabled=True, gradient_direction="vertical",
+        gradient_start_color="#fff27a", gradient_mid_color="#ff8a1f", gradient_end_color="#e0261b",
+        glow_radius=14, glow_color="#ff5a1f", glow_style="bloom",
+    ),
+    VisualStylePreset(
+        key="text-ice", label="Gelo · Cristal", kind="text",
+        description="Branco gelado com halo azul largo e desfoque suave (Michroma).",
+        font_size=34, font_weight=400, color="#eefcff", font_family="michroma", letter_spacing=1,
+        glow_radius=16, glow_color="#7fd8ff", glow_style="bloom",
+        shadow_x=0, shadow_y=0, shadow_blur=2, shadow_color="#ffffff",
+    ),
+    VisualStylePreset(
+        key="text-racing", label="Racing · Velocidade", kind="text",
+        description="Degradê vermelho-laranja diagonal, caixa alta e sombra dura (Chakra Petch).",
+        font_size=36, font_weight=700, color="#ff5c2b", font_family="chakra-petch",
+        text_transform="uppercase", letter_spacing=1,
+        gradient_enabled=True, gradient_direction="diagonal",
+        gradient_start_color="#ffcf3f", gradient_end_color="#ff2d3c",
+        shadow_x=2, shadow_y=2, shadow_blur=0, shadow_color="#1a0000",
+    ),
+    VisualStylePreset(
+        key="text-clean-ui", label="Interface · Limpa", kind="text",
+        description="Sans moderna com sombra difusa discreta, para dados densos (Inter).",
+        font_size=26, font_weight=600, color="#f2f5f8", font_family="inter",
+        shadow_x=0, shadow_y=1, shadow_blur=4, shadow_color="#000000",
+    ),
+    VisualStylePreset(
+        key="text-mono-data", label="Dados · Monoespaçado", kind="text",
+        description="Dígitos de largura fixa que não tremem ao mudar (JetBrains Mono).",
+        font_size=26, font_weight=700, color="#e6f1ff", font_family="jetbrains-mono",
+        shadow_x=0, shadow_y=1, shadow_blur=3, shadow_color="#000000",
+    ),
+)
+
+_RICH_BAR_PRESETS = (
+    VisualStylePreset(
+        key="bar-neon-striped", label="Neon · Listrada", kind="bar",
+        description="Listras diagonais sobre degradê ciano-violeta, com halo neon.",
+        height=14, color="#22d3ee", bar_style="striped",
+        gradient_enabled=True, gradient_start_color="#22d3ee", gradient_end_color="#a855f7",
+        glow_radius=12, glow_color="#22d3ee", glow_style="neon",
+    ),
+    VisualStylePreset(
+        key="bar-led-segments", label="LED · Segmentada verde", kind="bar",
+        description="Blocos de LED separados, como um VU meter.",
+        height=14, color="#39ff7a", bar_style="segmented", glow_radius=6, glow_color="#39ff7a",
+    ),
+    VisualStylePreset(
+        key="bar-thermal-segments", label="Térmica · Segmentada", kind="bar",
+        description="Segmentos do verde ao vermelho passando pelo amarelo.",
+        height=14, color="#22c55e", bar_style="segmented",
+        gradient_enabled=True, gradient_start_color="#22c55e", gradient_mid_color="#facc15", gradient_end_color="#ef4444",
+    ),
+    VisualStylePreset(
+        key="bar-candy-gloss", label="Gloss · Doce", kind="bar",
+        description="Brilho de vidro na metade superior sobre degradê rosa-roxo.",
+        height=16, color="#ec4899", bar_style="glossy",
+        gradient_enabled=True, gradient_start_color="#f472b6", gradient_end_color="#8b5cf6",
+        shadow_x=0, shadow_y=2, shadow_blur=6, shadow_color="#000000",
+    ),
+    VisualStylePreset(
+        key="bar-chrome", label="Metal · Cromada", kind="bar",
+        description="Cromado de 3 cores com reflexo brilhante.",
+        height=14, color="#cbd5e1", bar_style="glossy", gradient_direction="vertical",
+        gradient_enabled=True, gradient_start_color="#f8fafc", gradient_mid_color="#64748b", gradient_end_color="#e2e8f0",
+    ),
+    VisualStylePreset(
+        key="bar-warning-stripes", label="Alerta · Listras de aviso", kind="bar",
+        description="Amarelo com listras diagonais, para destacar uso alto.",
+        height=14, color="#facc15", bar_style="striped", outline_width=1, outline_color="#1f1300",
+    ),
+    VisualStylePreset(
+        key="bar-pixel-blocks", label="Pixel · Blocos 8-bit", kind="bar",
+        description="Segmentos chapados com sombra dura, sem desfoque.",
+        height=16, color="#ffe14d", bar_style="segmented",
+        shadow_x=3, shadow_y=3, shadow_blur=0, shadow_color="#c0203a",
+    ),
+    VisualStylePreset(
+        key="bar-aurora-bloom", label="Aurora · Bloom", kind="bar",
+        description="Degradê verde-azul-violeta com halo bloom largo.",
+        height=12, color="#34d399", gradient_enabled=True,
+        gradient_start_color="#34d399", gradient_mid_color="#38bdf8", gradient_end_color="#a78bfa",
+        glow_radius=12, glow_color="#38bdf8", glow_style="bloom",
+    ),
+)
+
+_TEXT_PRESETS = _TEXT_PRESETS + _RICH_TEXT_PRESETS
+_BAR_PRESETS = _BAR_PRESETS + _RICH_BAR_PRESETS
 _ALL_PRESETS = _TEXT_PRESETS + _BAR_PRESETS
 _PRESETS_BY_KEY = {preset.key: preset for preset in _ALL_PRESETS}
 _RENDERER_INSTALLED = False
@@ -296,6 +466,16 @@ def apply_visual_style_preset(
         outline_color=value.outline_color,
         glow_radius=value.glow_radius,
         glow_color=value.glow_color,
+        font_family=value.font_family,
+        letter_spacing=value.letter_spacing,
+        text_transform=value.text_transform,
+        glow_style=value.glow_style,
+        shadow_x=value.shadow_x,
+        shadow_y=value.shadow_y,
+        shadow_blur=value.shadow_blur,
+        shadow_color=value.shadow_color,
+        gradient_mid_color=value.gradient_mid_color,
+        bar_style=value.bar_style,
     )
     return updated.validated(manifest)
 

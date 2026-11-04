@@ -48,6 +48,7 @@ from library.html_editor_rulers import (
     ruler_ticks,
     selection_span,
 )
+from library import html_theme_rich_effects as rich
 from library.html_editor_zoom import DEFAULT_ZOOM, step_zoom, zoom_label, zoomed_size
 from library.html_theme_round_mask import is_probably_round, round_mask_script
 from library.html_theme_visual_editor import (
@@ -610,6 +611,23 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.font_weight_dropdown.connect("notify::selected", self._on_style_changed)
         style_page.append(self._field("Peso da fonte", self.font_weight_dropdown))
 
+        # Fonts bundled with the app (res/fonts); saving copies the ones in
+        # use into the theme so it stays self-contained.
+        self.font_family_values = ("",) + rich.font_keys()
+        self.font_family_dropdown = Gtk.DropDown.new_from_strings(
+            ("Do tema",) + tuple(f"{font.label} · {font.category}" for font in rich.theme_fonts())
+        )
+        self.font_family_dropdown.connect("notify::selected", self._on_effect_changed)
+        style_page.append(self._field("Fonte", self.font_family_dropdown))
+
+        self.letter_spacing_spin = self._spin(-4, 24)
+        self.letter_spacing_spin.connect("value-changed", self._on_effect_changed)
+        style_page.append(self._field("Espaçamento entre letras (px)", self.letter_spacing_spin))
+
+        self.uppercase_check = Gtk.CheckButton(label="Caixa alta")
+        self.uppercase_check.connect("toggled", self._on_effect_changed)
+        style_page.append(self.uppercase_check)
+
         self.text_align_values = ("inherit", "left", "center", "right")
         self.text_align_dropdown = Gtk.DropDown.new_from_strings(
             ("Do tema", "Esquerda", "Centro", "Direita")
@@ -669,6 +687,13 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self._field("Cor final do degradê", self.gradient_end_entry)
         )
 
+        self.gradient_mid_entry = Gtk.Entry(placeholder_text="vazio = 2 cores")
+        self.gradient_mid_entry.set_max_length(7)
+        self.gradient_mid_entry.connect("changed", self._on_effect_changed)
+        effects_page.append(
+            self._field("Cor do meio do degradê (opcional)", self.gradient_mid_entry)
+        )
+
         self.gradient_direction_values = ("horizontal", "vertical", "diagonal")
         self.gradient_direction_dropdown = Gtk.DropDown.new_from_strings(
             ("Horizontal", "Vertical", "Diagonal")
@@ -704,6 +729,33 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.glow_color_entry.set_max_length(7)
         self.glow_color_entry.connect("changed", self._on_effect_changed)
         effects_page.append(self._field("Cor do brilho", self.glow_color_entry))
+
+        self.glow_style_values = rich.GLOW_STYLES
+        self.glow_style_dropdown = Gtk.DropDown.new_from_strings(rich.GLOW_STYLE_LABELS)
+        self.glow_style_dropdown.connect("notify::selected", self._on_effect_changed)
+        effects_page.append(self._field("Estilo do brilho", self.glow_style_dropdown))
+
+        shadow = Gtk.Grid(column_spacing=6, row_spacing=4)
+        self.shadow_x_spin = self._spin(-20, 20)
+        self.shadow_y_spin = self._spin(-20, 20)
+        self.shadow_blur_spin = self._spin(0, 40)
+        for column, (label, spin) in enumerate(
+            (("X", self.shadow_x_spin), ("Y", self.shadow_y_spin), ("Desfoque", self.shadow_blur_spin))
+        ):
+            spin.connect("value-changed", self._on_effect_changed)
+            shadow.attach(Gtk.Label(label=label, xalign=0), column, 0, 1, 1)
+            shadow.attach(spin, column, 1, 1, 1)
+        effects_page.append(self._field("Sombra (px)", shadow))
+
+        self.shadow_color_entry = Gtk.Entry(placeholder_text="#000000")
+        self.shadow_color_entry.set_max_length(7)
+        self.shadow_color_entry.connect("changed", self._on_effect_changed)
+        effects_page.append(self._field("Cor da sombra", self.shadow_color_entry))
+
+        self.bar_style_values = rich.BAR_STYLES
+        self.bar_style_dropdown = Gtk.DropDown.new_from_strings(rich.BAR_STYLE_LABELS)
+        self.bar_style_dropdown.connect("notify::selected", self._on_effect_changed)
+        effects_page.append(self._field("Estilo da barra", self.bar_style_dropdown))
 
         video = manifest.native_video_overlay
         video_summary = Gtk.Label(
@@ -1872,6 +1924,20 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             self.outline_color_entry.set_text(style.outline_color)
             self.glow_radius_spin.set_value(style.glow_radius)
             self.glow_color_entry.set_text(style.glow_color)
+            self.font_family_dropdown.set_selected(
+                self.font_family_values.index(style.font_family)
+                if style.font_family in self.font_family_values
+                else 0
+            )
+            self.letter_spacing_spin.set_value(style.letter_spacing)
+            self.uppercase_check.set_active(style.text_transform == "uppercase")
+            self.gradient_mid_entry.set_text(style.gradient_mid_color)
+            self.glow_style_dropdown.set_selected(self.glow_style_values.index(style.glow_style))
+            self.shadow_x_spin.set_value(style.shadow_x)
+            self.shadow_y_spin.set_value(style.shadow_y)
+            self.shadow_blur_spin.set_value(style.shadow_blur)
+            self.shadow_color_entry.set_text(style.shadow_color)
+            self.bar_style_dropdown.set_selected(self.bar_style_values.index(style.bar_style))
             self.font_weight_dropdown.set_selected(
                 self.font_weight_values.index(style.font_weight)
             )
@@ -2168,6 +2234,9 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
     def _apply_style_to_preview(self, style: HtmlVisualElementStyle) -> None:
         payload_data = style.as_dict()
         payload = json.dumps(payload_data, ensure_ascii=False)
+        rich_payload = json.dumps(rich.preview_payload(style), ensure_ascii=False)
+        if style.effects_managed and style.font_family:
+            self._sync_preview_fonts()
 
         def finished(error: Exception | None) -> None:
             if error is None:
@@ -2300,10 +2369,56 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
                   }}
                 }}
               }}
+              // Fonts and rich effects: the same properties the saved CSS uses.
+              const rich = {rich_payload};
+              const fillTarget = element.querySelector('[data-turing-bar-fill]') || element;
+              const groups = {{
+                element: [element],
+                text: [element, ...element.querySelectorAll('*')],
+                fill: [fillTarget]
+              }};
+              for (const [group, properties] of Object.entries(rich))
+                for (const target of groups[group] || [])
+                  for (const [name, property] of Object.entries(properties))
+                    target.style.setProperty(name, property, 'important');
+              if (!Object.keys(rich).length)
+                for (const target of groups.text)
+                  ['font-family', 'letter-spacing', 'text-transform'].forEach(name => target.style.removeProperty(name));
               window.__turingEditorRefreshSelection?.();
             }})()
             """,
             finished,
+        )
+
+    def _sync_preview_fonts(self) -> None:
+        """Copy the fonts in use into the theme and declare them in the preview."""
+        keys = rich.used_font_keys(self.styles.values())
+        try:
+            rich.ensure_theme_fonts(self.manifest.root, keys)
+        except OSError as exc:
+            self.status_label.set_text(f"Não foi possível copiar a fonte para o tema: {exc}")
+            return
+        # The theme CSP blocks <style> elements created by script; the
+        # FontFace API loads through font-src 'self' instead.
+        faces = json.dumps([
+            {"family": font.family, "url": f"{rich.THEME_FONTS_DIR}/{face.file}", "weight": face.weight}
+            for font in map(rich.get_theme_font, sorted(keys)) if font is not None
+            for face in font.faces
+        ])
+        self.backend.evaluate(
+            f"""
+            (() => {{
+              window.__turingEditorFonts = window.__turingEditorFonts || new Set();
+              for (const face of {faces}) {{
+                const key = face.family + '|' + face.weight;
+                if (window.__turingEditorFonts.has(key)) continue;
+                window.__turingEditorFonts.add(key);
+                const font = new FontFace(face.family, `url("${{face.url}}")`, {{weight: face.weight}});
+                document.fonts.add(font);
+                font.load().then(() => window.__turingEditorRefreshSelection?.()).catch(() => null);
+              }}
+            }})();
+            """
         )
 
     def _on_spin_text_changed(self, spin: Gtk.SpinButton) -> None:
@@ -2332,6 +2447,12 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
         self.glow_color_entry.set_sensitive(
             self.glow_radius_spin.get_value_as_int() > 0
         )
+        self.glow_style_dropdown.set_sensitive(self.glow_radius_spin.get_value_as_int() > 0)
+        self.gradient_mid_entry.set_sensitive(gradient_enabled)
+        is_bar = self.element_kind_values[self.element_kind_dropdown.get_selected()] == "bar"
+        self.bar_style_dropdown.set_sensitive(is_bar)
+        for widget in (self.font_family_dropdown, self.letter_spacing_spin, self.uppercase_check):
+            widget.set_sensitive(not is_bar)
 
     def _on_effect_changed(self, *_args) -> None:
         self._sync_effect_control_sensitivity()
@@ -2344,9 +2465,17 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             "gradient_end_color": self.gradient_end_entry,
             "outline_color": self.outline_color_entry,
             "glow_color": self.glow_color_entry,
+            "shadow_color": self.shadow_color_entry,
         }
         colors: dict[str, str] = {}
         valid = True
+        mid = self.gradient_mid_entry.get_text().strip().lower()
+        if not mid or re.fullmatch(r"#[0-9a-f]{6}", mid):
+            self.gradient_mid_entry.remove_css_class("error")
+            colors["gradient_mid_color"] = mid
+        else:
+            self.gradient_mid_entry.add_css_class("error")
+            valid = False
         for name, entry in entries.items():
             color = entry.get_text().strip().lower()
             if re.fullmatch(r"#[0-9a-f]{6}", color):
@@ -2403,6 +2532,16 @@ class HtmlThemeEditorWindow(Adw.ApplicationWindow):
             outline_color=colors["outline_color"],
             glow_radius=self.glow_radius_spin.get_value_as_int(),
             glow_color=colors["glow_color"],
+            font_family=self.font_family_values[self.font_family_dropdown.get_selected()],
+            letter_spacing=self.letter_spacing_spin.get_value_as_int(),
+            text_transform="uppercase" if self.uppercase_check.get_active() else "none",
+            glow_style=self.glow_style_values[self.glow_style_dropdown.get_selected()],
+            shadow_x=self.shadow_x_spin.get_value_as_int(),
+            shadow_y=self.shadow_y_spin.get_value_as_int(),
+            shadow_blur=self.shadow_blur_spin.get_value_as_int(),
+            shadow_color=colors["shadow_color"],
+            gradient_mid_color=colors["gradient_mid_color"],
+            bar_style=self.bar_style_values[self.bar_style_dropdown.get_selected()],
         )
         if self.styles.get(element_id) == style:
             self.save_button.set_sensitive(True)
