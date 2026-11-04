@@ -1,6 +1,6 @@
-/* Muralha: a great stone wall at dusk with drifting steam, embers and
-   torches; readouts are carved into the stone. The page is translucent so
-   an image chosen in the editor (Fundo) shows through. Font: Cinzel (SIL OFL 1.1). */
+/* Muralha: embers rising over the art, with the clock and readouts on
+   dark plates. The page is translucent so an image or GIF chosen in the
+   editor (Fundo) shows through. Font: Cinzel (SIL OFL 1.1). */
 @font-face { font-family: "Cinzel"; src: url("fonts/cinzel/cinzel-400-900.woff2") format("woff2"); font-weight: 400 900; font-display: block; }
 
 * { box-sizing: border-box; }
@@ -9,69 +9,48 @@ body { font-family: "Cinzel", serif; color: #f3e6d0; }
 .screen { position: relative; width: 480px; height: 480px; overflow: hidden; border-radius: 50%; }
 
 .sky { position: absolute; inset: 0; border-radius: 50%;
-  background: radial-gradient(circle at 50% 34%, rgba(60, 20, 10, 0) 0%, rgba(60, 20, 10, 0.15) 40%, rgba(30, 8, 4, 0.7) 78%, rgba(15, 4, 2, 0.95) 100%),
-    linear-gradient(180deg, rgba(120, 30, 15, 0.35), rgba(120, 30, 15, 0) 40%); }
+  background: radial-gradient(circle at 50% 50%, rgba(20, 8, 4, 0) 0%, rgba(20, 8, 4, 0) 60%, rgba(15, 5, 2, 0.55) 85%, rgba(10, 3, 1, 0.9) 100%); }
 
-/* Steam rises from behind the wall and fades; staggered 2 s cycles. */
-.steam { position: absolute; width: 90px; height: 90px; border-radius: 50%; opacity: 0;
-  background: radial-gradient(circle, rgba(235, 228, 220, 0.4), rgba(235, 228, 220, 0) 70%); filter: blur(9px);
-  animation: steam 2s ease-out infinite; }
-@keyframes steam {
-  0% { transform: translateY(40px) scale(0.6); opacity: 0; }
-  30% { opacity: 0.7; }
-  100% { transform: translateY(-90px) scale(1.5); opacity: 0; }
-}
-.steam.p0 { left: 70px; top: 250px; animation-delay: 0.000s; }
-.steam.p1 { left: 150px; top: 270px; animation-delay: -0.333s; }
-.steam.p2 { left: 230px; top: 260px; animation-delay: -0.667s; }
-.steam.p3 { left: 300px; top: 268px; animation-delay: -1.000s; }
-.steam.p4 { left: 380px; top: 250px; animation-delay: -1.333s; }
-.steam.p5 { left: 190px; top: 285px; animation-delay: -1.667s; }
 .embers { position: absolute; inset: 0; width: 480px; height: 480px; }
 .ember { fill: #ffb067; opacity: 0; filter: drop-shadow(0 0 3px #ff5a1a); animation: ember 2s linear infinite; }
 @keyframes ember { 0% { transform: translate(0, 0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(14px, -110px); opacity: 0; } }
 .ember:nth-child(1) { animation-delay: 0.000s; }
-.ember:nth-child(2) { animation-delay: -0.111s; }
-.ember:nth-child(3) { animation-delay: -0.222s; }
-.ember:nth-child(4) { animation-delay: -0.333s; }
-.ember:nth-child(5) { animation-delay: -0.444s; }
-.ember:nth-child(6) { animation-delay: -0.556s; }
-.ember:nth-child(7) { animation-delay: -0.667s; }
-.ember:nth-child(8) { animation-delay: -0.778s; }
-.ember:nth-child(9) { animation-delay: -0.889s; }
-.ember:nth-child(10) { animation-delay: -1.000s; }
-.ember:nth-child(11) { animation-delay: -1.111s; }
-.ember:nth-child(12) { animation-delay: -1.222s; }
-.ember:nth-child(13) { animation-delay: -1.333s; }
-.ember:nth-child(14) { animation-delay: -1.444s; }
-.ember:nth-child(15) { animation-delay: -1.556s; }
-.ember:nth-child(16) { animation-delay: -1.667s; }
-.ember:nth-child(17) { animation-delay: -1.778s; }
-.ember:nth-child(18) { animation-delay: -1.889s; }
+.ember:nth-child(2) { animation-delay: -0.077s; }
+.ember:nth-child(3) { animation-delay: -0.154s; }
+.ember:nth-child(4) { animation-delay: -0.231s; }
+.ember:nth-child(5) { animation-delay: -0.308s; }
+.ember:nth-child(6) { animation-delay: -0.385s; }
+.ember:nth-child(7) { animation-delay: -0.462s; }
+.ember:nth-child(8) { animation-delay: -0.538s; }
+.ember:nth-child(9) { animation-delay: -0.615s; }
+.ember:nth-child(10) { animation-delay: -0.692s; }
+.ember:nth-child(11) { animation-delay: -0.769s; }
+.ember:nth-child(12) { animation-delay: -0.846s; }
+.ember:nth-child(13) { animation-delay: -0.923s; }
+.ember:nth-child(14) { animation-delay: -1.000s; }
+.ember:nth-child(15) { animation-delay: -1.077s; }
+.ember:nth-child(16) { animation-delay: -1.154s; }
+.ember:nth-child(17) { animation-delay: -1.231s; }
+.ember:nth-child(18) { animation-delay: -1.308s; }
+.ember:nth-child(19) { animation-delay: -1.385s; }
+.ember:nth-child(20) { animation-delay: -1.462s; }
+.ember:nth-child(21) { animation-delay: -1.538s; }
+.ember:nth-child(22) { animation-delay: -1.615s; }
+.ember:nth-child(23) { animation-delay: -1.692s; }
+.ember:nth-child(24) { animation-delay: -1.769s; }
+.ember:nth-child(25) { animation-delay: -1.846s; }
+.ember:nth-child(26) { animation-delay: -1.923s; }
 
-.wall { position: absolute; inset: 0; width: 480px; height: 480px; filter: drop-shadow(0 -4px 10px rgba(0, 0, 0, 0.6)); }
-.wall .crest { fill: #6d6258; }
-.wall .s1 { fill: #4e463f; }
-.wall .s2 { fill: #574e46; }
-.wall .s3 { fill: #463f39; }
-.wall { background: linear-gradient(180deg, transparent 316px, #2a2420 316px); }
-
-.torch { position: absolute; top: 282px; width: 10px; height: 30px; background: linear-gradient(180deg, #6b4a2a, #3a2714); border-radius: 2px; }
-.torch span { position: absolute; left: -9px; top: -26px; width: 28px; height: 34px; border-radius: 50% 50% 45% 45%;
-  background: radial-gradient(circle at 50% 70%, #fff1b8, #ffb040 40%, rgba(255, 90, 20, 0.6) 65%, rgba(255, 60, 0, 0) 75%);
-  transform-origin: 50% 100%; animation: torch 0.25s ease-in-out infinite alternate; }
-.t-left { left: 70px; }
-.t-right { left: 400px; }
-.t-right span { animation-delay: -0.12s; }
-@keyframes torch { from { transform: scale(0.9, 0.85); opacity: 0.85; } to { transform: scale(1.05, 1.1); opacity: 1; } }
 
 .banner { position: absolute; left: 136px; top: 42px; width: 208px; height: 86px; border-radius: 6px;
   background: linear-gradient(180deg, rgba(30, 26, 24, 0.75), rgba(16, 12, 10, 0.75)); border: 1px solid rgba(200, 180, 150, 0.45);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 14px rgba(0, 0, 0, 0.5); }
 .plaques { position: absolute; left: 108px; top: 346px; width: 264px; display: flex; justify-content: space-between; }
 .plaques span { width: 80px; height: 60px; padding-top: 40px; border-radius: 4px; text-align: center; font-size: 11px; font-weight: 700;
-  letter-spacing: 0.2em; color: #c9b79a; background: linear-gradient(180deg, #2b2521, #3a332d);
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.08); }
+  letter-spacing: 0.2em; color: #d9c7a6; background: linear-gradient(180deg, rgba(20, 16, 14, 0.78), rgba(30, 24, 20, 0.78));
+  border: 1px solid rgba(200, 180, 150, 0.4); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
+.temps-chip { position: absolute; left: 156px; top: 412px; width: 168px; height: 24px; border-radius: 12px;
+  background: rgba(20, 16, 14, 0.78); border: 1px solid rgba(200, 180, 150, 0.35); }
 
 /* Overlays. */
 [data-turing-overlay] { position: fixed; margin: 0; white-space: nowrap; z-index: 1000; text-align: center; }
