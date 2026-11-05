@@ -21,6 +21,28 @@ HTML_WORKER_RELOAD_DELAY_SECONDS = 0.5
 HTML_WORKER_STABLE_SECONDS = 60.0
 HTML_WORKER_GRACEFUL_STOP_SECONDS = 5.0
 HTML_WORKER_FORCE_STOP_SECONDS = 2.0
+# Upper bound for the monitor's own power-off when the worker cannot do it.
+HTML_WORKER_POWER_OFF_TIMEOUT_SECONDS = 4.0
+
+
+def power_off_display_directly(root: Path) -> None:
+    """Power the Rev. C display off from the monitor process.
+
+    Used when the HTML worker died before it could do so itself, e.g. at
+    system shutdown, when the compositor goes away and GTK ends the worker
+    at once. Without this the display keeps showing its last frame.
+    """
+    import yaml
+
+    from library.display_shutdown import power_off_and_close_display
+    from library.lcd.lcd_comm_rev_c import LcdCommRevC
+
+    config = yaml.safe_load((Path(root) / "config.yaml").read_text(encoding="utf-8")) or {}
+    port = str(config.get("config", {}).get("COM_PORT") or "AUTO")
+    driver = LcdCommRevC(com_port=port, display_width=480, display_height=480)
+    driver.update_queue = None
+    driver.InitializeComm()
+    power_off_and_close_display(driver)
 
 
 class LegacyYamlRunner:
@@ -57,10 +79,18 @@ class HtmlWorkerRunner:
     environment variable.
     """
 
-    def __init__(self, selection: RendererSelection, *, root: Path) -> None:
+    def __init__(
+        self,
+        selection: RendererSelection,
+        *,
+        root: Path,
+        power_off: Callable[[Path], None] | None = None,
+    ) -> None:
         self.selection = selection
         self.root = Path(root).resolve()
         self.process: subprocess.Popen | None = None
+        self._power_off = power_off or power_off_display_directly
+        self._started = False
         self._command: list[str] = []
         self._environment: dict[str, str] | None = None
         self._stopping = threading.Event()
@@ -103,6 +133,7 @@ class HtmlWorkerRunner:
             if self.process is process:
                 self.process = None
             raise RuntimeError(f"HTML renderer worker exited during startup ({code})")
+        self._started = True
 
     def refresh(self) -> bool:
         """Restart the worker so it renders the theme saved on disk.
@@ -122,17 +153,45 @@ class HtmlWorkerRunner:
         return True
 
     def stop(self) -> None:
+        """Stop the worker; it powers the display off on SIGTERM.
+
+        When the worker is already gone (crashed, or waiting for a restart)
+        or had to be killed, nobody turned the display off, so the monitor
+        does it itself.
+        """
         self._stopping.set()
         process, self.process = self.process, None
-        if process is None:
-            return
-        if process.poll() is None:
+        # Only a worker started by this runner can have opened the display.
+        display_opened, self._started = self._started, False
+        worker_powered_off = False
+        if process is not None and process.poll() is None:
             process.terminate()
             try:
                 process.wait(timeout=HTML_WORKER_GRACEFUL_STOP_SECONDS)
+                worker_powered_off = True
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=HTML_WORKER_FORCE_STOP_SECONDS)
+        if display_opened and not worker_powered_off:
+            self._power_off_without_worker()
+
+    def _power_off_without_worker(self) -> None:
+        logger.info("HTML renderer worker is not running; turning the display off directly")
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                self._power_off(self.root)
+            except BaseException as exc:  # noqa: BLE001 - reported below
+                errors.append(exc)
+
+        thread = threading.Thread(target=run, name="display-power-off", daemon=True)
+        thread.start()
+        thread.join(HTML_WORKER_POWER_OFF_TIMEOUT_SECONDS)
+        if thread.is_alive():
+            logger.warning("Turning the display off timed out")
+        elif errors:
+            logger.warning("Could not turn the display off: %s", errors[0])
 
     def wait(self) -> int:
         restart_index = 0
