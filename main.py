@@ -49,6 +49,7 @@ _DISPLAY = None
 _TRAY_ICON = None
 _DEVICE_LOCK = None
 _RENDERER_CONTROLLER = None
+_SHUTDOWN_INHIBITOR = None
 _RENDERER_SELECTION = None
 _CLEANUP_LOCK = threading.Lock()
 _CLEANUP_STARTED = False
@@ -181,6 +182,24 @@ def on_refresh_signal(_signum, _frame=None) -> None:
         logger.info("Theme refresh requested, but the active renderer cannot reload in place")
         return
     logger.info("Theme refresh requested by the editor")
+
+
+def start_shutdown_inhibitor() -> None:
+    """Turn the display off when logind announces poweroff.
+
+    The compositor exits early during shutdown and GTK then ends the HTML
+    worker before it can power the display off; logind's announcement comes
+    first and waits for this delay lock.
+    """
+    global _SHUTDOWN_INHIBITOR
+    try:
+        from library.shutdown_inhibitor import ShutdownInhibitor
+
+        inhibitor = ShutdownInhibitor(perform_cleanup)
+        if inhibitor.start():
+            _SHUTDOWN_INHIBITOR = inhibitor
+    except Exception as exc:
+        logger.debug("Shutdown inhibitor not started: %s", exc)
 
 
 def install_signal_handlers() -> None:
@@ -335,6 +354,7 @@ def main() -> int:
         _RENDERER_SELECTION = selection
         _TRAY_ICON = create_tray_icon(f"{selection.engine.upper()} — {selection.theme}")
         _RENDERER_CONTROLLER.start(selection)
+        start_shutdown_inhibitor()
         if selection.engine == "html":
             return _RENDERER_CONTROLLER.wait()
         run_forever()
