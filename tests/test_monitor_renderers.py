@@ -63,6 +63,63 @@ def selection() -> RendererSelection:
 
 
 class HtmlWorkerRunnerTests(unittest.TestCase):
+    def test_stop_powers_display_off_when_worker_already_died(self):
+        # At system shutdown the compositor goes away first and GTK ends the
+        # worker at once, so the monitor must turn the display off itself.
+        power_off = mock.Mock()
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"), power_off=power_off)
+        dead = mock.Mock()
+        dead.poll.return_value = 1
+        runner.process = dead
+        runner._started = True
+        runner.stop()
+        dead.terminate.assert_not_called()
+        power_off.assert_called_once_with(Path("/tmp").resolve())
+
+    def test_stop_powers_display_off_while_waiting_for_a_restart(self):
+        power_off = mock.Mock()
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"), power_off=power_off)
+        runner.process = None
+        runner._started = True
+        runner.stop()
+        power_off.assert_called_once()
+
+    def test_clean_worker_stop_leaves_power_off_to_the_worker(self):
+        power_off = mock.Mock()
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"), power_off=power_off)
+        process = mock.Mock()
+        process.poll.return_value = None
+        runner.process = process
+        runner._started = True
+        runner.stop()
+        process.terminate.assert_called_once_with()
+        power_off.assert_not_called()
+
+    def test_killed_worker_gets_a_monitor_power_off(self):
+        power_off = mock.Mock()
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"), power_off=power_off)
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.wait.side_effect = [subprocess.TimeoutExpired("worker", 5), 0]
+        runner.process = process
+        runner._started = True
+        runner.stop()
+        process.kill.assert_called_once_with()
+        power_off.assert_called_once()
+
+    def test_never_started_runner_does_not_touch_the_display(self):
+        power_off = mock.Mock()
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"), power_off=power_off)
+        runner.stop()
+        power_off.assert_not_called()
+
+    def test_power_off_errors_do_not_escape_stop(self):
+        runner = HtmlWorkerRunner(selection(), root=Path("/tmp"), power_off=mock.Mock(side_effect=OSError("no port")))
+        runner._started = True
+        with mock.patch("library.monitor_renderers.logger") as logger:
+            runner.stop()
+        logger.warning.assert_called_once()
+
     def test_refresh_kills_a_running_worker(self):
         runner = HtmlWorkerRunner(selection(), root=Path("/tmp"))
         process = mock.Mock()
