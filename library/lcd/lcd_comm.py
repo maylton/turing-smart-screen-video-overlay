@@ -43,6 +43,13 @@ class Orientation(IntEnum):
     REVERSE_LANDSCAPE = 3
 
 
+# The screen resets itself when the program starts, so its COM port can disappear or change for a
+# few seconds: opening it is retried instead of giving up (and exiting) on the first failure.
+# Ported from upstream mathoudebine/turing-smart-screen-python#1057.
+SERIAL_OPEN_ATTEMPTS = 10
+SERIAL_OPEN_RETRY_DELAY = 1  # seconds
+
+
 class LcdComm(ABC):
     def __init__(self, com_port: str = "AUTO", display_width: int = 320, display_height: int = 480,
                  update_queue: Optional[queue.Queue] = None):
@@ -74,6 +81,14 @@ class LcdComm(ABC):
         self.font_cache: Dict[
             Tuple[str, int],  # key=(font, size)
             ImageFont.FreeTypeFont # value= a loaded freetype font
+        ] = {}
+
+        # Remember the area drawn by the last DisplayText() call at a given (x, y) origin, so the next call
+        # can repaint the union of the old and new areas and erase a previous text that was wider or taller
+        # than the new one, whatever the font metrics ("ghosting" prevention, upstream #1070).
+        self.text_bbox_cache: Dict[
+            Tuple[int, int],  # key=(x, y) origin as passed to DisplayText()
+            Tuple[int, int, int, int]  # value=(left, top, right, bottom) actually drawn
         ] = {}
 
     def get_width(self) -> int:
@@ -402,19 +417,13 @@ class LcdComm(ABC):
         return max(0, min(80, padding))
 
     def openSerial(self):
-        if self.com_port == 'AUTO':
-            self.com_port = self.auto_detect_com_port()
-            if not self.com_port:
-                logger.error(
-                    "Cannot find COM port automatically, please run Configuration again and select COM port manually")
-                try:
-                    sys.exit(0)
-                except:
-                    os._exit(0)
-            else:
-                logger.debug(f"Auto detected COM port: {self.com_port}")
-        else:
-            logger.debug(f"Static COM port: {self.com_port}")
+        """Open the display's COM port, retrying while the display re-enumerates.
+
+        A static ``/dev/...`` port that disappeared falls back to AUTO detection. On AUTO the
+        port is detected again at every attempt, since it can change while the screen resets.
+        The port actually opened is kept in ``self.com_port`` for later reopens.
+        """
+        for attempt in range(1, SERIAL_OPEN_ATTEMPTS + 1):
             if (
                 isinstance(self.com_port, str)
                 and self.com_port.startswith("/dev/")
@@ -425,16 +434,38 @@ class LcdComm(ABC):
                     "falling back to AUTO detection"
                 )
                 self.com_port = "AUTO"
-                return self.openSerial()
 
-        try:
-            self.lcd_serial = serial.Serial(self.com_port, 115200, timeout=1, rtscts=True)
-        except Exception as e:
-            logger.error(f"Cannot open COM port {self.com_port}: {e}")
+            com_port = self.com_port
+            if com_port == 'AUTO':
+                com_port = self.auto_detect_com_port()
+                if not com_port:
+                    logger.warning(
+                        f"Cannot find COM port automatically, retrying ({attempt}/{SERIAL_OPEN_ATTEMPTS})")
+                    if attempt < SERIAL_OPEN_ATTEMPTS:
+                        time.sleep(SERIAL_OPEN_RETRY_DELAY)
+                    continue
+                logger.debug(f"Auto detected COM port: {com_port}")
+            else:
+                logger.debug(f"Static COM port: {com_port}")
+
             try:
-                sys.exit(0)
-            except:
-                os._exit(0)
+                self.lcd_serial = serial.Serial(com_port, 115200, timeout=1, rtscts=True)
+            except Exception as e:
+                logger.warning(
+                    f"Cannot open COM port {com_port}: {e} - retrying ({attempt}/{SERIAL_OPEN_ATTEMPTS})")
+                if attempt < SERIAL_OPEN_ATTEMPTS:
+                    time.sleep(SERIAL_OPEN_RETRY_DELAY)
+                continue
+            self.com_port = com_port
+            return
+
+        logger.error(
+            f"Cannot open COM port after {SERIAL_OPEN_ATTEMPTS} attempts. If the screen is connected, run "
+            f"Configuration again and select the COM port manually")
+        try:
+            sys.exit(0)
+        except:
+            os._exit(0)
 
     def closeSerial(self):
         if self.lcd_serial is not None:
@@ -583,6 +614,8 @@ class LcdComm(ABC):
         assert len(text) > 0, 'Text must not be empty'
         assert font_size > 0, "Font size must be > 0"
 
+        origin = (x, y)
+
         # If only width is specified, assume height based on font size (one-line text)
         if width > 0 and height == 0:
             height = font_size
@@ -639,6 +672,14 @@ class LcdComm(ABC):
         top -= effect_padding
         right += effect_padding
         bottom += effect_padding
+
+        # Union with the area drawn last time at this origin, so a new value that is narrower or
+        # shorter than the previous one still repaints the old pixels with the background.
+        previous_bbox = self.text_bbox_cache.get(origin)
+        self.text_bbox_cache[origin] = (left, top, right, bottom)
+        if previous_bbox is not None:
+            left, top = min(left, previous_bbox[0]), min(top, previous_bbox[1])
+            right, bottom = max(right, previous_bbox[2]), max(bottom, previous_bbox[3])
 
         # Restrict the dimensions if they overflow the display size
         left = max(left, 0)
